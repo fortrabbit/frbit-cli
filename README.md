@@ -87,6 +87,15 @@ just run --host http://localhost:8085 auth login
 Host resolution is: `--host`, `FRBIT_HOST`, saved host, then the production
 default.
 
+## Release
+
+```sh
+just release --dry-run          # preview the first release as v0.1.0
+just release                    # default: increase the minor version
+just release --patch
+just release --major
+```
+
 CI validates formatting, static analysis, tests, builds, and the GoReleaser
 configuration. Pushing a `v*` tag creates the GitHub release archives, checksums,
 and SBOMs.

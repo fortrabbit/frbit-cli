@@ -10,3 +10,7 @@ build:
 # Run the automated checks used by CI.
 test:
     go test -race ./...
+
+# Create the next release version; use --dry-run to preview.
+release *args:
+    bash .github/release.sh release {{args}}
