@@ -33,6 +33,8 @@ FRBIT_TOKEN=frbit-at-… frbit apps list
 frbit apps list
 frbit apps list --page 2
 frbit apps list --json
+frbit environments list
+frbit deployments logs dp-a1b2c3
 frbit auth status
 ```
 

@@ -1,6 +1,6 @@
 # frbit CLI
 
-`frbit` is the command-line interface for the [fortrabbit public API](https://api.fortrabbit.com/v1/docs). Use it to work with the apps available to your fortrabbit account from a terminal, script, or agent.
+`frbit` is the command-line interface for the [fortrabbit public API](https://api.fortrabbit.com/v1/docs). Use it to inspect the apps and related resources available to your fortrabbit account from a terminal, script, or agent.
 
 This page is the complete reference for the commands currently available in `frbit`.
 
@@ -59,7 +59,7 @@ printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
 
 ## Apps
 
-### List apps
+### List and inspect apps
 
 List the apps available to the authenticated person:
 
@@ -77,6 +77,20 @@ Request a specific page of results. Pages start at `1`.
 frbit apps list --page 2
 ```
 
+#### Filter by public ID
+
+Use `--id` once or repeatedly to return a known set of apps:
+
+```sh
+frbit apps list --id ap-a1b2c3 --id ap-d4e5f6
+```
+
+#### Get one app
+
+```sh
+frbit apps get ap-a1b2c3
+```
+
 #### JSON output
 
 Pass `--json` to print the API response unchanged. This is intended for scripts and tools such as `jq`.
@@ -84,6 +98,58 @@ Pass `--json` to print the API response unchanged. This is intended for scripts 
 ```sh
 frbit apps list --json
 frbit apps list --json | jq '(."hydra:member" // .member // .)[] | .name'
+```
+
+`--json` is available on every `list`, `get`, and `deployments logs` command. It prints the API response unchanged.
+
+## Environments
+
+List environments, optionally select a page or specific public IDs, or retrieve one environment:
+
+```sh
+frbit environments list
+frbit environments list --page 2 --id en-a1b2c3
+frbit environments get en-a1b2c3
+```
+
+## Deployments
+
+Inspect deployments and retrieve the log entries for one deployment:
+
+```sh
+frbit deployments list
+frbit deployments get dp-a1b2c3
+frbit deployments logs dp-a1b2c3
+```
+
+## Domains
+
+```sh
+frbit domains list
+frbit domains list --page 2 --id do-a1b2c3
+frbit domains get do-a1b2c3
+```
+
+## People
+
+```sh
+frbit people list
+frbit people list --id pn-a1b2c3
+frbit people get pn-a1b2c3
+```
+
+## Teams
+
+```sh
+frbit teams list
+frbit teams get tm-a1b2c3
+```
+
+## Payment methods
+
+```sh
+frbit payment-methods list
+frbit payment-methods get pm-a1b2c3
 ```
 
 ## Profiles
@@ -107,7 +173,14 @@ frbit --profile work auth logout
 | `frbit auth login` | Validate and store a public API token. Accepts `--token-stdin`. |
 | `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN`. |
 | `frbit auth logout` | Remove the stored credential for the selected profile. |
-| `frbit apps list` | List available apps. Accepts `--page` and `--json`. |
+| `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
+| `frbit apps get <id>` | Get an app. |
+| `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page` and repeatable `--id`. |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. |
+| `frbit domains list` / `get <id>` | List or get domains. `list` accepts `--page` and repeatable `--id`. |
+| `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
+| `frbit teams list` / `get <id>` | List or get teams. |
+| `frbit payment-methods list` / `get <id>` | List or get payment methods. |
 | `frbit version` | Print the CLI version, source commit, and build date. |
 
 Global options:

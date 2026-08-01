@@ -92,6 +92,46 @@ func TestAppsListJSONPreservesAPIResponse(t *testing.T) {
 	}
 }
 
+func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
+		}
+		switch request.URL.Path {
+		case "/v1/environments":
+			if got := request.URL.Query()["publicId[]"]; len(got) != 2 || got[0] != "en-abc123" || got[1] != "en-def456" {
+				t.Fatalf("environment filter = %#v", got)
+			}
+			_, _ = writer.Write([]byte(`[{"publicId":"en-abc123","name":"production","state":"ready"}]`))
+		case "/v1/people/pn-abc123":
+			_, _ = writer.Write([]byte(`{"publicId":"pn-abc123","name":"Ada","email":"ada@example.test","active":true}`))
+		case "/v1/deployments/dp-abc123/logs":
+			_, _ = writer.Write([]byte(`{"logs":[{"time":"2026-01-01T00:00:00Z","log":"Build started"}]}`))
+		default:
+			t.Fatalf("unexpected path %q", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	for _, args := range [][]string{
+		{"--host", server.URL, "environments", "list", "--id", "en-abc123", "--id", "en-def456"},
+		{"--host", server.URL, "people", "get", "pn-abc123"},
+		{"--host", server.URL, "deployments", "logs", "dp-abc123"},
+	} {
+		output := &bytes.Buffer{}
+		factory := testFactory(output)
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		command := NewCmdRoot(factory)
+		command.SetArgs(args)
+		if err := command.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if output.Len() == 0 {
+			t.Fatalf("%v: no output", args)
+		}
+	}
+}
+
 func testFactory(output *bytes.Buffer) *app.Factory {
 	return &app.Factory{
 		IOStreams:       iostreams.IOStreams{In: strings.NewReader(""), Out: output, ErrOut: &bytes.Buffer{}, IsTTY: false},

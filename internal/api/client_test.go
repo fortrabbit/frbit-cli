@@ -85,3 +85,53 @@ func TestAppsReturnsRetryAfterForRateLimit(t *testing.T) {
 		t.Fatalf("http error = %#v", httpError)
 	}
 }
+
+func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/environments" {
+			t.Fatalf("path = %q", request.URL.Path)
+		}
+		if request.URL.Query().Get("page") != "3" {
+			t.Fatalf("page = %q", request.URL.Query().Get("page"))
+		}
+		if got := request.URL.Query()["publicId[]"]; len(got) != 2 || got[0] != "en-abc123" || got[1] != "en-def456" {
+			t.Fatalf("publicId[] = %#v", got)
+		}
+		_, _ = writer.Write([]byte(`{"hydra:member":[{"publicId":"en-abc123","name":"production"}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.ListResources(context.Background(), "/v1/environments", 3, []string{"en-abc123", "en-def456"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Resources) != 1 || response.Resources[0]["name"] != "production" {
+		t.Fatalf("resources = %#v", response.Resources)
+	}
+}
+
+func TestGetResourceDecodesObject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/deployments/dp-abc123/logs" {
+			t.Fatalf("path = %q", request.URL.Path)
+		}
+		_, _ = writer.Write([]byte(`{"logs":[{"time":"2026-01-01T00:00:00Z","log":"Build started"}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.GetResource(context.Background(), "/v1/deployments/dp-abc123/logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Resource["logs"] == nil || string(response.Raw) == "" {
+		t.Fatalf("response = %#v", response)
+	}
+}
