@@ -26,6 +26,7 @@ archives:
   - id: default
     ids:
       - frbit
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ if eq .Os \"darwin\" }}macOS_{{ if eq .Arch \"arm64\" }}AppleSilicon{{ else }}Intel{{ end }}{{ else }}{{ .Os }}_{{ .Arch }}{{ end }}"
     formats:
       - tar.gz
     format_overrides:
