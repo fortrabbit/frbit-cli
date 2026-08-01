@@ -2,6 +2,9 @@
 
 `frbit` is the command-line interface for the fortrabbit public API.
 
+For installation, authentication, automation, and the complete command reference,
+see the [CLI documentation](docs/cli.md).
+
 ## Install
 
 Download an archive for your platform from the GitHub Releases page, then place
