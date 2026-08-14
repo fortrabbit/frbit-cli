@@ -59,8 +59,9 @@ just test
 
 ## Development
 
-Requires Go 1.24 or newer. Go 1.22+ will automatically download the declared
-toolchain when `GOTOOLCHAIN` is left at its default `auto` setting.
+Development and release builds use Go 1.26.6. A compatible Go installation
+will automatically download the declared toolchain when `GOTOOLCHAIN` is left
+at its default `auto` setting.
 
 ```sh
 go test ./...
@@ -104,3 +105,10 @@ just release --major
 CI validates formatting, static analysis, tests, builds, and the GoReleaser
 configuration. Pushing a `v*` tag creates the GitHub release archives, checksums,
 and SBOMs.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+Licenses for software included in release binaries are collected in
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

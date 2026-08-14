@@ -5,9 +5,72 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestNewClientRequiresHTTPSOutsideLoopback(t *testing.T) {
+	_, err := NewClient("http://api.fortrabbit.com", "test-token", nil, "frbit/test")
+	if err == nil || !strings.Contains(err.Error(), "must use HTTPS") {
+		t.Fatalf("error = %v, want HTTPS requirement", err)
+	}
+
+	for _, host := range []string{"http://localhost:8085", "http://127.0.0.1:8085", "http://[::1]:8085"} {
+		if _, err := NewClient(host, "test-token", nil, "frbit/test"); err != nil {
+			t.Fatalf("NewClient(%q): %v", host, err)
+		}
+	}
+}
+
+func TestNewClientRejectsHostCredentialsAndPaths(t *testing.T) {
+	const credentialHost = "https://user:password@api.fortrabbit.com"
+	_, err := NewClient(credentialHost, "test-token", nil, "frbit/test")
+	if err == nil {
+		t.Fatalf("NewClient(%q) succeeded", credentialHost)
+	}
+	if strings.Contains(err.Error(), "password") {
+		t.Fatalf("error exposed URL credentials: %v", err)
+	}
+
+	for _, host := range []string{
+		"https://api.fortrabbit.com/prefix",
+		"https://api.fortrabbit.com?debug=true",
+		"https://api.fortrabbit.com#fragment",
+	} {
+		if _, err := NewClient(host, "test-token", nil, "frbit/test"); err == nil {
+			t.Fatalf("NewClient(%q) succeeded", host)
+		}
+	}
+}
+
+func TestClientRefusesCrossOriginRedirectWithoutSendingToken(t *testing.T) {
+	targetCalled := false
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		targetCalled = true
+		if authorization := request.Header.Get("Authorization"); authorization != "" {
+			t.Fatalf("redirected authorization = %q", authorization)
+		}
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL+"/v1/apps", http.StatusFound)
+	}))
+	defer source.Close()
+
+	client, err := NewClient(source.URL, "test-token", source.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Apps(context.Background(), 1)
+	if err == nil || !strings.Contains(err.Error(), "different origin") {
+		t.Fatalf("error = %v, want cross-origin redirect refusal", err)
+	}
+	if targetCalled {
+		t.Fatal("cross-origin redirect target was called")
+	}
+}
 
 func TestAppsSendsPublicAPIRequestAndDecodesArray(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

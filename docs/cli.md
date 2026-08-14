@@ -102,6 +102,10 @@ frbit apps list --json | jq '(."hydra:member" // .member // .)[] | .name'
 
 `--json` is available on every `list`, `get`, and `deployments logs` command. It prints the API response unchanged.
 
+API responses can contain account data, personal information, payment metadata,
+and application log output. Treat terminal captures and CI logs as sensitive,
+especially when using `--json` or `deployments logs`.
+
 ## Environments
 
 List environments, optionally select a page or specific public IDs, or retrieve one environment:

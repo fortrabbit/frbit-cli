@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -39,20 +40,92 @@ func (e *HTTPError) Error() string {
 }
 
 func NewClient(host string, token string, httpClient *http.Client, userAgent string) (*Client, error) {
-	baseURL, err := url.Parse(strings.TrimRight(host, "/"))
-	if err != nil || baseURL.Scheme == "" || baseURL.Host == "" {
-		return nil, fmt.Errorf("invalid API host %q; provide an absolute URL such as https://api.fortrabbit.com", host)
+	baseURL, err := parseBaseURL(host)
+	if err != nil {
+		return nil, err
 	}
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultTimeout}
-	}
-	if httpClient.Timeout == 0 {
-		clone := *httpClient
-		clone.Timeout = defaultTimeout
-		httpClient = &clone
-	}
+	httpClient = clientForOrigin(httpClient, baseURL)
 
 	return &Client{baseURL: baseURL, token: token, http: httpClient, userAgent: userAgent}, nil
+}
+
+func parseBaseURL(host string) (*url.URL, error) {
+	baseURL, err := url.Parse(strings.TrimRight(strings.TrimSpace(host), "/"))
+	if err != nil || baseURL.Scheme == "" || baseURL.Host == "" {
+		return nil, fmt.Errorf("invalid API host; provide an absolute URL such as https://api.fortrabbit.com")
+	}
+	if baseURL.User != nil {
+		return nil, fmt.Errorf("API host must not contain credentials")
+	}
+	if (baseURL.Path != "" && baseURL.Path != "/") || baseURL.RawQuery != "" || baseURL.Fragment != "" {
+		return nil, fmt.Errorf("API host must be an origin without a path, query, or fragment")
+	}
+
+	baseURL.Path = ""
+	baseURL.Scheme = strings.ToLower(baseURL.Scheme)
+	switch baseURL.Scheme {
+	case "https":
+		return baseURL, nil
+	case "http":
+		if isLoopbackHost(baseURL.Hostname()) {
+			return baseURL, nil
+		}
+		return nil, fmt.Errorf("API host must use HTTPS; HTTP is allowed only for loopback addresses")
+	default:
+		return nil, fmt.Errorf("API host must use HTTPS; HTTP is allowed only for loopback addresses")
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func clientForOrigin(httpClient *http.Client, origin *url.URL) *http.Client {
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
+	clone := *httpClient
+	if clone.Timeout == 0 {
+		clone.Timeout = defaultTimeout
+	}
+	previousCheckRedirect := clone.CheckRedirect
+	clone.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if !sameOrigin(origin, request.URL) {
+			return fmt.Errorf("refusing API redirect to a different origin")
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(request, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &clone
+}
+
+func sameOrigin(first *url.URL, second *url.URL) bool {
+	return strings.EqualFold(first.Scheme, second.Scheme) &&
+		strings.EqualFold(first.Hostname(), second.Hostname()) &&
+		effectivePort(first) == effectivePort(second)
+}
+
+func effectivePort(value *url.URL) string {
+	if port := value.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(value.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 func (c Client) Apps(ctx context.Context, page int) (AppsResponse, error) {
