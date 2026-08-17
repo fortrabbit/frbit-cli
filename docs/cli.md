@@ -6,7 +6,9 @@ This page is the complete reference for the commands currently available in `frb
 
 ## Install
 
-Download the archive for your operating system and CPU architecture from the [GitHub Releases page](https://github.com/fortrabbit/frbit-cli/releases). Extract it and put the `frbit` binary somewhere on your `PATH`.
+Use the install script, Homebrew, npm, or a GitHub release archive. The
+[installation guide](https://docs.fortrabbit.com/platform/concepts/cli) covers
+every supported method and platform.
 
 Confirm the installation:
 

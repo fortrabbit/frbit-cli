@@ -1,7 +1,11 @@
 package root
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
@@ -22,6 +26,9 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+			notifyUpdate(cmd, factory)
+		},
 	}
 	command.SetOut(factory.IOStreams.Out)
 	command.SetErr(factory.IOStreams.ErrOut)
@@ -41,6 +48,26 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 	)
 
 	return command
+}
+
+func notifyUpdate(command *cobra.Command, factory *app.Factory) {
+	if !factory.IOStreams.IsErrTTY || factory.CheckForUpdate == nil || os.Getenv("FRBIT_NO_UPDATE_NOTIFIER") != "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(command.Context(), 1200*time.Millisecond)
+	defer cancel()
+	latest, err := factory.CheckForUpdate(ctx, factory.Version)
+	if err != nil || latest == "" {
+		return
+	}
+
+	_, _ = fmt.Fprintf(
+		command.ErrOrStderr(),
+		"\nUpdate available: v%s → %s. See https://docs.fortrabbit.com/platform/concepts/cli\n",
+		strings.TrimPrefix(factory.Version, "v"),
+		latest,
+	)
 }
 
 func environmentSpec() resource.Spec {
