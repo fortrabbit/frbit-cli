@@ -1,6 +1,5 @@
 {
   "name": "@fortrabbit/cli",
-  "version": "0.0.0-development",
   "description": "Command-line interface for the fortrabbit public API",
   "license": "MIT",
   "type": "module",

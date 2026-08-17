@@ -39,3 +39,8 @@ jobs:
         run: node npm/scripts/prepare-release.mjs "${GITHUB_REF_NAME#v}"
       - name: Publish npm packages
         run: node npm/scripts/publish-release.mjs
+        env:
+          # NPM_TOKEN is needed only to create the packages in the initial
+          # release. npm trusted publishing takes precedence once configured.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

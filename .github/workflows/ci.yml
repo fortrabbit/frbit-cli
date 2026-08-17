@@ -56,7 +56,7 @@ jobs:
           node --check npm/scripts/publish-release.mjs
           node --check npm/scripts/smoke-test.mjs
       - name: Build npm packages from release binaries
-        run: node npm/scripts/prepare-release.mjs 0.0.0-ci
+        run: node npm/scripts/prepare-release.mjs "$(jq -r .version dist/metadata.json)"
       - name: Smoke-test npm launcher
         run: node npm/scripts/smoke-test.mjs
       - name: Check npm package contents

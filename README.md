@@ -102,7 +102,7 @@ default.
 ## Release
 
 ```sh
-just release --dry-run          # preview the first release as v0.1.0
+just release --dry-run          # preview the next minor release
 just release                    # default: increase the minor version
 just release --patch
 just release --major
@@ -110,9 +110,7 @@ just release --major
 
 CI validates formatting, static analysis, tests, builds, and the GoReleaser
 configuration. Pushing a `v*` tag creates the GitHub release archives, checksums,
-SBOMs, Homebrew formula, and npm packages. See the
-[release-channel setup](docs/releasing.md) for the required repository and
-registry configuration.
+SBOMs, Homebrew formula, and npm packages.
 
 ## License
 
