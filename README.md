@@ -25,6 +25,10 @@ operating-system credential store:
 frbit auth login
 ```
 
+Interactive login prints the token creation URL and tries to open it in your
+default browser. Use `frbit auth login --no-browser` to keep the flow entirely
+in the terminal.
+
 Or supply it for one command or an automated job:
 
 ```sh
@@ -75,6 +79,13 @@ go run ./cmd/frbit apps list
 just run apps list
 ```
 
+To build a reusable binary in the repository root and run it directly:
+
+```sh
+just build
+./frbit
+```
+
 ### Target a development API
 
 The default API host is `https://api.fortrabbit.com`. For a single command, use
@@ -93,8 +104,12 @@ To persist a host and token in your local CLI configuration and operating-system
 keychain, log in against that host:
 
 ```sh
-just run --host http://localhost:8085 auth login
+FRBIT_DASHBOARD_URL=http://localhost:3001 \
+  just run --host http://localhost:8085 auth login
 ```
+
+`FRBIT_DASHBOARD_URL` controls the dashboard origin used for the token creation
+link during interactive login.
 
 Host resolution is: `--host`, `FRBIT_HOST`, saved host, then the production
 default.

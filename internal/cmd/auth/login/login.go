@@ -16,6 +16,7 @@ type Options struct {
 	Factory    *app.Factory
 	Command    *cobra.Command
 	TokenStdin bool
+	NoBrowser  bool
 }
 
 func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command {
@@ -33,10 +34,14 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 		},
 	}
 	command.Flags().BoolVar(&options.TokenStdin, "token-stdin", false, "Read the token from standard input")
+	command.Flags().BoolVar(&options.NoBrowser, "no-browser", false, "Do not open the API token page in a browser")
 	return command
 }
 
 func run(options *Options) error {
+	if err := prepareTokenEntry(options); err != nil {
+		return err
+	}
 	token, err := readToken(options)
 	if err != nil {
 		return err
@@ -65,6 +70,25 @@ func run(options *Options) error {
 
 	_, err = fmt.Fprintf(options.Command.OutOrStdout(), "Authenticated profile %q against %s.\n", profile, host)
 	return err
+}
+
+func prepareTokenEntry(options *Options) error {
+	if options.TokenStdin || !options.Factory.IOStreams.IsTTY {
+		return nil
+	}
+
+	tokenURL, err := config.TokenCreationURL()
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(options.Command.OutOrStdout(), "Create an API token at:\n%s\n\n", tokenURL); err != nil {
+		return err
+	}
+	if options.NoBrowser || options.Factory.OpenBrowser == nil {
+		return nil
+	}
+	_ = options.Factory.OpenBrowser(tokenURL)
+	return nil
 }
 
 func readToken(options *Options) (string, error) {

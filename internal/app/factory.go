@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fortrabbit/frbit-cli/internal/browser"
 	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
@@ -25,6 +26,7 @@ type Factory struct {
 	Commit          string
 	Date            string
 	CheckForUpdate  func(context.Context, string) (string, error)
+	OpenBrowser     func(string) error
 }
 
 func NewFactory(version string, commit string, date string) *Factory {
@@ -45,6 +47,7 @@ func NewFactory(version string, commit string, date string) *Factory {
 		Commit:          commit,
 		Date:            date,
 		CheckForUpdate:  checker.Latest,
+		OpenBrowser:     browser.Open,
 	}
 }
 

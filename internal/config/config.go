@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-const DefaultHost = "https://api.fortrabbit.com"
+const (
+	DefaultHost         = "https://api.fortrabbit.com"
+	DefaultDashboardURL = "https://dash.fortrabbit.com"
+)
 
 type Config struct {
 	Host string `json:"host,omitempty"`
@@ -80,4 +84,23 @@ func ResolveHost(flagHost string, config Config) string {
 	}
 
 	return DefaultHost
+}
+
+// TokenCreationURL resolves the dashboard origin from the environment and
+// returns its API token creation page.
+func TokenCreationURL() (string, error) {
+	dashboardURL := strings.TrimSpace(os.Getenv("FRBIT_DASHBOARD_URL"))
+	if dashboardURL == "" {
+		dashboardURL = DefaultDashboardURL
+	}
+
+	parsed, err := url.Parse(dashboardURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", fmt.Errorf("invalid dashboard URL %q; provide an absolute HTTP(S) origin", dashboardURL)
+	}
+	if parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("invalid dashboard URL %q; provide an origin without a path, query, or fragment", dashboardURL)
+	}
+
+	return strings.TrimRight(dashboardURL, "/") + "/new/api-token", nil
 }

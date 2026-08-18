@@ -21,7 +21,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       factory.Version,
-		Long:          "frbit accesses only the fortrabbit public API at /v1.",
+		Long:          "Manage your fortrabbit resources using the public API.",
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
