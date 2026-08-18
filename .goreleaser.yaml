@@ -26,7 +26,8 @@ archives:
   - id: default
     ids:
       - frbit
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ if eq .Os \"darwin\" }}macOS_{{ if eq .Arch \"arm64\" }}AppleSilicon{{ else }}Intel{{ end }}{{ else }}{{ .Os }}_{{ .Arch }}{{ end }}"
+    # These names are a public API used by the installer and package managers.
+    name_template: "{{ .ProjectName }}_{{ if eq .Os \"darwin\" }}macOS_{{ if eq .Arch \"arm64\" }}AppleSilicon{{ else }}Intel{{ end }}{{ else }}{{ .Os }}_{{ .Arch }}{{ end }}"
     formats:
       - tar.gz
     format_overrides:
@@ -45,7 +46,28 @@ sboms:
   - artifacts: archive
     disable: false
 
+brews:
+  - name: frbit
+    ids:
+      - default
+    directory: Formula
+    homepage: https://github.com/fortrabbit/frbit-cli
+    description: Command-line interface for the fortrabbit public API
+    license: MIT
+    test: |
+      system "#{bin}/frbit", "version"
+    repository:
+      owner: fortrabbit
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: fortrabbit release bot
+      email: support@fortrabbit.com
+
 release:
   name_template: "{{ .ProjectName }} {{ .Version }}"
   draft: false
   prerelease: auto
+  extra_files:
+    - glob: ./install.sh

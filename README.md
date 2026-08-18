@@ -3,12 +3,18 @@
 `frbit` is the command-line interface for the fortrabbit public API.
 
 For installation, authentication, automation, and the complete command reference,
-see the [CLI documentation](docs/cli.md).
+see the [installation guide](https://docs.fortrabbit.com/platform/concepts/cli)
+and [CLI documentation](docs/cli.md).
 
 ## Install
 
-Download an archive for your platform from the GitHub Releases page, then place
-the `frbit` binary on your `PATH`.
+```sh
+curl -fsSL https://github.com/fortrabbit/frbit-cli/releases/latest/download/install.sh | sh
+```
+
+You can also install with Homebrew, npm, or a GitHub release archive. See the
+[installation guide](https://docs.fortrabbit.com/platform/concepts/cli) for every
+supported method.
 
 ## Authenticate
 
@@ -96,7 +102,7 @@ default.
 ## Release
 
 ```sh
-just release --dry-run          # preview the first release as v0.1.0
+just release --dry-run          # preview the next minor release
 just release                    # default: increase the minor version
 just release --patch
 just release --major
@@ -104,7 +110,7 @@ just release --major
 
 CI validates formatting, static analysis, tests, builds, and the GoReleaser
 configuration. Pushing a `v*` tag creates the GitHub release archives, checksums,
-and SBOMs.
+SBOMs, Homebrew formula, and npm packages.
 
 ## License
 

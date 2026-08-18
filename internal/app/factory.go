@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
+	"github.com/fortrabbit/frbit-cli/internal/update"
 )
 
 const DefaultProfile = "default"
@@ -22,6 +24,7 @@ type Factory struct {
 	Version         string
 	Commit          string
 	Date            string
+	CheckForUpdate  func(context.Context, string) (string, error)
 }
 
 func NewFactory(version string, commit string, date string) *Factory {
@@ -30,14 +33,18 @@ func NewFactory(version string, commit string, date string) *Factory {
 		panic(fmt.Sprintf("initialize config store: %v", err))
 	}
 
+	httpClient := &http.Client{}
+	checker := update.NewChecker(httpClient)
+
 	return &Factory{
 		IOStreams:       iostreams.System(),
 		ConfigStore:     configStore,
 		CredentialStore: credentials.KeyringStore{},
-		HTTPClient:      &http.Client{},
+		HTTPClient:      httpClient,
 		Version:         version,
 		Commit:          commit,
 		Date:            date,
+		CheckForUpdate:  checker.Latest,
 	}
 }
 

@@ -1,0 +1,26 @@
+{
+  "name": "@fortrabbit/cli",
+  "description": "Command-line interface for the fortrabbit public API",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "frbit": "bin/frbit.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fortrabbit/frbit-cli"
+  },
+  "homepage": "https://github.com/fortrabbit/frbit-cli#readme",
+  "bugs": "https://github.com/fortrabbit/frbit-cli/issues",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

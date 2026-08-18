@@ -24,10 +24,12 @@ jobs:
         run: go vet ./...
       - name: Run tests
         run: go test -race ./...
+      - name: Test install script
+        run: sh scripts/test-install.sh
       - name: Build binary
         run: go build ./cmd/frbit
 
-  goreleaser-check:
+  release-check:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -37,8 +39,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           distribution: goreleaser
           version: "v2.17.1"
-          args: check
+          # `goreleaser check` rejects the intentionally retained deprecated
+          # `brews` pipe. A snapshot validates and exercises the full config.
+          args: release --snapshot --clean --skip=publish,sbom
+      - name: Check npm release scripts
+        run: |
+          node --check npm/bin/frbit.js
+          node --check npm/scripts/prepare-release.mjs
+          node --check npm/scripts/publish-release.mjs
+          node --check npm/scripts/smoke-test.mjs
+      - name: Build npm packages from release binaries
+        run: node npm/scripts/prepare-release.mjs "$(jq -r .version dist/metadata.json)"
+      - name: Smoke-test npm launcher
+        run: node npm/scripts/smoke-test.mjs
+      - name: Check npm package contents
+        run: node npm/scripts/publish-release.mjs --dry-run

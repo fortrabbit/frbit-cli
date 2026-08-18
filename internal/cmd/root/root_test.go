@@ -2,6 +2,7 @@ package root
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +130,30 @@ func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
 		if output.Len() == 0 {
 			t.Fatalf("%v: no output", args)
 		}
+	}
+}
+
+func TestInteractiveCommandShowsUpdateNotice(t *testing.T) {
+	output := &bytes.Buffer{}
+	errorOutput := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.ErrOut = errorOutput
+	factory.IOStreams.IsErrTTY = true
+	factory.Version = "1.0.0"
+	factory.CheckForUpdate = func(ctx context.Context, current string) (string, error) {
+		if current != "1.0.0" {
+			t.Fatalf("current = %q", current)
+		}
+		return "v1.1.0", nil
+	}
+
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"version"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := errorOutput.String(); !strings.Contains(got, "Update available: v1.0.0 → v1.1.0") {
+		t.Fatalf("update output = %q", got)
 	}
 }
 
