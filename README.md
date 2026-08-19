@@ -48,6 +48,9 @@ frbit deployments logs dp-a1b2c3
 frbit auth status
 ```
 
+The CLI can also install and manage fortrabbit agent skills. See the
+[CLI documentation](docs/cli.md#agent-skills) for details.
+
 ## Just recipes
 
 [just](https://github.com/casey/just) is an optional command runner. The `run`

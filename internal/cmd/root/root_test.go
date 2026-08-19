@@ -157,6 +157,24 @@ func TestInteractiveCommandShowsUpdateNotice(t *testing.T) {
 	}
 }
 
+func TestRootRegistersSkillsLifecycle(t *testing.T) {
+	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+	for _, arguments := range [][]string{
+		{"skills", "install"},
+		{"skills", "update"},
+		{"skills", "list"},
+		{"skills", "remove"},
+	} {
+		found, remaining, err := command.Find(arguments)
+		if err != nil {
+			t.Fatalf("find %v: %v", arguments, err)
+		}
+		if found.Name() != arguments[len(arguments)-1] || len(remaining) != 0 {
+			t.Fatalf("find %v returned command %q and remaining %#v", arguments, found.Name(), remaining)
+		}
+	}
+}
+
 func testFactory(output *bytes.Buffer) *app.Factory {
 	return &app.Factory{
 		IOStreams:       iostreams.IOStreams{In: strings.NewReader(""), Out: output, ErrOut: &bytes.Buffer{}, IsTTY: false},

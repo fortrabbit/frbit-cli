@@ -158,6 +158,48 @@ frbit payment-methods list
 frbit payment-methods get pm-a1b2c3
 ```
 
+## Agent skills
+
+Install the latest release of the
+[fortrabbit agent skills](https://github.com/fortrabbit/agent-skills):
+
+```sh
+frbit skills install
+```
+
+A user-wide install detects existing Claude Code (`~/.claude`) and Codex
+(`~/.codex`) configuration directories. Codex skills are written to its
+user-skill location at `~/.agents/skills`. Select an agent explicitly to bypass
+detection. Repeat `--agent` to install for more than one agent.
+
+```sh
+frbit skills install --agent claude-code
+frbit skills install --agent claude-code --agent codex
+```
+
+Install into the current project with `--project`. With no explicit agent, a
+project install writes the skills for Claude Code and Codex and writes the
+repository-scoped GitHub Copilot instructions.
+
+```sh
+frbit skills install --project
+frbit skills install --project --agent copilot
+```
+
+Installed skills retain their version independently of the `frbit` CLI. List
+the CLI version together with installed skill versions and exact target paths,
+update the skills, or remove them:
+
+```sh
+frbit skills list
+frbit skills update
+frbit skills remove
+```
+
+Pass `--project` or `--agent` to those commands to select the same scope and
+targets used during installation. `remove` prints every path and asks for
+confirmation. Use `--yes` only when an unattended removal is intentional.
+
 ## Profiles
 
 Profiles let you keep separate stored credentials for different accounts or environments. The default profile is named `default`.
@@ -187,6 +229,10 @@ frbit --profile work auth logout
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
 | `frbit teams list` / `get <id>` | List or get teams. |
 | `frbit payment-methods list` / `get <id>` | List or get payment methods. |
+| `frbit skills install` | Install the latest fortrabbit agent skills. Accepts repeatable `--agent` and `--project`. |
+| `frbit skills list` | List installed skills, versions, scopes, and target paths. |
+| `frbit skills update` | Update installed skills, or report that the installed version is current. |
+| `frbit skills remove` | List and remove installed skills after confirmation. Accepts `--yes`. |
 | `frbit version` | Print the CLI version, source commit, and build date. |
 
 Global options:

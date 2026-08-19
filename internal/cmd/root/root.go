@@ -11,6 +11,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/auth"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 	command.AddCommand(
 		auth.NewCmdAuth(factory),
 		apps.NewCmdApps(factory),
+		skills.NewCmdSkills(factory, nil),
 		resource.NewCmdGroup(factory, environmentSpec()),
 		resource.NewCmdGroup(factory, deploymentSpec()),
 		resource.NewCmdGroup(factory, domainSpec()),
