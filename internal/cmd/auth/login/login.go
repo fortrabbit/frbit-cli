@@ -77,11 +77,11 @@ func prepareTokenEntry(options *Options) error {
 		return nil
 	}
 
-	tokenURL, err := config.TokenCreationURL()
+	tokenURL, err := config.APITokensURL()
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(options.Command.OutOrStdout(), "Create an API token at:\n%s\n\n", tokenURL); err != nil {
+	if _, err := fmt.Fprintf(options.Command.OutOrStdout(), "Manage or create an API token at:\n%s\n\n", tokenURL); err != nil {
 		return err
 	}
 	if options.NoBrowser || options.Factory.OpenBrowser == nil {
