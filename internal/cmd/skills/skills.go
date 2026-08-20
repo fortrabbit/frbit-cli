@@ -1,15 +1,14 @@
 package skills
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/spf13/cobra"
 )
 
@@ -175,7 +174,7 @@ func newCmdRemove(factory *app.Factory, service *agentskills.Service) *cobra.Com
 				}
 			}
 			if !yes {
-				confirmed, err := confirmRemoval(factory.IOStreams.In, cmd.OutOrStdout())
+				confirmed, err := cmdutil.Confirm(factory.IOStreams.In, cmd.OutOrStdout(), "Continue? [y/N] ")
 				if err != nil {
 					return err
 				}
@@ -258,16 +257,4 @@ func uniqueAgents(installed []agentskills.Installation) []agentskills.Agent {
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i] < agents[j] })
 	return agents
-}
-
-func confirmRemoval(reader io.Reader, writer io.Writer) (bool, error) {
-	if _, err := fmt.Fprint(writer, "Continue? [y/N] "); err != nil {
-		return false, err
-	}
-	answer, err := bufio.NewReader(reader).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return false, fmt.Errorf("read confirmation: %w", err)
-	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer == "y" || answer == "yes", nil
 }

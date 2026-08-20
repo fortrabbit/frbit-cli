@@ -158,6 +158,58 @@ frbit payment-methods list
 frbit payment-methods get pm-a1b2c3
 ```
 
+## Agent setup
+
+Set up the complete fortrabbit agent integration with one command:
+
+```sh
+frbit setup agent
+```
+
+The command detects Claude Code and Codex, registers the remote fortrabbit MCP
+server with each detected agent, and installs the latest fortrabbit skills. It
+uses each agent's native CLI to update only the MCP entry named `fortrabbit` and
+prints every skills and MCP configuration path it touched. Re-running the
+command is safe: current MCP entries are left unchanged and the skills are
+refreshed from their independently versioned release.
+
+Select one or more agents explicitly to bypass detection:
+
+```sh
+frbit setup agent --agent codex
+frbit setup agent --agent claude-code --agent codex
+```
+
+The setup summary reports whether a public API credential is configured for the
+selected `frbit` profile. That credential is separate from the MCP server's
+OAuth authorization. Codex authorization can be started with
+`codex mcp login fortrabbit`; in Claude Code, use `/mcp`.
+
+`setup agent` is user-wide and supports Claude Code and Codex. To install only
+the skills, including project-scoped skills or GitHub Copilot instructions, use
+the `frbit skills` commands below.
+
+## MCP server
+
+Manage the MCP registration independently when you do not want to change the
+skills:
+
+```sh
+frbit mcp install
+frbit mcp list
+frbit mcp remove
+```
+
+All three commands accept repeatable `--agent claude-code|codex`. Without that
+option, the CLI detects installed agents. `install` creates the named entry or
+updates a stale fortrabbit URL while leaving all other MCP servers alone.
+`remove` lists the affected agent configuration files and asks for confirmation;
+pass `--yes` only for intentional unattended removal.
+
+The remote endpoint is `https://api.fortrabbit.com/mcp`. Claude Code stores its
+user-scoped entry in `~/.claude.json`; Codex stores it in
+`~/.codex/config.toml`.
+
 ## Agent skills
 
 Install the latest release of the
@@ -229,6 +281,10 @@ frbit --profile work auth logout
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
 | `frbit teams list` / `get <id>` | List or get teams. |
 | `frbit payment-methods list` / `get <id>` | List or get payment methods. |
+| `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`. |
+| `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
+| `frbit mcp list` | List the fortrabbit MCP status, URL, and agent configuration paths. |
+| `frbit mcp remove` | List and remove the named fortrabbit MCP entry after confirmation. Accepts `--yes`. |
 | `frbit skills install` | Install the latest fortrabbit agent skills. Accepts repeatable `--agent` and `--project`. |
 | `frbit skills list` | List installed skills, versions, scopes, and target paths. |
 | `frbit skills update` | Update installed skills, or report that the installed version is current. |

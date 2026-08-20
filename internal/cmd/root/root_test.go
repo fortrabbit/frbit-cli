@@ -157,9 +157,13 @@ func TestInteractiveCommandShowsUpdateNotice(t *testing.T) {
 	}
 }
 
-func TestRootRegistersSkillsLifecycle(t *testing.T) {
+func TestRootRegistersAgentCommands(t *testing.T) {
 	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
 	for _, arguments := range [][]string{
+		{"setup", "agent"},
+		{"mcp", "install"},
+		{"mcp", "list"},
+		{"mcp", "remove"},
 		{"skills", "install"},
 		{"skills", "update"},
 		{"skills", "list"},

@@ -48,8 +48,8 @@ frbit deployments logs dp-a1b2c3
 frbit auth status
 ```
 
-The CLI can also install and manage fortrabbit agent skills. See the
-[CLI documentation](docs/cli.md#agent-skills) for details.
+The CLI can also set up fortrabbit for coding agents. See the
+[CLI documentation](docs/cli.md#agent-setup) for details.
 
 ## Just recipes
 

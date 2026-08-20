@@ -2,21 +2,21 @@ package agentskills
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+
+	"github.com/fortrabbit/frbit-cli/internal/agent"
 )
 
-type Agent string
+type Agent = agent.Agent
 
 const (
-	AgentClaudeCode Agent = "claude-code"
-	AgentCodex      Agent = "codex"
-	AgentCopilot    Agent = "copilot"
+	AgentClaudeCode = agent.ClaudeCode
+	AgentCodex      = agent.Codex
+	AgentCopilot    = agent.Copilot
 )
 
-var supportedAgents = []Agent{AgentClaudeCode, AgentCodex, AgentCopilot}
+var supportedAgents = agent.All
 
 type Scope string
 
@@ -49,43 +49,7 @@ type Removal struct {
 }
 
 func ParseAgents(values []string) ([]Agent, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-
-	seen := make(map[Agent]bool)
-	agents := make([]Agent, 0, len(values))
-	for _, value := range values {
-		var agent Agent
-		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "claude", "claude-code":
-			agent = AgentClaudeCode
-		case "codex":
-			agent = AgentCodex
-		case "copilot", "github-copilot":
-			agent = AgentCopilot
-		default:
-			return nil, fmt.Errorf("unsupported agent %q; supported agents: claude-code, codex, copilot", value)
-		}
-		if !seen[agent] {
-			seen[agent] = true
-			agents = append(agents, agent)
-		}
-	}
-	return agents, nil
-}
-
-func (a Agent) Label() string {
-	switch a {
-	case AgentClaudeCode:
-		return "Claude Code"
-	case AgentCodex:
-		return "Codex"
-	case AgentCopilot:
-		return "GitHub Copilot"
-	default:
-		return string(a)
-	}
+	return agent.Parse(values, agent.All)
 }
 
 func resolveTargets(home string, workDir string, project bool, requested []Agent, detect bool) ([]Target, error) {
@@ -102,7 +66,11 @@ func resolveTargets(home string, workDir string, project bool, requested []Agent
 				agents = []Agent{AgentClaudeCode, AgentCodex}
 			}
 		} else {
-			agents = detectGlobalAgents(home)
+			detected, err := (agent.Detector{HomeDir: func() (string, error) { return home, nil }}).Detect(agent.MCP)
+			if err != nil {
+				return nil, err
+			}
+			agents = detected
 			if len(agents) == 0 {
 				return nil, fmt.Errorf("neither Claude Code (%s) nor Codex (%s) appears to be installed; use --agent to select a target explicitly, or --project for a project install", filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
 			}
@@ -117,40 +85,6 @@ func resolveTargets(home string, workDir string, project bool, requested []Agent
 		targets = append(targets, targetFor(agent, scope, home, workDir))
 	}
 	return targets, nil
-}
-
-func detectGlobalAgents(home string) []Agent {
-	var agents []Agent
-	for _, candidate := range []struct {
-		agent Agent
-		path  string
-	}{
-		{AgentClaudeCode, filepath.Join(home, ".claude")},
-		{AgentCodex, filepath.Join(home, ".codex")},
-	} {
-		info, err := os.Stat(candidate.path)
-		if err == nil && info.IsDir() {
-			agents = append(agents, candidate.agent)
-		}
-	}
-	if !containsAgent(agents, AgentCodex) {
-		// Existing user skills also prove that Codex has been configured, even
-		// when its application configuration lives outside the default path.
-		info, err := os.Stat(filepath.Join(home, ".agents"))
-		if err == nil && info.IsDir() {
-			agents = append(agents, AgentCodex)
-		}
-	}
-	return agents
-}
-
-func containsAgent(agents []Agent, wanted Agent) bool {
-	for _, agent := range agents {
-		if agent == wanted {
-			return true
-		}
-	}
-	return false
 }
 
 func targetFor(agent Agent, scope Scope, home string, workDir string) Target {
