@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -149,6 +150,23 @@ func TestAppsReturnsRetryAfterForRateLimit(t *testing.T) {
 	}
 }
 
+func TestHTTPErrorIncludesValidationFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = writer.Write([]byte(`{"errors":{"region":"Unknown region","components":["Missing php plan"]}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.CreateResource(context.Background(), "/v1/apps", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "region: Unknown region") || !strings.Contains(err.Error(), "components") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/environments" {
@@ -196,5 +214,61 @@ func TestGetResourceDecodesObject(t *testing.T) {
 	}
 	if response.Resource["logs"] == nil || string(response.Raw) == "" {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestResourceWritesUseExpectedMethodsAndContentTypes(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		body := &bytes.Buffer{}
+		_, _ = body.ReadFrom(request.Body)
+		switch requests {
+		case 1:
+			if request.Method != http.MethodPost || request.URL.Path != "/v1/apps" {
+				t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+			}
+			if request.Header.Get("Content-Type") != "application/json" || body.String() != `{"name":"Store"}` {
+				t.Fatalf("post content type/body = %q %q", request.Header.Get("Content-Type"), body.String())
+			}
+			writer.WriteHeader(http.StatusCreated)
+			_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"Store"}`))
+		case 2:
+			if request.Method != http.MethodPatch || request.URL.Path != "/v1/apps/ap-abc123" {
+				t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+			}
+			if request.Header.Get("Content-Type") != "application/merge-patch+json" || body.String() != `{"name":"Shop"}` {
+				t.Fatalf("patch content type/body = %q %q", request.Header.Get("Content-Type"), body.String())
+			}
+			_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"Shop"}`))
+		case 3:
+			if request.Method != http.MethodPost || request.URL.Path != "/v1/environments/en-abc123/restart" {
+				t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+			}
+			if body.Len() != 0 {
+				t.Fatalf("action body = %q", body.String())
+			}
+			writer.WriteHeader(http.StatusAccepted)
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{"name": "Store"})
+	if err != nil || created.Resource["publicId"] != "ap-abc123" {
+		t.Fatalf("create response/error = %#v / %v", created, err)
+	}
+	updated, err := client.UpdateResource(context.Background(), "/v1/apps/ap-abc123", map[string]any{"name": "Shop"})
+	if err != nil || updated.Resource["name"] != "Shop" {
+		t.Fatalf("update response/error = %#v / %v", updated, err)
+	}
+	action, err := client.PostAction(context.Background(), "/v1/environments/en-abc123/restart")
+	if err != nil || action.Resource != nil || len(action.Raw) != 0 {
+		t.Fatalf("action response/error = %#v / %v", action, err)
 	}
 }

@@ -84,9 +84,13 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 
 func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 	var printJSON bool
+	article := "a"
+	if spec.Singular != "" && strings.ContainsAny(strings.ToLower(spec.Singular[:1]), "aeiou") {
+		article = "an"
+	}
 	command := &cobra.Command{
 		Use:   "get <public-id>",
-		Short: "Get a " + spec.Singular,
+		Short: "Get " + article + " " + spec.Singular,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := clientFor(cmd, factory)
@@ -135,19 +139,11 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 }
 
 func clientFor(command *cobra.Command, factory *app.Factory) (*api.Client, error) {
-	host, err := cmdutil.Host(command, factory)
-	if err != nil {
-		return nil, err
-	}
-	profile, err := cmdutil.Profile(command)
-	if err != nil {
-		return nil, err
-	}
-	token, _, err := factory.Token(profile)
-	if err != nil {
-		return nil, err
-	}
-	return cmdutil.Client(factory, host, token)
+	return cmdutil.APIClient(command, factory)
+}
+
+func WriteResource(output io.Writer, value api.Resource) error {
+	return writeResource(output, value)
 }
 
 func writeResources(output io.Writer, resources []api.Resource, fields []Field, empty string) error {

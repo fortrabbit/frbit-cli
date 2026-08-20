@@ -1,6 +1,6 @@
 # frbit CLI
 
-`frbit` is the command-line interface for the [fortrabbit public API](https://api.fortrabbit.com/v1/docs). Use it to inspect the apps and related resources available to your fortrabbit account from a terminal, script, or agent.
+`frbit` is the command-line interface for the [fortrabbit public API](https://api.fortrabbit.com/v1/docs). Use it to create, configure, and inspect apps and related resources from a terminal, script, or agent.
 
 This page is the complete reference for the commands currently available in `frbit`.
 
@@ -102,11 +102,53 @@ frbit apps list --json
 frbit apps list --json | jq '(."hydra:member" // .member // .)[] | .name'
 ```
 
-`--json` is available on every `list`, `get`, and `deployments logs` command. It prints the API response unchanged.
+`--json` is available on resource reads and on commands that return a created or updated resource. It prints the API response unchanged.
 
 API responses can contain account data, personal information, payment metadata,
-and application log output. Treat terminal captures and CI logs as sensitive,
+environment-variable values, and application log output. Treat terminal captures and CI logs as sensitive,
 especially when using `--json` or `deployments logs`.
+
+### Create an app
+
+Create an app with its default environment by selecting the required component plans:
+
+```sh
+frbit apps create \
+  --name acme-shop \
+  --region eu-w1a \
+  --software laravel \
+  --software-version 11 \
+  --component php=sm \
+  --component storage=xs \
+  --component traffic=xs \
+  --component backups=xs
+```
+
+Configure Git and start the first deployment as part of the same workflow:
+
+```sh
+frbit apps create \
+  --name acme-shop \
+  --region eu-w1a \
+  --component php=sm \
+  --component storage=xs \
+  --component traffic=xs \
+  --component backups=xs \
+  --repository acme/shop \
+  --branch main \
+  --build-command 'composer install --no-dev' \
+  --post-deploy-command 'php artisan migrate --force' \
+  --deploy
+```
+
+Use `--team` or `--payment-method` to select an accessible team or payment method. For the complete nested API payload, pass a JSON object with `--file`, or use `--file -` to read it from standard input.
+
+### Update an app
+
+```sh
+frbit apps update ap-a1b2c3 --name renamed-shop
+frbit apps update ap-a1b2c3 --payment-method pm-a1b2c3
+```
 
 ## Environments
 
@@ -117,6 +159,63 @@ frbit environments list
 frbit environments list --page 2 --id en-a1b2c3
 frbit environments get en-a1b2c3
 ```
+
+Create an environment with explicit component plans or clone the plans from an existing environment:
+
+```sh
+frbit environments create \
+  --app ap-a1b2c3 \
+  --name staging \
+  --component php=sm \
+  --component storage=xs \
+  --component traffic=xs \
+  --component backups=xs
+
+frbit environments create \
+  --app ap-a1b2c3 \
+  --name preview \
+  --source-environment en-a1b2c3
+```
+
+Git settings, build commands, environment variables, and the first deployment can be orchestrated during creation:
+
+```sh
+frbit environments create \
+  --app ap-a1b2c3 \
+  --name staging \
+  --source-environment en-a1b2c3 \
+  --branch main \
+  --env APP_ENV=staging \
+  --deploy
+```
+
+Update the environment name or replace its deployment configuration:
+
+```sh
+frbit environments update en-a1b2c3 --name staging
+frbit environments update en-a1b2c3 --branch develop --directory web
+frbit environments update en-a1b2c3 --clear-build-commands
+```
+
+Read or merge environment variables. `--set` and `--delete` are repeatable:
+
+```sh
+frbit environments variables get en-a1b2c3
+frbit environments variables update en-a1b2c3 \
+  --set APP_ENV=production \
+  --delete OLD_FLAG
+```
+
+Values supplied directly on the command line can be retained in shell history. For sensitive values, pass the API request object using `--file` or `--file -` and standard input.
+
+Restart an environment or trigger a deployment from its configured Git source:
+
+```sh
+frbit environments restart en-a1b2c3
+frbit environments deploy en-a1b2c3
+```
+
+The `apps create`, `apps update`, `environments create`, `environments update`, and `environments variables update` commands accept `--file`. Request field flags and `--file` cannot be combined.
 
 ## Deployments
 
@@ -275,7 +374,15 @@ frbit --profile work auth logout
 | `frbit auth logout` | Remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
+| `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |
+| `frbit apps update <id>` | Update an app name or payment method. Accepts field flags or `--file`. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page` and repeatable `--id`. |
+| `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. |
+| `frbit environments update <id>` | Update an environment and its deployment configuration. |
+| `frbit environments variables get <id>` | Get custom and platform-injected environment variables. |
+| `frbit environments variables update <id>` | Set or delete custom environment variables. |
+| `frbit environments restart <id>` | Request an environment restart. |
+| `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. |
 | `frbit domains list` / `get <id>` | List or get domains. `list` accepts `--page` and repeatable `--id`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |

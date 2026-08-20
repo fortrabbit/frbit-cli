@@ -10,6 +10,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/auth"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/environments"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/mcp"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
@@ -44,7 +45,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		mcp.NewCmdMCP(factory, nil),
 		setup.NewCmdSetup(factory, nil, nil),
 		skills.NewCmdSkills(factory, nil),
-		resource.NewCmdGroup(factory, environmentSpec()),
+		environments.NewCmdEnvironments(factory),
 		resource.NewCmdGroup(factory, deploymentSpec()),
 		resource.NewCmdGroup(factory, domainSpec()),
 		resource.NewCmdGroup(factory, personSpec()),
@@ -74,13 +75,6 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 		strings.TrimPrefix(factory.Version, "v"),
 		latest,
 	)
-}
-
-func environmentSpec() resource.Spec {
-	return resource.Spec{
-		Use: "environments", Singular: "environment", Path: "/environments", Short: "List and inspect environments", SupportsPage: true, SupportsFilter: true,
-		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "STATE", Key: "state"}, {Header: "SOFTWARE", Key: "softwareVersion"}, {Header: "UPDATED", Key: "updatedAt"}},
-	}
 }
 
 func deploymentSpec() resource.Spec {

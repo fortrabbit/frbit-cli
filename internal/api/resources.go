@@ -23,6 +23,35 @@ type ResourceResponse struct {
 	Raw      []byte
 }
 
+func (c Client) CreateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	body, err := c.post(ctx, path, payload)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
+func (c Client) UpdateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	body, err := c.patch(ctx, path, payload)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
+// PostAction invokes an action endpoint that may return either a resource or
+// an empty successful response.
+func (c Client) PostAction(ctx context.Context, path string) (ResourceResponse, error) {
+	body, err := c.post(ctx, path, nil)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	if len(body) == 0 {
+		return ResourceResponse{Raw: body}, nil
+	}
+	return decodeResourceResponse(body)
+}
+
 func (c Client) ListResources(ctx context.Context, path string, page int, publicIDs []string) (ResourcesResponse, error) {
 	query := url.Values{}
 	if page > 0 {
@@ -48,7 +77,10 @@ func (c Client) GetResource(ctx context.Context, path string) (ResourceResponse,
 	if err != nil {
 		return ResourceResponse{}, err
 	}
+	return decodeResourceResponse(body)
+}
 
+func decodeResourceResponse(body []byte) (ResourceResponse, error) {
 	var resource Resource
 	if err := json.Unmarshal(body, &resource); err != nil {
 		return ResourceResponse{}, fmt.Errorf("decode resource response: %w", err)

@@ -44,6 +44,9 @@ frbit apps list
 frbit apps list --page 2
 frbit apps list --json
 frbit environments list
+frbit environments variables get en-a1b2c3
+frbit environments restart en-a1b2c3
+frbit environments deploy en-a1b2c3
 frbit deployments logs dp-a1b2c3
 frbit auth status
 ```

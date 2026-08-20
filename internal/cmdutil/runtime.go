@@ -32,6 +32,22 @@ func Client(factory *app.Factory, host string, token string) (*api.Client, error
 	return api.NewClient(host, token, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
 }
 
+func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error) {
+	host, err := Host(command, factory)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := Profile(command)
+	if err != nil {
+		return nil, err
+	}
+	token, _, err := factory.Token(profile)
+	if err != nil {
+		return nil, err
+	}
+	return Client(factory, host, token)
+}
+
 func TrimToken(token string) string {
 	return strings.TrimSpace(token)
 }

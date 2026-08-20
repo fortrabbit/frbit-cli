@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -156,14 +158,48 @@ func (c Client) getApps(ctx context.Context, path string, query url.Values) (App
 }
 
 func (c Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	return c.request(ctx, http.MethodGet, path, query, nil, "")
+}
+
+func (c Client) post(ctx context.Context, path string, payload any) ([]byte, error) {
+	body, err := marshalPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return c.request(ctx, http.MethodPost, path, nil, body, "application/json")
+}
+
+func (c Client) patch(ctx context.Context, path string, payload any) ([]byte, error) {
+	body, err := marshalPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return c.request(ctx, http.MethodPatch, path, nil, body, "application/merge-patch+json")
+}
+
+func marshalPayload(payload any) ([]byte, error) {
+	if payload == nil {
+		return nil, nil
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode request payload: %w", err)
+	}
+	return body, nil
+}
+
+func (c Client) request(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string) ([]byte, error) {
 	endpoint := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: query.Encode()})
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("User-Agent", c.userAgent)
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
 
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -171,33 +207,72 @@ func (c Client) get(ctx context.Context, path string, query url.Values) ([]byte,
 	}
 	defer response.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(response.Body, 10<<20))
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, newHTTPError(response, body)
+		return nil, newHTTPError(response, responseBody)
 	}
 
-	return body, nil
+	return responseBody, nil
 }
 
 func newHTTPError(response *http.Response, body []byte) *HTTPError {
 	var payload struct {
-		Detail           string `json:"detail"`
-		Description      string `json:"description"`
-		HydraDescription string `json:"hydra:description"`
-		Message          string `json:"message"`
+		Detail           string         `json:"detail"`
+		Description      string         `json:"description"`
+		HydraDescription string         `json:"hydra:description"`
+		Message          string         `json:"message"`
+		Errors           map[string]any `json:"errors"`
+		Violations       []struct {
+			PropertyPath string `json:"propertyPath"`
+			Message      string `json:"message"`
+		} `json:"violations"`
 	}
 	_ = json.Unmarshal(body, &payload)
 
 	message := firstNonEmpty(payload.Detail, payload.Description, payload.HydraDescription, payload.Message)
+	if message == "" {
+		message = validationMessage(payload.Errors, payload.Violations)
+	}
 	retryAfter := time.Duration(0)
 	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
 		retryAfter = time.Duration(seconds) * time.Second
 	}
 
 	return &HTTPError{Status: response.StatusCode, Message: message, RetryAfter: retryAfter}
+}
+
+func validationMessage(errors map[string]any, violations []struct {
+	PropertyPath string `json:"propertyPath"`
+	Message      string `json:"message"`
+}) string {
+	parts := make([]string, 0, len(errors)+len(violations))
+	keys := make([]string, 0, len(errors))
+	for key := range errors {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := errors[key]
+		if text, ok := value.(string); ok {
+			parts = append(parts, key+": "+text)
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			parts = append(parts, key+": "+string(encoded))
+		}
+	}
+	for _, violation := range violations {
+		if violation.PropertyPath != "" {
+			parts = append(parts, violation.PropertyPath+": "+violation.Message)
+		} else if violation.Message != "" {
+			parts = append(parts, violation.Message)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func firstNonEmpty(values ...string) string {
