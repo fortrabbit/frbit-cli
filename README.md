@@ -25,7 +25,7 @@ operating-system credential store:
 frbit auth login
 ```
 
-Interactive login prints the API-token list URL and tries to open it in your
+Interactive login prints the token creation URL and tries to open it in your
 default browser. Use `frbit auth login --no-browser` to keep the flow entirely
 in the terminal.
 
@@ -114,7 +114,7 @@ FRBIT_DASHBOARD_URL=http://localhost:3001 \
   just run --host http://localhost:8085 auth login
 ```
 
-`FRBIT_DASHBOARD_URL` controls the dashboard origin used for the API-token list
+`FRBIT_DASHBOARD_URL` controls the dashboard origin used for the token creation
 link during interactive login.
 
 Host resolution is: `--host`, `FRBIT_HOST`, saved host, then the production

@@ -29,7 +29,7 @@ func TestPrepareTokenEntryOpensDevelopmentURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareTokenEntry() error = %v", err)
 	}
-	if opened != "http://localhost:3001/you/api-tokens" {
+	if opened != "http://localhost:3001/new/api-token" {
 		t.Fatalf("opened URL = %q", opened)
 	}
 	if got := output.String(); !strings.Contains(got, opened) {
@@ -57,7 +57,7 @@ func TestPrepareTokenEntryNoBrowser(t *testing.T) {
 	if opened {
 		t.Fatal("browser was opened with --no-browser")
 	}
-	if !strings.Contains(output.String(), "https://dash.fortrabbit.com/you/api-tokens") {
+	if !strings.Contains(output.String(), "https://dash.fortrabbit.com/new/api-token") {
 		t.Fatalf("output = %q", output.String())
 	}
 }
