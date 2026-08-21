@@ -7,7 +7,7 @@ This page is the complete reference for the commands currently available in `frb
 ## Install
 
 Use the install script, Homebrew, npm, or a GitHub release archive. The
-[installation guide](https://docs.fortrabbit.com/platform/concepts/cli) covers
+[installation guide](https://docs.fortrabbit.com/platform/automation/cli) covers
 every supported method and platform.
 
 Confirm the installation:
@@ -58,6 +58,22 @@ To save a token without an interactive prompt, pass it on standard input. Avoid 
 ```sh
 printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
 ```
+
+## Uninstall
+
+Sign out while the binary is still in place. `frbit auth logout` removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
+
+Then remove the CLI with the counterpart of the install method:
+
+```sh
+rm "$(command -v frbit)"                # install script or release archive
+brew uninstall frbit                    # Homebrew
+npm uninstall --global @fortrabbit/cli  # npm
+```
+
+`brew untap fortrabbit/tap` is only needed when no other formula from the fortrabbit tap remains. Generic binary installers remove their own copies, for example `eget --remove` or `mise uninstall`.
+
+Two files can stay behind. `frbit/config.json` below the user config directory holds the saved API host, and `frbit/update-check.json` below the user cache directory holds the last update check. On macOS those are `~/Library/Application Support` and `~/Library/Caches`, on Linux `~/.config` and `~/.cache`, on Windows `%AppData%` and `%LocalAppData%`. Tokens are not stored in either: they sit in the operating system credential store under the service name `frbit-cli`.
 
 ## Apps
 
