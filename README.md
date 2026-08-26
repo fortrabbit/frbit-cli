@@ -69,7 +69,9 @@ FRBIT_TOKEN=frbit-at-… just run apps list
 Other available recipes:
 
 ```sh
+just                            # list the available recipes
 just build
+just symlink                    # build, then link ./frbit into /usr/local/bin
 just test
 ```
 
