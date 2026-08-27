@@ -21,6 +21,7 @@ func NewCmdApps(factory *app.Factory) *cobra.Command {
 			{Header: "ID", Key: "publicId"},
 			{Header: "NAME", Key: "name"},
 			{Header: "DESCRIPTION", Key: "description"},
+			{Header: "TEAMS", Key: "teams"},
 			{Header: "TRIAL", Key: "trial"},
 			{Header: "UPDATED", Key: "updatedAt"},
 		},

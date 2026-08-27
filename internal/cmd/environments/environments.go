@@ -23,7 +23,6 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		Fields: []resource.Field{
 			{Header: "ID", Key: "publicId"},
 			{Header: "NAME", Key: "name"},
-			{Header: "STATE", Key: "state"},
 			{Header: "SOFTWARE", Key: "softwareVersion"},
 			{Header: "UPDATED", Key: "updatedAt"},
 		},

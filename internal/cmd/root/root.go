@@ -87,14 +87,14 @@ func deploymentSpec() resource.Spec {
 func domainSpec() resource.Spec {
 	return resource.Spec{
 		Use: "domains", Singular: "domain", Path: "/domains", Short: "List and inspect domains", SupportsPage: true, SupportsFilter: true,
-		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "TYPE", Key: "type"}, {Header: "MAIN", Key: "isMain"}, {Header: "UPDATED", Key: "updatedAt"}},
+		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "TYPE", Key: "type"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "MAIN", Key: "isMain"}, {Header: "UPDATED", Key: "updatedAt"}},
 	}
 }
 
 func personSpec() resource.Spec {
 	return resource.Spec{
 		Use: "people", Singular: "person", Path: "/people", Short: "List and inspect people", SupportsFilter: true,
-		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "EMAIL", Key: "email"}, {Header: "TYPE", Key: "type"}, {Header: "ACTIVE", Key: "active"}},
+		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "EMAIL", Key: "email"}, {Header: "TYPE", Key: "type"}},
 	}
 }
 

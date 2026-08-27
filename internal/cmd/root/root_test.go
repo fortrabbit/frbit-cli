@@ -53,7 +53,7 @@ func TestAppsListRendersTable(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer test-token" {
 			t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
 		}
-		_, _ = writer.Write([]byte(`[{"publicId":"ap-abc123","name":"Store","description":"Example app","trial":false,"updatedAt":"2026-01-02T00:00:00Z"}]`))
+		_, _ = writer.Write([]byte(`[{"publicId":"ap-abc123","name":"Store","description":"Example app","teams":["tm-abc123"],"trial":false,"updatedAt":"2026-01-02T00:00:00Z"}]`))
 	}))
 	defer server.Close()
 
@@ -67,7 +67,7 @@ func TestAppsListRendersTable(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, expected := range []string{"ID", "ap-abc123", "Store", "Example app"} {
+	for _, expected := range []string{"ID", "TEAMS", "ap-abc123", "Store", "Example app", "tm-abc123"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("output %q does not contain %q", got, expected)
 		}
@@ -104,9 +104,9 @@ func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
 			if got := request.URL.Query()["publicId[]"]; len(got) != 2 || got[0] != "en-abc123" || got[1] != "en-def456" {
 				t.Fatalf("environment filter = %#v", got)
 			}
-			_, _ = writer.Write([]byte(`[{"publicId":"en-abc123","name":"production","state":"ready"}]`))
+			_, _ = writer.Write([]byte(`[{"publicId":"en-abc123","name":"production","softwareVersion":"12"}]`))
 		case "/v1/people/pn-abc123":
-			_, _ = writer.Write([]byte(`{"publicId":"pn-abc123","name":"Ada","email":"ada@example.test","active":true}`))
+			_, _ = writer.Write([]byte(`{"publicId":"pn-abc123","name":"Ada","email":"ada@example.test","type":"developer"}`))
 		case "/v1/deployments/dp-abc123/logs":
 			_, _ = writer.Write([]byte(`{"logs":[{"time":"2026-01-01T00:00:00Z","log":"Build started"}]}`))
 		default:
@@ -131,6 +131,65 @@ func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
 		if output.Len() == 0 {
 			t.Fatalf("%v: no output", args)
 		}
+	}
+}
+
+func TestDomainsListRendersEnvironmentRelationship(t *testing.T) {
+	output := executeResourceList(t, "/v1/domains", `[{"publicId":"do-abc123","name":"example.test","type":"apex","environment":"en-abc123","isMain":true}]`, "domains")
+	assertTableColumns(t, output, "ID", "NAME", "TYPE", "ENVIRONMENT", "MAIN", "UPDATED")
+	for _, expected := range []string{"do-abc123", "example.test", "en-abc123"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func TestEnvironmentsListRendersTable(t *testing.T) {
+	output := executeResourceList(t, "/v1/environments", `[{"publicId":"en-abc123","name":"production","softwareVersion":"12","updatedAt":"2026-01-02T00:00:00Z"}]`, "environments")
+	assertTableColumns(t, output, "ID", "NAME", "SOFTWARE", "UPDATED")
+	for _, expected := range []string{"en-abc123", "production", "12"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func TestPeopleListRendersTable(t *testing.T) {
+	output := executeResourceList(t, "/v1/people", `[{"publicId":"pn-abc123","name":"Ada","email":"ada@example.test","type":"developer"}]`, "people")
+	assertTableColumns(t, output, "ID", "NAME", "EMAIL", "TYPE")
+	for _, expected := range []string{"pn-abc123", "Ada", "ada@example.test", "developer"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
+		}
+	}
+}
+
+func executeResourceList(t *testing.T, path string, payload string, resource string) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != path {
+			t.Fatalf("path = %q, want %q", request.URL.Path, path)
+		}
+		_, _ = writer.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", server.URL, resource, "list"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
+}
+
+func assertTableColumns(t *testing.T, output string, expected ...string) {
+	t.Helper()
+	header, _, _ := strings.Cut(output, "\n")
+	actual := strings.Fields(header)
+	if fmt.Sprint(actual) != fmt.Sprint(expected) {
+		t.Fatalf("columns = %v, want %v", actual, expected)
 	}
 }
 
