@@ -244,12 +244,17 @@ func TestRootRegistersPublicWriteCommands(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"apps", "create"},
 		{"apps", "update"},
+		{"apps", "delete"},
 		{"environments", "create"},
 		{"environments", "update"},
+		{"environments", "delete"},
 		{"environments", "variables", "get"},
 		{"environments", "variables", "update"},
 		{"environments", "restart"},
 		{"environments", "deploy"},
+		{"domains", "delete"},
+		{"teams", "delete"},
+		{"payment-methods", "delete"},
 	} {
 		found, remaining, err := command.Find(arguments)
 		if err != nil {
@@ -257,6 +262,109 @@ func TestRootRegistersPublicWriteCommands(t *testing.T) {
 		}
 		if found.Name() != arguments[len(arguments)-1] || len(remaining) != 0 {
 			t.Fatalf("find %v returned command %q and remaining %#v", arguments, found.Name(), remaining)
+		}
+	}
+}
+
+func TestDeleteCommandsUseExpectedEndpoints(t *testing.T) {
+	for _, test := range []struct {
+		resource string
+		publicID string
+		name     string
+		warning  string
+	}{
+		{resource: "apps", publicID: "ap-abc123", name: "Store", warning: "All files and database contents will be erased."},
+		{resource: "environments", publicID: "en-abc123", name: "production", warning: "All files and database contents will be erased"},
+		{resource: "domains", publicID: "do-abc123", name: "example.test", warning: "The domain will no longer serve the environment."},
+		{resource: "teams", publicID: "tm-abc123", name: "Developers", warning: "payment methods owned solely by it"},
+		{resource: "payment-methods", publicID: "pm-abc123", name: "Company card", warning: "every app booked on it"},
+	} {
+		t.Run(test.resource, func(t *testing.T) {
+			requests := 0
+			path := "/v1/" + test.resource + "/" + test.publicID
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests++
+				if request.URL.Path != path {
+					t.Fatalf("path = %q, want %q", request.URL.Path, path)
+				}
+				switch requests {
+				case 1:
+					if request.Method != http.MethodGet {
+						t.Fatalf("method = %s, want GET", request.Method)
+					}
+					_, _ = fmt.Fprintf(writer, `{"publicId":%q,"name":%q}`, test.publicID, test.name)
+				case 2:
+					if request.Method != http.MethodDelete {
+						t.Fatalf("method = %s, want DELETE", request.Method)
+					}
+					writer.WriteHeader(http.StatusNoContent)
+				default:
+					t.Fatalf("unexpected request %d", requests)
+				}
+			}))
+			defer server.Close()
+
+			output := &bytes.Buffer{}
+			t.Setenv("FRBIT_TOKEN", "test-token")
+			command := NewCmdRoot(testFactory(output))
+			command.SetArgs([]string{"--host", server.URL, test.resource, "delete", test.publicID, "--confirm", test.publicID})
+			if err := command.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 2 {
+				t.Fatalf("requests = %d, want GET followed by DELETE", requests)
+			}
+			for _, expected := range []string{test.name, test.publicID, test.warning, "This cannot be undone.", "Deleted"} {
+				if !strings.Contains(output.String(), expected) {
+					t.Fatalf("output %q does not contain %q", output.String(), expected)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteAbortsWhenInteractiveConfirmationDoesNotMatch(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Method == http.MethodDelete {
+			t.Fatal("DELETE request was sent after mismatched confirmation")
+		}
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"Store"}`))
+	}))
+	defer server.Close()
+
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.In = strings.NewReader("ap-wrong1\n")
+	factory.IOStreams.IsTTY = true
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"--host", server.URL, "apps", "delete", "ap-abc123"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || !strings.Contains(output.String(), "Type ap-abc123 to confirm:") || !strings.Contains(output.String(), "Aborted.") {
+		t.Fatalf("requests = %d, output = %q", requests, output.String())
+	}
+}
+
+func TestDeleteRequiresConfirmationInNonInteractiveUse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+	}))
+	defer server.Close()
+
+	for _, arguments := range [][]string{
+		{"apps", "delete", "ap-abc123"},
+		{"apps", "delete", "ap-abc123", "--confirm", "ap-wrong1"},
+	} {
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs(append([]string{"--host", server.URL}, arguments...))
+		err := command.Execute()
+		if err == nil || !strings.Contains(err.Error(), "confirm") {
+			t.Fatalf("%v error = %v, want confirmation error", arguments, err)
 		}
 	}
 }

@@ -167,6 +167,23 @@ func TestHTTPErrorIncludesValidationFields(t *testing.T) {
 	}
 }
 
+func TestHTTPErrorIncludesPublicAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+		_, _ = writer.Write([]byte(`{"error":"Cannot delete the last environment in an app."}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.DeleteResource(context.Background(), "/v1/environments/en-abc123")
+	if err == nil || !strings.Contains(err.Error(), "Cannot delete the last environment in an app.") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/environments" {
@@ -249,6 +266,14 @@ func TestResourceWritesUseExpectedMethodsAndContentTypes(t *testing.T) {
 				t.Fatalf("action body = %q", body.String())
 			}
 			writer.WriteHeader(http.StatusAccepted)
+		case 4:
+			if request.Method != http.MethodDelete || request.URL.Path != "/v1/apps/ap-abc123" {
+				t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+			}
+			if body.Len() != 0 {
+				t.Fatalf("delete body = %q", body.String())
+			}
+			writer.WriteHeader(http.StatusNoContent)
 		default:
 			t.Fatalf("unexpected request %d", requests)
 		}
@@ -270,5 +295,8 @@ func TestResourceWritesUseExpectedMethodsAndContentTypes(t *testing.T) {
 	action, err := client.PostAction(context.Background(), "/v1/environments/en-abc123/restart")
 	if err != nil || action.Resource != nil || len(action.Raw) != 0 {
 		t.Fatalf("action response/error = %#v / %v", action, err)
+	}
+	if err := client.DeleteResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
+		t.Fatalf("delete resource: %v", err)
 	}
 }

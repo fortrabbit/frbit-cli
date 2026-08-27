@@ -273,6 +273,26 @@ frbit payment-methods list
 frbit payment-methods get pm-a1b2c3
 ```
 
+## Deleting resources
+
+Apps, environments, domains, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
+
+```sh
+frbit apps delete ap-a1b2c3
+frbit environments delete en-a1b2c3
+frbit domains delete do-a1b2c3
+frbit teams delete tm-a1b2c3
+frbit payment-methods delete pm-a1b2c3
+```
+
+For intentional non-interactive use, repeat the public ID with `--confirm`. A missing or mismatched value prevents the deletion:
+
+```sh
+frbit apps delete ap-a1b2c3 --confirm ap-a1b2c3
+```
+
+Deleting an app or environment permanently erases its files and database contents. Deleting a payment method or team can also delete connected apps and environments.
+
 ## Agent setup
 
 Set up the complete fortrabbit agent integration with one command:
@@ -392,18 +412,20 @@ frbit --profile work auth logout
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |
 | `frbit apps update <id>` | Update an app name or payment method. Accepts field flags or `--file`. |
+| `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page` and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. |
 | `frbit environments update <id>` | Update an environment and its deployment configuration. |
+| `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get <id>` | Get custom and platform-injected environment variables. |
 | `frbit environments variables update <id>` | Set or delete custom environment variables. |
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. |
-| `frbit domains list` / `get <id>` | List or get domains. `list` accepts `--page` and repeatable `--id`. |
+| `frbit domains list` / `get <id>` / `delete <id>` | List, get, or delete domains. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
-| `frbit teams list` / `get <id>` | List or get teams. |
-| `frbit payment-methods list` / `get <id>` | List or get payment methods. |
+| `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. |
+| `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. |
 | `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
 | `frbit mcp list` | List the fortrabbit MCP status, URL, and agent configuration paths. |

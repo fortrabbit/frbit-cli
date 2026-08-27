@@ -177,6 +177,10 @@ func (c Client) patch(ctx context.Context, path string, payload any) ([]byte, er
 	return c.request(ctx, http.MethodPatch, path, nil, body, "application/merge-patch+json")
 }
 
+func (c Client) delete(ctx context.Context, path string) ([]byte, error) {
+	return c.request(ctx, http.MethodDelete, path, nil, nil, "")
+}
+
 func marshalPayload(payload any) ([]byte, error) {
 	if payload == nil {
 		return nil, nil
@@ -220,6 +224,7 @@ func (c Client) request(ctx context.Context, method string, path string, query u
 
 func newHTTPError(response *http.Response, body []byte) *HTTPError {
 	var payload struct {
+		Error            string         `json:"error"`
 		Detail           string         `json:"detail"`
 		Description      string         `json:"description"`
 		HydraDescription string         `json:"hydra:description"`
@@ -232,7 +237,7 @@ func newHTTPError(response *http.Response, body []byte) *HTTPError {
 	}
 	_ = json.Unmarshal(body, &payload)
 
-	message := firstNonEmpty(payload.Detail, payload.Description, payload.HydraDescription, payload.Message)
+	message := firstNonEmpty(payload.Error, payload.Detail, payload.Description, payload.HydraDescription, payload.Message)
 	if message == "" {
 		message = validationMessage(payload.Errors, payload.Violations)
 	}

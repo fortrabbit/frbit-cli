@@ -39,6 +39,11 @@ func (c Client) UpdateResource(ctx context.Context, path string, payload any) (R
 	return decodeResourceResponse(body)
 }
 
+func (c Client) DeleteResource(ctx context.Context, path string) error {
+	_, err := c.delete(ctx, path)
+	return err
+}
+
 // PostAction invokes an action endpoint that may return either a resource or
 // an empty successful response.
 func (c Client) PostAction(ctx context.Context, path string) (ResourceResponse, error) {

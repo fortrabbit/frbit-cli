@@ -14,10 +14,13 @@ import (
 
 func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 	command := resource.NewCmdGroup(factory, resource.Spec{
-		Use:            "environments",
-		Singular:       "environment",
-		Path:           "/environments",
-		Short:          "Create, configure, and inspect environments",
+		Use:      "environments",
+		Singular: "environment",
+		Path:     "/environments",
+		Short:    "Create, configure, and inspect environments",
+		Delete: &resource.DeleteSpec{
+			Warning: "Deleting this environment permanently removes its infrastructure. All files and database contents will be erased, and its domains will no longer serve the app.",
+		},
 		SupportsPage:   true,
 		SupportsFilter: true,
 		Fields: []resource.Field{

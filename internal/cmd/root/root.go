@@ -87,6 +87,7 @@ func deploymentSpec() resource.Spec {
 func domainSpec() resource.Spec {
 	return resource.Spec{
 		Use: "domains", Singular: "domain", Path: "/domains", Short: "List and inspect domains", SupportsPage: true, SupportsFilter: true,
+		Delete: &resource.DeleteSpec{Warning: "Deleting this domain disconnects it from its environment. The domain will no longer serve the environment."},
 		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "TYPE", Key: "type"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "MAIN", Key: "isMain"}, {Header: "UPDATED", Key: "updatedAt"}},
 	}
 }
@@ -101,6 +102,7 @@ func personSpec() resource.Spec {
 func teamSpec() resource.Spec {
 	return resource.Spec{
 		Use: "teams", Singular: "team", Path: "/teams", Short: "List and inspect teams",
+		Delete: &resource.DeleteSpec{Warning: "Deleting this team also deletes payment methods owned solely by it and every app booked on those payment methods. All files and database contents will be erased."},
 		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "ROLE", Key: "role"}, {Header: "CREATED", Key: "createdAt"}},
 	}
 }
@@ -108,6 +110,7 @@ func teamSpec() resource.Spec {
 func paymentMethodSpec() resource.Spec {
 	return resource.Spec{
 		Use: "payment-methods", Singular: "payment method", Path: "/payment-methods", Short: "List and inspect payment methods",
+		Delete: &resource.DeleteSpec{Warning: "Deleting this payment method also deletes every app booked on it and all of their environments. All files and database contents will be erased."},
 		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "LAST 4", Key: "last4"}, {Header: "EMAIL", Key: "email"}},
 	}
 }

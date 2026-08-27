@@ -11,10 +11,13 @@ import (
 
 func NewCmdApps(factory *app.Factory) *cobra.Command {
 	command := resource.NewCmdGroup(factory, resource.Spec{
-		Use:            "apps",
-		Singular:       "app",
-		Path:           "/apps",
-		Short:          "List and inspect apps",
+		Use:      "apps",
+		Singular: "app",
+		Path:     "/apps",
+		Short:    "List and inspect apps",
+		Delete: &resource.DeleteSpec{
+			Warning: "Deleting this app permanently removes all of its environments and their infrastructure. All files and database contents will be erased.",
+		},
 		SupportsPage:   true,
 		SupportsFilter: true,
 		Fields: []resource.Field{
