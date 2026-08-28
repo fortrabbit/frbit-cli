@@ -161,6 +161,10 @@ func (c Client) get(ctx context.Context, path string, query url.Values) ([]byte,
 	return c.request(ctx, http.MethodGet, path, query, nil, "")
 }
 
+func (c Client) getCollection(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	return c.requestWithAccept(ctx, http.MethodGet, path, query, nil, "", "application/ld+json")
+}
+
 func (c Client) post(ctx context.Context, path string, payload any) ([]byte, error) {
 	body, err := marshalPayload(payload)
 	if err != nil {
@@ -193,12 +197,16 @@ func marshalPayload(payload any) ([]byte, error) {
 }
 
 func (c Client) request(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string) ([]byte, error) {
+	return c.requestWithAccept(ctx, method, path, query, body, contentType, "application/json")
+}
+
+func (c Client) requestWithAccept(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string) ([]byte, error) {
 	endpoint := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: query.Encode()})
 	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", accept)
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("User-Agent", c.userAgent)
 	if contentType != "" {

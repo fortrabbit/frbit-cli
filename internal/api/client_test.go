@@ -195,7 +195,10 @@ func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
 		if got := request.URL.Query()["publicId[]"]; len(got) != 2 || got[0] != "en-abc123" || got[1] != "en-def456" {
 			t.Fatalf("publicId[] = %#v", got)
 		}
-		_, _ = writer.Write([]byte(`{"hydra:member":[{"publicId":"en-abc123","name":"production"}]}`))
+		if request.Header.Get("Accept") != "application/ld+json" {
+			t.Fatalf("accept = %q", request.Header.Get("Accept"))
+		}
+		_, _ = writer.Write([]byte(`{"hydra:member":[{"publicId":"en-abc123","name":"production"}],"hydra:totalItems":23}`))
 	}))
 	defer server.Close()
 
@@ -203,12 +206,34 @@ func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.ListResources(context.Background(), "/v1/environments", 3, []string{"en-abc123", "en-def456"})
+	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/environments", 3, []string{"en-abc123", "en-def456"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(response.Resources) != 1 || response.Resources[0]["name"] != "production" {
 		t.Fatalf("resources = %#v", response.Resources)
+	}
+	if response.TotalItems != 23 {
+		t.Fatalf("total items = %d, want 23", response.TotalItems)
+	}
+}
+
+func TestListResourcesUsesMemberCollectionTotal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"member":[{"publicId":"ap-abc123"}],"totalItems":42}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/apps", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Resources) != 1 || response.TotalItems != 42 {
+		t.Fatalf("response = %#v", response)
 	}
 }
 

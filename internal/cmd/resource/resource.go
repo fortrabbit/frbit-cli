@@ -69,7 +69,11 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs)
+			listResources := client.ListResourcesWithTotal
+			if printJSON {
+				listResources = client.ListResources
+			}
+			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs)
 			if err != nil {
 				return err
 			}
@@ -77,7 +81,7 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
 				return err
 			}
-			return writeResources(cmd.OutOrStdout(), response.Resources, spec.Fields, "No "+spec.Use+" found.")
+			return writeResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
 		},
 	}
 	if spec.SupportsPage {
@@ -228,41 +232,52 @@ func WriteResource(output io.Writer, value api.Resource) error {
 	return writeResource(output, value)
 }
 
-func writeResources(output io.Writer, resources []api.Resource, fields []Field, empty string) error {
+func writeResources(output io.Writer, resources []api.Resource, totalItems int, spec Spec) error {
 	if len(resources) == 0 {
-		if empty == "" {
-			return nil
-		}
-		_, err := fmt.Fprintln(output, empty)
-		return err
-	}
-
-	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	for index, field := range fields {
-		if index > 0 {
-			_, _ = fmt.Fprint(table, "\t")
-		}
-		if _, err := fmt.Fprint(table, field.Header); err != nil {
+		if _, err := fmt.Fprintln(output, "No "+resourceLabel(spec.Use)+" found."); err != nil {
 			return err
 		}
-	}
-	if _, err := fmt.Fprintln(table); err != nil {
-		return err
-	}
-	for _, resource := range resources {
-		for index, field := range fields {
+	} else {
+		table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+		for index, field := range spec.Fields {
 			if index > 0 {
 				_, _ = fmt.Fprint(table, "\t")
 			}
-			if _, err := fmt.Fprint(table, resourceValue(resource[field.Key])); err != nil {
+			if _, err := fmt.Fprint(table, field.Header); err != nil {
 				return err
 			}
 		}
 		if _, err := fmt.Fprintln(table); err != nil {
 			return err
 		}
+		for _, resource := range resources {
+			for index, field := range spec.Fields {
+				if index > 0 {
+					_, _ = fmt.Fprint(table, "\t")
+				}
+				if _, err := fmt.Fprint(table, resourceValue(resource[field.Key])); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(table); err != nil {
+				return err
+			}
+		}
+		if err := table.Flush(); err != nil {
+			return err
+		}
 	}
-	return table.Flush()
+
+	label := resourceLabel(spec.Use)
+	if totalItems == 1 {
+		label = spec.Singular
+	}
+	_, err := fmt.Fprintf(output, "\nTotal: %d %s\n", totalItems, label)
+	return err
+}
+
+func resourceLabel(value string) string {
+	return strings.ReplaceAll(value, "-", " ")
 }
 
 func writeResource(output io.Writer, resource api.Resource) error {

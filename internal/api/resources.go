@@ -14,8 +14,9 @@ import (
 type Resource map[string]any
 
 type ResourcesResponse struct {
-	Resources []Resource
-	Raw       []byte
+	Resources  []Resource
+	TotalItems int
+	Raw        []byte
 }
 
 type ResourceResponse struct {
@@ -58,6 +59,16 @@ func (c Client) PostAction(ctx context.Context, path string) (ResourceResponse, 
 }
 
 func (c Client) ListResources(ctx context.Context, path string, page int, publicIDs []string) (ResourcesResponse, error) {
+	return c.listResources(ctx, path, page, publicIDs, false)
+}
+
+// ListResourcesWithTotal requests collection metadata so TotalItems covers all
+// matching pages, rather than only the resources in the current response.
+func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page int, publicIDs []string) (ResourcesResponse, error) {
+	return c.listResources(ctx, path, page, publicIDs, true)
+}
+
+func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, includeTotal bool) (ResourcesResponse, error) {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
@@ -66,15 +77,21 @@ func (c Client) ListResources(ctx context.Context, path string, page int, public
 		query.Add("publicId[]", publicID)
 	}
 
-	body, err := c.get(ctx, path, query)
+	var body []byte
+	var err error
+	if includeTotal {
+		body, err = c.getCollection(ctx, path, query)
+	} else {
+		body, err = c.get(ctx, path, query)
+	}
 	if err != nil {
 		return ResourcesResponse{}, err
 	}
-	resources, err := decodeResources(body)
+	resources, totalItems, err := decodeResources(body)
 	if err != nil {
 		return ResourcesResponse{}, err
 	}
-	return ResourcesResponse{Resources: resources, Raw: body}, nil
+	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body}, nil
 }
 
 func (c Client) GetResource(ctx context.Context, path string) (ResourceResponse, error) {
@@ -93,25 +110,38 @@ func decodeResourceResponse(body []byte) (ResourceResponse, error) {
 	return ResourceResponse{Resource: resource, Raw: body}, nil
 }
 
-func decodeResources(body []byte) ([]Resource, error) {
+func decodeResources(body []byte) ([]Resource, int, error) {
 	var resources []Resource
 	if err := json.Unmarshal(body, &resources); err == nil {
-		return resources, nil
+		return resources, len(resources), nil
 	}
 
 	var paginated struct {
-		Member      []Resource `json:"member"`
-		HydraMember []Resource `json:"hydra:member"`
+		Member          []Resource `json:"member"`
+		HydraMember     []Resource `json:"hydra:member"`
+		TotalItems      *int       `json:"totalItems"`
+		HydraTotalItems *int       `json:"hydra:totalItems"`
 	}
 	if err := json.Unmarshal(body, &paginated); err != nil {
-		return nil, fmt.Errorf("decode resource collection: %w", err)
+		return nil, 0, fmt.Errorf("decode resource collection: %w", err)
+	}
+	totalItems := paginated.TotalItems
+	if totalItems == nil {
+		totalItems = paginated.HydraTotalItems
 	}
 	if paginated.Member != nil {
-		return paginated.Member, nil
+		return paginated.Member, collectionTotal(paginated.Member, totalItems), nil
 	}
 	if paginated.HydraMember != nil {
-		return paginated.HydraMember, nil
+		return paginated.HydraMember, collectionTotal(paginated.HydraMember, totalItems), nil
 	}
 
-	return nil, fmt.Errorf("decode resource collection: expected an array or a paginated member collection")
+	return nil, 0, fmt.Errorf("decode resource collection: expected an array or a paginated member collection")
+}
+
+func collectionTotal(resources []Resource, totalItems *int) int {
+	if totalItems != nil {
+		return *totalItems
+	}
+	return len(resources)
 }

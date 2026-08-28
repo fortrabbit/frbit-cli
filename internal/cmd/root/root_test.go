@@ -50,10 +50,13 @@ func TestAppsListRendersTable(t *testing.T) {
 		if request.URL.Path != "/v1/apps" {
 			t.Fatalf("path = %s", request.URL.Path)
 		}
+		if request.Header.Get("Accept") != "application/ld+json" {
+			t.Fatalf("accept = %q", request.Header.Get("Accept"))
+		}
 		if request.Header.Get("Authorization") != "Bearer test-token" {
 			t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
 		}
-		_, _ = writer.Write([]byte(`[{"publicId":"ap-abc123","name":"Store","description":"Example app","teams":["tm-abc123"],"trial":false,"updatedAt":"2026-01-02T00:00:00Z"}]`))
+		_, _ = writer.Write([]byte(`{"member":[{"publicId":"ap-abc123","name":"Store","description":"Example app","teams":["tm-abc123"],"trial":false,"updatedAt":"2026-01-02T00:00:00Z"}],"totalItems":23}`))
 	}))
 	defer server.Close()
 
@@ -67,9 +70,25 @@ func TestAppsListRendersTable(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, expected := range []string{"ID", "TEAMS", "ap-abc123", "Store", "Example app", "tm-abc123"} {
+	for _, expected := range []string{"ID", "TEAMS", "ap-abc123", "Store", "Example app", "tm-abc123", "Total: 23 apps"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("output %q does not contain %q", got, expected)
+		}
+	}
+}
+
+func TestResourceListUsesSingularTotal(t *testing.T) {
+	output := executeResourceList(t, "/v1/deployments", `[{"publicId":"dp-abc123"}]`, "deployments")
+	if !strings.Contains(output, "Total: 1 deployment") {
+		t.Fatalf("output %q does not contain singular total", output)
+	}
+}
+
+func TestEmptyResourceListIncludesZeroTotal(t *testing.T) {
+	output := executeResourceList(t, "/v1/apps", `[]`, "apps")
+	for _, expected := range []string{"No apps found.", "Total: 0 apps"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output %q does not contain %q", output, expected)
 		}
 	}
 }
@@ -77,6 +96,9 @@ func TestAppsListRendersTable(t *testing.T) {
 func TestAppsListJSONPreservesAPIResponse(t *testing.T) {
 	const payload = `[{"publicId":"ap-abc123","name":"Store","trial":false}]`
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != "application/json" {
+			t.Fatalf("accept = %q", request.Header.Get("Accept"))
+		}
 		_, _ = writer.Write([]byte(payload))
 	}))
 	defer server.Close()
