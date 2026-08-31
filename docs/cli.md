@@ -159,6 +159,8 @@ frbit apps create \
 
 Use `--team` or `--payment-method` to select an accessible team or payment method. For the complete nested API payload, pass a JSON object with `--file`, or use `--file -` to read it from standard input.
 
+Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
+
 ### Update an app
 
 ```sh
@@ -204,6 +206,8 @@ frbit environments create \
   --env APP_ENV=staging \
   --deploy
 ```
+
+Pass `--deploy` to start the initial deployment as part of creation. It requires `--branch` so the environment has a Git source. Without `--deploy`, creating an environment does not start a deployment.
 
 Update the environment name or replace its deployment configuration:
 
