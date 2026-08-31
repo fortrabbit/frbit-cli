@@ -457,7 +457,9 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if body["appId"] != "ap-abc123" || body["name"] != "staging" || body["autoscaling"] != false {
+			deployment, _ := body["deployment"].(map[string]any)
+			git, _ := deployment["git"].(map[string]any)
+			if body["appId"] != "ap-abc123" || body["name"] != "staging" || body["autoscaling"] != false || git["branch"] != "main" || deployment["startFirstDeployment"] != true {
 				t.Fatalf("create payload = %#v", body)
 			}
 			writer.WriteHeader(http.StatusCreated)
@@ -503,7 +505,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 	defer server.Close()
 
 	commands := [][]string{
-		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--component", "php=sm", "--autoscaling=false"},
+		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--component", "php=sm", "--autoscaling=false", "--branch", "main", "--deploy"},
 		{"environments", "update", "en-abc123", "--name", "preview"},
 		{"environments", "variables", "get", "en-abc123"},
 		{"environments", "variables", "update", "en-abc123", "--set", "APP_ENV=production"},
