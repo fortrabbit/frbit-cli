@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -548,6 +550,135 @@ func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
 	command.SetArgs([]string{"--host", server.URL, "apps", "create", "--file", "-"})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCompletionHelpListsAllShells(t *testing.T) {
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"completion", "--help"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range []string{"bash", "fish", "powershell", "zsh", "install"} {
+		if !strings.Contains(output.String(), shell) {
+			t.Errorf("help = %q, does not contain %q", output.String(), shell)
+		}
+	}
+}
+
+func TestCompletionGeneratorsIncludeInstallHint(t *testing.T) {
+	tests := []struct {
+		shell  string
+		script string
+	}{
+		{"bash", "_frbit"},
+		{"fish", "complete -c frbit"},
+		{"powershell", "Register-ArgumentCompleter"},
+		{"zsh", "#compdef frbit"},
+	}
+	for _, test := range tests {
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs([]string{"completion", test.shell})
+		if err := command.Execute(); err != nil {
+			t.Fatalf("completion %s: %v", test.shell, err)
+		}
+		want := "# To install this completion, run: frbit completion install " + test.shell + "\n\n"
+		if got := output.String(); !strings.HasPrefix(got, want) {
+			t.Errorf("%s output = %q, want prefix %q", test.shell, got, want)
+		}
+		if got := output.String(); !strings.Contains(got, test.script) {
+			t.Errorf("%s output = %q, want generated script containing %q", test.shell, got, test.script)
+		}
+		wantSuffix := "\n# To install this completion, run: frbit completion install " + test.shell + "\n"
+		if got := output.String(); !strings.HasSuffix(got, wantSuffix) {
+			t.Errorf("%s output = %q, want suffix %q", test.shell, got, wantSuffix)
+		}
+	}
+}
+
+func TestCompletionInstallZshWritesCompletionAndConfiguresZsh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", home)
+
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"completion", "install", "zsh"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	completionPath := filepath.Join(home, ".zfunc", "_frbit")
+	completion, err := os.ReadFile(completionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(completion), "#compdef frbit") {
+		t.Errorf("completion = %q, want zsh completion", completion)
+	}
+
+	zshrcPath := filepath.Join(home, ".zshrc")
+	zshrc, err := os.ReadFile(zshrcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(zshrc), zshCompletionMarker); got != 1 {
+		t.Errorf("completion marker count = %d, want 1", got)
+	}
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	zshrc, err = os.ReadFile(zshrcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(zshrc), zshCompletionMarker); got != 1 {
+		t.Errorf("completion marker count after reinstall = %d, want 1", got)
+	}
+}
+
+func TestCompletionInstallWritesScriptsForOtherShells(t *testing.T) {
+	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	tests := []struct {
+		shell string
+		path  string
+		want  string
+	}{
+		{"bash", filepath.Join(dataHome, "bash-completion", "completions", "frbit"), "_frbit"},
+		{"fish", filepath.Join(configHome, "fish", "completions", "frbit.fish"), "complete -c frbit"},
+		{"powershell", filepath.Join(configHome, "frbit", "completion.ps1"), "Register-ArgumentCompleter"},
+	}
+	for _, test := range tests {
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs([]string{"completion", "install", test.shell})
+		if err := command.Execute(); err != nil {
+			t.Fatalf("install %s: %v", test.shell, err)
+		}
+		completion, err := os.ReadFile(test.path)
+		if err != nil {
+			t.Fatalf("read %s completion: %v", test.shell, err)
+		}
+		if !strings.Contains(string(completion), test.want) {
+			t.Errorf("%s completion = %q, want %q", test.shell, completion, test.want)
+		}
+	}
+
+	profile, err := os.ReadFile(powerShellProfilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(profile), zshCompletionMarker) {
+		t.Errorf("PowerShell profile = %q, want completion setup", profile)
 	}
 }
 

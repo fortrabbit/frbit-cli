@@ -40,6 +40,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 	command.PersistentFlags().String("profile", app.DefaultProfile, "Credential profile")
 
 	command.AddCommand(
+		newCmdCompletion(),
 		auth.NewCmdAuth(factory),
 		apps.NewCmdApps(factory),
 		mcp.NewCmdMCP(factory, nil),

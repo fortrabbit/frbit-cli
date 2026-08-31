@@ -54,6 +54,8 @@ brews:
     homepage: https://github.com/fortrabbit/frbit-cli
     description: Command-line interface for the fortrabbit public API
     license: MIT
+    extra_install: |
+      generate_completions_from_executable(bin/"frbit", "completion")
     test: |
       system "#{bin}/frbit", "version"
     repository:
