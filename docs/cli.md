@@ -321,7 +321,7 @@ updates a stale fortrabbit URL while leaving all other MCP servers alone.
 `remove` lists the affected agent configuration files and asks for confirmation;
 pass `--yes` only for intentional unattended removal.
 
-The remote endpoint is `https://mcp.fortrabbit.com`. Claude Code stores its
+The remote endpoint is `https://mcp.fortrabbit.com/mcp`. Claude Code stores its
 user-scoped entry in `~/.claude.json`; Codex stores it in
 `~/.codex/config.toml`.
 

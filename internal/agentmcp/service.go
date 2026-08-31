@@ -15,7 +15,7 @@ import (
 
 const (
 	ServerName    = "fortrabbit"
-	ServerURL     = "https://mcp.fortrabbit.com"
+	ServerURL     = "https://mcp.fortrabbit.com/mcp"
 	CodexClientID = "https://api.fortrabbit.com/.well-known/oauth-client/codex"
 )
 
