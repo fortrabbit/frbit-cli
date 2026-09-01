@@ -85,3 +85,4 @@ case ":${PATH:-}:" in
   *":$install_dir:"*) ;;
   *) printf 'Add %s to PATH to run frbit.\n' "$install_dir" ;;
 esac
+printf 'For shell completion, run: frbit completion install <bash|fish|powershell|zsh>\n'

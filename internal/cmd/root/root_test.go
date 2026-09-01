@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -548,6 +550,108 @@ func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
 	command.SetArgs([]string{"--host", server.URL, "apps", "create", "--file", "-"})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCompletionHelpListsAllShells(t *testing.T) {
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"completion", "--help"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range []string{"bash", "fish", "powershell", "zsh", "install"} {
+		if !strings.Contains(output.String(), shell) {
+			t.Errorf("help = %q, does not contain %q", output.String(), shell)
+		}
+	}
+}
+
+func TestCompletionGeneratorsIncludeInstallHint(t *testing.T) {
+	tests := []struct {
+		shell  string
+		script string
+	}{
+		{"bash", "_frbit"},
+		{"fish", "complete -c frbit"},
+		{"powershell", "Register-ArgumentCompleter"},
+		{"zsh", "#compdef frbit"},
+	}
+	for _, test := range tests {
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs([]string{"completion", test.shell})
+		if err := command.Execute(); err != nil {
+			t.Fatalf("completion %s: %v", test.shell, err)
+		}
+		want := "# To install this completion, run: frbit completion install " + test.shell + "\n\n"
+		if got := output.String(); !strings.HasPrefix(got, want) {
+			t.Errorf("%s output = %q, want prefix %q", test.shell, got, want)
+		}
+		if got := output.String(); !strings.Contains(got, test.script) {
+			t.Errorf("%s output = %q, want generated script containing %q", test.shell, got, test.script)
+		}
+		wantSuffix := "\n# To install this completion, run: frbit completion install " + test.shell + "\n"
+		if got := output.String(); !strings.HasSuffix(got, wantSuffix) {
+			t.Errorf("%s output = %q, want suffix %q", test.shell, got, wantSuffix)
+		}
+	}
+}
+
+func TestCompletionInstallWritesAndActivatesShellCompletions(t *testing.T) {
+	home := t.TempDir()
+	dataHome := filepath.Join(home, "data")
+	configHome := filepath.Join(home, "config")
+	t.Setenv("HOME", home)
+	t.Setenv("ZDOTDIR", home)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	tests := []struct {
+		shell          string
+		completionPath string
+		completionText string
+		activationPath string
+	}{
+		{"bash", filepath.Join(dataHome, "bash-completion", "completions", "frbit"), "_frbit", ""},
+		{"fish", filepath.Join(configHome, "fish", "completions", "frbit.fish"), "complete -c frbit", ""},
+		{"powershell", filepath.Join(configHome, "frbit", "completion.ps1"), "Register-ArgumentCompleter", powerShellProfilePath(home)},
+		{"zsh", filepath.Join(home, ".zfunc", "_frbit"), "#compdef frbit", filepath.Join(home, ".zshrc")},
+	}
+	for _, test := range tests {
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs([]string{"completion", "install", test.shell})
+		if err := command.Execute(); err != nil {
+			t.Fatalf("install %s: %v", test.shell, err)
+		}
+		completion, err := os.ReadFile(test.completionPath)
+		if err != nil {
+			t.Fatalf("read %s completion: %v", test.shell, err)
+		}
+		if !strings.Contains(string(completion), test.completionText) {
+			t.Errorf("%s completion = %q, want %q", test.shell, completion, test.completionText)
+		}
+		if test.activationPath == "" {
+			continue
+		}
+		activation, err := os.ReadFile(test.activationPath)
+		if err != nil {
+			t.Fatalf("read %s activation: %v", test.shell, err)
+		}
+		if got := strings.Count(string(activation), zshCompletionMarker); got != 1 {
+			t.Errorf("%s activation marker count = %d, want 1", test.shell, got)
+		}
+		if err := command.Execute(); err != nil {
+			t.Fatalf("reinstall %s: %v", test.shell, err)
+		}
+		activation, err = os.ReadFile(test.activationPath)
+		if err != nil {
+			t.Fatalf("read %s activation after reinstall: %v", test.shell, err)
+		}
+		if got := strings.Count(string(activation), zshCompletionMarker); got != 1 {
+			t.Errorf("%s activation marker count after reinstall = %d, want 1", test.shell, got)
+		}
 	}
 }
 

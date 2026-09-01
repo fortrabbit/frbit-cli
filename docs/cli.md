@@ -23,6 +23,22 @@ frbit --help
 frbit apps list --help
 ```
 
+## Shell completion
+
+Homebrew installs completion automatically. For other installation methods, run
+the command for your shell once:
+
+```sh
+frbit completion install bash
+frbit completion install fish
+frbit completion install powershell
+frbit completion install zsh
+```
+
+The bash and fish installers save to their auto-discovery directories. The
+PowerShell installer adds the completion to its profile, and the zsh installer
+saves it in `~/.zfunc/_frbit` and adds that directory to zsh's completion path.
+
 ## Authenticate
 
 Create a personal API token in the fortrabbit dashboard, then sign in:
