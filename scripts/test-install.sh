@@ -14,9 +14,11 @@ case "$(uname -s):$(uname -m)" in
   *) printf 'unsupported test platform\n' >&2; exit 1 ;;
 esac
 
-mkdir -p "$test_dir/release" "$test_dir/package" "$test_dir/bin"
+mkdir -p "$test_dir/release" "$test_dir/package" "$test_dir/bin" "$test_dir/strict-bin"
 printf '#!/bin/sh\nexit 0\n' > "$test_dir/gh"
 chmod 0755 "$test_dir/gh"
+printf '#!/bin/sh\nexit 1\n' > "$test_dir/strict-bin/gh"
+chmod 0755 "$test_dir/strict-bin/gh"
 printf '#!/bin/sh\nprintf "frbit installer fixture\\n"\n' > "$test_dir/package/frbit"
 chmod 0755 "$test_dir/package/frbit"
 tar -czf "$test_dir/release/$asset" -C "$test_dir/package" frbit
@@ -37,10 +39,10 @@ FRBIT_RELEASE_BASE_URL="file://$test_dir/release" \
 test -x "$test_dir/bin/frbit"
 test "$("$test_dir/bin/frbit")" = "frbit installer fixture"
 
-if FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/strict-bin" PATH="/usr/bin:/bin" FRBIT_VERIFY_PROVENANCE=1 sh "$root/install.sh" 2>&1 | grep -q 'GitHub CLI (gh) is required'; then
+if FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/strict-install" PATH="$test_dir/strict-bin:$PATH" FRBIT_VERIFY_PROVENANCE=1 sh "$root/install.sh" 2>&1 | grep -q 'release provenance verification failed'; then
   :
 else
-  printf 'strict provenance check did not require gh\n' >&2
+  printf 'strict provenance check did not fail\n' >&2
   exit 1
 fi
 printf 'installer test passed\n'
