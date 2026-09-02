@@ -48,6 +48,16 @@ else
   release_base_url="https://github.com/$repository/releases/latest/download"
 fi
 
+validate_release_base_url() {
+  case "$release_base_url" in
+    https://github.com/fortrabbit/frbit-cli/releases/download/*|https://github.com/fortrabbit/frbit-cli/releases/latest/download) ;;
+    file://*) [ "${FRBIT_INSTALL_TESTING:-}" = "1" ] || fail "FRBIT_RELEASE_BASE_URL must use the official GitHub release host" ;;
+    *) fail "FRBIT_RELEASE_BASE_URL must use the official GitHub release host" ;;
+  esac
+}
+
+validate_release_base_url
+
 if [ -n "${FRBIT_INSTALL_DIR:-}" ]; then
   install_dir=${FRBIT_INSTALL_DIR%/}
 elif [ "$(id -u)" -eq 0 ]; then
@@ -75,6 +85,23 @@ else
 fi
 
 [ "$actual" = "$expected" ] || fail "checksum verification failed for $asset"
+
+verify_provenance() {
+  if command -v gh >/dev/null 2>&1; then
+    gh attestation verify "$tmp_dir/checksums.txt" \
+      --repo "$repository" \
+      --signer-workflow "$repository/.github/workflows/release.yml" \
+      --predicate-type "https://slsa.dev/provenance/v1" \
+      >/dev/null || fail "release provenance verification failed"
+    return
+  fi
+  if [ "${FRBIT_VERIFY_PROVENANCE:-}" = "1" ]; then
+    fail "GitHub CLI (gh) is required when FRBIT_VERIFY_PROVENANCE=1"
+  fi
+  printf 'frbit installer: GitHub CLI (gh) not found; skipping release provenance verification. Set FRBIT_VERIFY_PROVENANCE=1 to require this check during installation.\n' >&2
+}
+
+verify_provenance
 
 tar -xzf "$tmp_dir/$asset" -C "$tmp_dir" frbit
 mkdir -p "$install_dir"

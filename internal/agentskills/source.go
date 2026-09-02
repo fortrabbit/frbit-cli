@@ -152,7 +152,7 @@ func (s *Service) fetchPayload(ctx context.Context, release Release) (payload, e
 			result.copilot, result.hasCopilot = file, true
 		case strings.HasPrefix(name, "skills/"):
 			parts := strings.SplitN(strings.TrimPrefix(name, "skills/"), "/", 2)
-			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			if len(parts) != 2 || !validSkillName(parts[0]) || parts[1] == "" {
 				continue
 			}
 			if result.skills[parts[0]] == nil {
@@ -214,4 +214,20 @@ func stripArchiveRoot(name string) (string, bool) {
 func wantedArchivePath(name string) bool {
 	return name == "VERSION" || name == "update.sh" || name == "uninstall.sh" ||
 		name == ".github/instructions/fortrabbit.instructions.md" || strings.HasPrefix(name, "skills/")
+}
+
+// validSkillName deliberately uses a platform-independent allowlist. Archive
+// paths always use slashes, but a backslash becomes a path separator on Windows.
+func validSkillName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	for _, character := range name {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._-", character) {
+			continue
+		}
+		return false
+	}
+	return true
 }

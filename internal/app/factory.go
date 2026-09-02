@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/browser"
 	"github.com/fortrabbit/frbit-cli/internal/config"
@@ -35,7 +36,9 @@ func NewFactory(version string, commit string, date string) *Factory {
 		panic(fmt.Sprintf("initialize config store: %v", err))
 	}
 
-	httpClient := &http.Client{}
+	// This client is also used by skills downloads, which do not pass through
+	// api.NewClient's per-origin timeout wrapper.
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	checker := update.NewChecker(httpClient)
 
 	return &Factory{

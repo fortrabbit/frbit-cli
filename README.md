@@ -136,7 +136,8 @@ FRBIT_DASHBOARD_URL=http://localhost:3001 \
 link during interactive login.
 
 Host resolution is: `--host`, `FRBIT_HOST`, saved host, then the production
-default.
+default. The CLI warns before it sends credentials to a non-default host; only
+use an override you trust.
 
 ## Release
 
@@ -149,7 +150,12 @@ just release --major
 
 CI validates formatting, static analysis, tests, builds, and the GoReleaser
 configuration. Pushing a `v*` tag creates the GitHub release archives, checksums,
-SBOMs, Homebrew formula, and npm packages.
+SBOMs, Homebrew formula, and npm packages. The release job runs in the
+review-gated `release` environment and publishes a GitHub build-provenance
+attestation for `checksums.txt`. When the GitHub CLI (`gh`) is installed, the
+installer verifies that attestation before installing. To require this check,
+set `FRBIT_VERIFY_PROVENANCE=1`; otherwise the installer warns and continues
+when `gh` is unavailable.
 
 ## License
 

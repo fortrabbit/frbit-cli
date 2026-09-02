@@ -89,3 +89,16 @@ func TestCopilotRequiresProjectScope(t *testing.T) {
 		t.Fatal("expected project-scope error")
 	}
 }
+
+func TestValidSkillNameRejectsPlatformPathSeparators(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "../outside", `..\\outside`, `skill\\name`, "skill/name"} {
+		if validSkillName(name) {
+			t.Errorf("validSkillName(%q) = true, want false", name)
+		}
+	}
+	for _, name := range []string{"fortrabbit", "fortrabbit-api-access", "skill_2.0"} {
+		if !validSkillName(name) {
+			t.Errorf("validSkillName(%q) = false, want true", name)
+		}
+	}
+}
