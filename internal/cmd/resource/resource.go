@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -310,11 +311,20 @@ func writeLogs(output io.Writer, resource api.Resource) error {
 		if !ok {
 			continue
 		}
-		if _, err := fmt.Fprintf(output, "%s\t%s\n", resourceValue(entry["time"]), resourceValue(entry["log"])); err != nil {
+		if _, err := fmt.Fprintf(output, "%s\t%s\n", resourceValue(entry["time"]), stripControlCharacters(resourceValue(entry["log"]))); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func stripControlCharacters(value string) string {
+	return strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, value)
 }
 
 func resourceValue(value any) string {

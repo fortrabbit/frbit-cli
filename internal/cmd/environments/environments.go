@@ -1,6 +1,7 @@
 package environments
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -256,6 +257,7 @@ func newCmdVariables(factory *app.Factory) *cobra.Command {
 
 func newCmdVariablesGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
+	var reveal bool
 	command := &cobra.Command{
 		Use:   "get <public-id>",
 		Short: "Get custom and platform environment variables",
@@ -269,14 +271,18 @@ func newCmdVariablesGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if printJSON {
+			if printJSON && reveal {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
 				return err
 			}
-			return writeEnvironmentVariables(cmd.OutOrStdout(), response.Resource)
+			if printJSON {
+				return writeEnvironmentVariablesJSON(cmd.OutOrStdout(), response.Resource)
+			}
+			return writeEnvironmentVariables(cmd.OutOrStdout(), response.Resource, reveal)
 		},
 	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	command.Flags().BoolVar(&printJSON, "json", false, "Print environment variables as JSON (values remain masked unless --reveal is set)")
+	command.Flags().BoolVar(&reveal, "reveal", false, "Show environment variable values")
 	return command
 }
 
@@ -327,11 +333,11 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
 				return err
 			}
-			return writeEnvironmentVariables(cmd.OutOrStdout(), response.Resource)
+			return writeEnvironmentVariables(cmd.OutOrStdout(), response.Resource, false)
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
-	command.Flags().StringArrayVar(&setValues, "set", nil, "Variable to create or update as NAME=VALUE (repeatable)")
+	command.Flags().StringArrayVar(&setValues, "set", nil, "Variable to create or update as NAME=VALUE (repeatable; use --file or --file - for secrets)")
 	command.Flags().StringArrayVar(&deleteNames, "delete", nil, "Variable name to delete (repeatable)")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
@@ -386,7 +392,7 @@ func writeResourceResponse(command *cobra.Command, response api.ResourceResponse
 	return resource.WriteResource(command.OutOrStdout(), response.Resource)
 }
 
-func writeEnvironmentVariables(output io.Writer, value api.Resource) error {
+func writeEnvironmentVariables(output io.Writer, value api.Resource, reveal bool) error {
 	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 	wroteHeader := false
 	for _, kind := range []string{"custom", "platform"} {
@@ -402,8 +408,8 @@ func writeEnvironmentVariables(output io.Writer, value api.Resource) error {
 				}
 				wroteHeader = true
 			}
-			variableValue := ""
-			if variable["value"] != nil {
+			variableValue := "***"
+			if reveal && variable["value"] != nil {
 				variableValue = fmt.Sprint(variable["value"])
 			}
 			if _, err := fmt.Fprintf(table, "%s\t%s\t%s\n", kind, fmt.Sprint(variable["name"]), variableValue); err != nil {
@@ -416,4 +422,38 @@ func writeEnvironmentVariables(output io.Writer, value api.Resource) error {
 		return err
 	}
 	return table.Flush()
+}
+
+func writeEnvironmentVariablesJSON(output io.Writer, value api.Resource) error {
+	masked := make(api.Resource, len(value))
+	for key, raw := range value {
+		variables, ok := raw.([]any)
+		if !ok || (key != "custom" && key != "platform") {
+			masked[key] = raw
+			continue
+		}
+		entries := make([]any, len(variables))
+		for index, entry := range variables {
+			variable, ok := entry.(map[string]any)
+			if !ok {
+				entries[index] = entry
+				continue
+			}
+			copy := make(map[string]any, len(variable))
+			for field, fieldValue := range variable {
+				copy[field] = fieldValue
+			}
+			if copy["value"] != nil {
+				copy["value"] = "***"
+			}
+			entries[index] = copy
+		}
+		masked[key] = entries
+	}
+	encoded, err := json.Marshal(masked)
+	if err != nil {
+		return fmt.Errorf("encode environment variables: %w", err)
+	}
+	_, err = fmt.Fprintf(output, "%s\n", encoded)
+	return err
 }

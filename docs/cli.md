@@ -236,7 +236,8 @@ frbit environments update en-a1b2c3 --clear-build-commands
 Read or merge environment variables. `--set` and `--delete` are repeatable:
 
 ```sh
-frbit environments variables get en-a1b2c3
+frbit environments variables get en-a1b2c3             # values are masked
+frbit environments variables get en-a1b2c3 --reveal    # show values explicitly
 frbit environments variables update en-a1b2c3 \
   --set APP_ENV=production \
   --delete OLD_FLAG

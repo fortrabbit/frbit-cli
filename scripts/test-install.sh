@@ -15,6 +15,8 @@ case "$(uname -s):$(uname -m)" in
 esac
 
 mkdir -p "$test_dir/release" "$test_dir/package" "$test_dir/bin"
+printf '#!/bin/sh\nexit 0\n' > "$test_dir/gh"
+chmod 0755 "$test_dir/gh"
 printf '#!/bin/sh\nprintf "frbit installer fixture\\n"\n' > "$test_dir/package/frbit"
 chmod 0755 "$test_dir/package/frbit"
 tar -czf "$test_dir/release/$asset" -C "$test_dir/package" frbit
@@ -27,9 +29,18 @@ fi
 printf '%s  %s\n' "$checksum" "$asset" > "$test_dir/release/checksums.txt"
 
 FRBIT_RELEASE_BASE_URL="file://$test_dir/release" \
+  FRBIT_INSTALL_TESTING=1 \
   FRBIT_INSTALL_DIR="$test_dir/bin" \
+  PATH="$test_dir:$PATH" \
   sh "$root/install.sh"
 
 test -x "$test_dir/bin/frbit"
 test "$("$test_dir/bin/frbit")" = "frbit installer fixture"
+
+if FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/strict-bin" PATH="/usr/bin:/bin" FRBIT_VERIFY_PROVENANCE=1 sh "$root/install.sh" 2>&1 | grep -q 'GitHub CLI (gh) is required'; then
+  :
+else
+  printf 'strict provenance check did not require gh\n' >&2
+  exit 1
+fi
 printf 'installer test passed\n'

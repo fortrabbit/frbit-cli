@@ -2,10 +2,12 @@ package cmdutil
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -37,6 +39,11 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 	if err != nil {
 		return nil, err
 	}
+	if !isDefaultHost(host) {
+		if _, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host); err != nil {
+			return nil, err
+		}
+	}
 	profile, err := Profile(command)
 	if err != nil {
 		return nil, err
@@ -46,6 +53,15 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 		return nil, err
 	}
 	return Client(factory, host, token)
+}
+
+func isDefaultHost(host string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(host))
+	if err != nil {
+		return false
+	}
+	defaultParsed, _ := url.Parse(config.DefaultHost)
+	return strings.EqualFold(parsed.Scheme, defaultParsed.Scheme) && strings.EqualFold(parsed.Host, defaultParsed.Host) && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 
 func TrimToken(token string) string {
