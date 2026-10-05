@@ -530,7 +530,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 }
 
 func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
-	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwarePresetName":"generic-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
+	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwarePresetName":"general-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body := &bytes.Buffer{}
 		_, _ = body.ReadFrom(request.Body)
