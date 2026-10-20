@@ -409,7 +409,7 @@ func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 			initial, _ := body["initialEnvironment"].(map[string]any)
 			deployment, _ := initial["deployment"].(map[string]any)
 			git, _ := deployment["git"].(map[string]any)
-			if body["name"] != "store" || body["region"] != "eu-w1a" || git["repository"] != "acme/store" || deployment["startFirstDeployment"] != true {
+			if body["name"] != "store" || body["region"] != "eu-w1a" || initial["cloudDomain"] != "acme-shop" || git["repository"] != "acme/store" || deployment["startFirstDeployment"] != true {
 				t.Fatalf("create payload = %#v", body)
 			}
 			writer.WriteHeader(http.StatusCreated)
@@ -429,7 +429,7 @@ func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 	defer server.Close()
 
 	for _, args := range [][]string{
-		{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a", "--repository", "acme/store", "--branch", "main", "--deploy"},
+		{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a", "--cloud-domain", "acme-shop", "--repository", "acme/store", "--branch", "main", "--deploy"},
 		{"--host", server.URL, "apps", "update", "ap-abc123", "--name", "shop"},
 	} {
 		output := &bytes.Buffer{}
@@ -461,7 +461,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 			}
 			deployment, _ := body["deployment"].(map[string]any)
 			git, _ := deployment["git"].(map[string]any)
-			if body["appId"] != "ap-abc123" || body["name"] != "staging" || body["autoscaling"] != false || git["branch"] != "main" || deployment["startFirstDeployment"] != true {
+			if body["appId"] != "ap-abc123" || body["name"] != "staging" || body["cloudDomain"] != "acme-shop-staging" || body["autoscaling"] != false || git["branch"] != "main" || deployment["startFirstDeployment"] != true {
 				t.Fatalf("create payload = %#v", body)
 			}
 			writer.WriteHeader(http.StatusCreated)
@@ -507,7 +507,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 	defer server.Close()
 
 	commands := [][]string{
-		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--component", "php=sm", "--autoscaling=false", "--branch", "main", "--deploy"},
+		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--cloud-domain", "acme-shop-staging", "--component", "php=sm", "--autoscaling=false", "--branch", "main", "--deploy"},
 		{"environments", "update", "en-abc123", "--name", "preview"},
 		{"environments", "variables", "get", "en-abc123"},
 		{"environments", "variables", "update", "en-abc123", "--set", "APP_ENV=production"},
