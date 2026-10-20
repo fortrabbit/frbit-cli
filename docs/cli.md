@@ -175,6 +175,8 @@ frbit apps create \
 
 Use `--team` or `--payment-method` to select an accessible team or payment method. For the complete nested API payload, pass a JSON object with `--file`, or use `--file -` to read it from standard input.
 
+Pass `--cloud-domain acme-shop` to set the initial environment's cloud-domain label without its root. When omitted, the API derives an available label from the app name.
+
 Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
 
 ### Update an app
@@ -224,6 +226,8 @@ frbit environments create \
 ```
 
 Pass `--deploy` to start the initial deployment as part of creation. It requires `--branch` so the environment has a Git source. Without `--deploy`, creating an environment does not start a deployment.
+
+Pass `--cloud-domain acme-shop-staging` to set the cloud-domain label without its root. When omitted, the API derives an available label from the environment name.
 
 Update the environment name or replace its deployment configuration:
 
