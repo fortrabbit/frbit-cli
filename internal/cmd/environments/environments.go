@@ -52,6 +52,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var deploy bool
 	var softwareVersion string
 	var phpVersion string
+	var cloudDomain string
 	var componentValues []string
 	var autoscaling bool
 	var sourceEnvironment string
@@ -63,7 +64,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Create an environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := environmentCreatePayload(cmd, factory, file, appID, name, branch, directory, buildCommands, postDeployCommands, deploy, softwareVersion, phpVersion, componentValues, autoscaling, sourceEnvironment, environmentVariableValues)
+			payload, err := environmentCreatePayload(cmd, factory, file, appID, name, branch, directory, buildCommands, postDeployCommands, deploy, softwareVersion, phpVersion, cloudDomain, componentValues, autoscaling, sourceEnvironment, environmentVariableValues)
 			if err != nil {
 				return err
 			}
@@ -88,6 +89,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().BoolVar(&deploy, "deploy", false, "Start the first deployment after creation")
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().StringVar(&phpVersion, "php-version", "", "PHP runtime version")
+	command.Flags().StringVar(&cloudDomain, "cloud-domain", "", "Cloud domain label without the root")
 	command.Flags().StringArrayVar(&componentValues, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
 	command.Flags().BoolVar(&autoscaling, "autoscaling", true, "Enable autoscaling")
 	command.Flags().StringVar(&sourceEnvironment, "source-environment", "", "Environment public ID whose component plans should be cloned")
@@ -96,8 +98,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file string, appID string, name string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, softwareVersion string, phpVersion string, componentValues []string, autoscaling bool, sourceEnvironment string, environmentVariableValues []string) (any, error) {
-	inputFlags := []string{"app", "name", "branch", "directory", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "component", "autoscaling", "source-environment", "env"}
+func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file string, appID string, name string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, softwareVersion string, phpVersion string, cloudDomain string, componentValues []string, autoscaling bool, sourceEnvironment string, environmentVariableValues []string) (any, error) {
+	inputFlags := []string{"app", "name", "branch", "directory", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "cloud-domain", "component", "autoscaling", "source-environment", "env"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -124,6 +126,7 @@ func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file
 		"components":           components,
 		"autoscaling":          autoscaling,
 		"phpVersion":           nil,
+		"cloudDomain":          nil,
 		"sourceEnvironment":    nil,
 		"environmentVariables": environmentVariables,
 	}
@@ -132,6 +135,9 @@ func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file
 	}
 	if phpVersion != "" {
 		payload["phpVersion"] = phpVersion
+	}
+	if cloudDomain != "" {
+		payload["cloudDomain"] = cloudDomain
 	}
 	if sourceEnvironment != "" {
 		payload["sourceEnvironment"] = sourceEnvironment
