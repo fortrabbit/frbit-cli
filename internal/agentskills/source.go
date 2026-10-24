@@ -34,14 +34,8 @@ type archiveFile struct {
 }
 
 type payload struct {
-	version        string
-	skills         map[string]map[string]archiveFile
-	copilot        archiveFile
-	updateScript   archiveFile
-	removeScript   archiveFile
-	hasCopilot     bool
-	hasUpdate      bool
-	hasUninstaller bool
+	version string
+	skills  map[string]map[string]archiveFile
 }
 
 func DefaultSource() Source {
@@ -144,12 +138,6 @@ func (s *Service) fetchPayload(ctx context.Context, release Release) (payload, e
 		switch {
 		case name == "VERSION":
 			result.version = strings.TrimSpace(string(contents))
-		case name == "update.sh":
-			result.updateScript, result.hasUpdate = file, true
-		case name == "uninstall.sh":
-			result.removeScript, result.hasUninstaller = file, true
-		case name == ".github/instructions/fortrabbit.instructions.md":
-			result.copilot, result.hasCopilot = file, true
 		case strings.HasPrefix(name, "skills/"):
 			parts := strings.SplitN(strings.TrimPrefix(name, "skills/"), "/", 2)
 			if len(parts) != 2 || !validSkillName(parts[0]) || parts[1] == "" {
@@ -212,8 +200,7 @@ func stripArchiveRoot(name string) (string, bool) {
 }
 
 func wantedArchivePath(name string) bool {
-	return name == "VERSION" || name == "update.sh" || name == "uninstall.sh" ||
-		name == ".github/instructions/fortrabbit.instructions.md" || strings.HasPrefix(name, "skills/")
+	return name == "VERSION" || strings.HasPrefix(name, "skills/")
 }
 
 // validSkillName deliberately uses a platform-independent allowlist. Archive

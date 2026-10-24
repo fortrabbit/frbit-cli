@@ -26,11 +26,11 @@ const (
 )
 
 type Target struct {
-	Agent            Agent
-	Scope            Scope
-	SkillsBase       string
-	InstructionsFile string
-	VersionFile      string
+	Agent      Agent
+	Scope      Scope
+	SkillsBase string
+	// LegacyInstructionsFile is where agent-skills 1.x installed Copilot instructions.
+	LegacyInstructionsFile string
 }
 
 type Installation struct {
@@ -79,9 +79,6 @@ func resolveTargets(home string, workDir string, project bool, requested []Agent
 
 	targets := make([]Target, 0, len(agents))
 	for _, agent := range agents {
-		if !project && agent == AgentCopilot {
-			return nil, fmt.Errorf("GitHub Copilot skills are project-scoped; use --project with --agent copilot")
-		}
 		targets = append(targets, targetFor(agent, scope, home, workDir))
 	}
 	return targets, nil
@@ -98,12 +95,14 @@ func targetFor(agent Agent, scope Scope, home string, workDir string) Target {
 	case AgentCodex:
 		return Target{Agent: agent, Scope: scope, SkillsBase: filepath.Join(root, ".agents", "skills")}
 	case AgentCopilot:
-		instructions := filepath.Join(root, ".github", "instructions", "fortrabbit.instructions.md")
+		if scope == ScopeGlobal {
+			return Target{Agent: agent, Scope: scope, SkillsBase: filepath.Join(root, ".copilot", "skills")}
+		}
 		return Target{
-			Agent:            agent,
-			Scope:            scope,
-			InstructionsFile: instructions,
-			VersionFile:      instructions + ".version",
+			Agent:                  agent,
+			Scope:                  scope,
+			SkillsBase:             filepath.Join(root, ".github", "skills"),
+			LegacyInstructionsFile: filepath.Join(root, ".github", "instructions", "fortrabbit.instructions.md"),
 		}
 	default:
 		panic("unhandled agent " + agent)

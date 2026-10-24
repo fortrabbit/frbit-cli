@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 const sourceMarker = ".frbit-skill-source"
@@ -24,7 +23,6 @@ type Service struct {
 	source     Source
 	homeDir    func() (string, error)
 	workingDir func() (string, error)
-	now        func() time.Time
 	userAgent  string
 }
 
@@ -33,7 +31,6 @@ type Options struct {
 	Source     Source
 	HomeDir    func() (string, error)
 	WorkingDir func() (string, error)
-	Now        func() time.Time
 	UserAgent  string
 }
 
@@ -54,10 +51,6 @@ func NewService(options Options) *Service {
 	if workingDir == nil {
 		workingDir = os.Getwd
 	}
-	now := options.Now
-	if now == nil {
-		now = time.Now
-	}
 	userAgent := options.UserAgent
 	if userAgent == "" {
 		userAgent = "frbit/dev"
@@ -67,7 +60,6 @@ func NewService(options Options) *Service {
 		source:     source,
 		homeDir:    homeDir,
 		workingDir: workingDir,
-		now:        now,
 		userAgent:  userAgent,
 	}
 }
@@ -99,20 +91,11 @@ func (s *Service) InstallRelease(ctx context.Context, release Release, targets [
 	}
 
 	for _, target := range targets {
-		switch target.Agent {
-		case AgentClaudeCode, AgentCodex:
-			if err := s.installSkills(target, packageContents); err != nil {
-				return nil, fmt.Errorf("install skills for %s: %w", target.Agent.Label(), err)
-			}
-		case AgentCopilot:
-			if !packageContents.hasCopilot {
-				return nil, fmt.Errorf("skills release does not contain GitHub Copilot instructions")
-			}
-			if err := installCopilot(target, packageContents); err != nil {
-				return nil, fmt.Errorf("install skills for %s: %w", target.Agent.Label(), err)
-			}
-		default:
-			return nil, fmt.Errorf("unsupported target agent %q", target.Agent)
+		if err := installSkills(target, packageContents); err != nil {
+			return nil, fmt.Errorf("install skills for %s: %w", target.Agent.Label(), err)
+		}
+		if err := removeStale(target, packageContents); err != nil {
+			return nil, fmt.Errorf("clean up skills for %s: %w", target.Agent.Label(), err)
 		}
 	}
 	return s.InspectTargets(targets)
@@ -152,8 +135,8 @@ func (s *Service) Removals(project bool, requested []Agent) ([]Removal, error) {
 		}
 		for _, installation := range installations {
 			removal := Removal{Agent: installation.Agent, Path: installation.Path}
-			if installation.Agent == AgentCopilot {
-				removal.Additional = []string{target.VersionFile}
+			if installation.Path == target.LegacyInstructionsFile {
+				removal.Additional = []string{legacyVersionFile(target)}
 			} else {
 				removal.Directory = true
 			}
@@ -192,7 +175,7 @@ func (s *Service) Remove(removals []Removal) error {
 	return nil
 }
 
-func (s *Service) installSkills(target Target, packageContents payload) error {
+func installSkills(target Target, packageContents payload) error {
 	names := make([]string, 0, len(packageContents.skills))
 	for name := range packageContents.skills {
 		names = append(names, name)
@@ -200,26 +183,12 @@ func (s *Service) installSkills(target Target, packageContents payload) error {
 	sort.Strings(names)
 
 	for _, name := range names {
-		files := make(map[string]archiveFile, len(packageContents.skills[name])+5)
+		files := make(map[string]archiveFile, len(packageContents.skills[name])+2)
 		for relativePath, file := range packageContents.skills[name] {
 			files[relativePath] = file
 		}
 		files[".version"] = archiveFile{contents: []byte(packageContents.version + "\n"), mode: 0o644}
 		files[sourceMarker] = archiveFile{contents: []byte("https://github.com/fortrabbit/agent-skills\n"), mode: 0o644}
-		files[".last-update-check"] = archiveFile{
-			contents: []byte(fmt.Sprintf("%d\n", s.now().Unix())),
-			mode:     0o644,
-		}
-		if packageContents.hasUpdate {
-			file := packageContents.updateScript
-			file.mode = 0o755
-			files["update.sh"] = file
-		}
-		if packageContents.hasUninstaller {
-			file := packageContents.removeScript
-			file.mode = 0o755
-			files["uninstall.sh"] = file
-		}
 		if err := replaceDirectory(filepath.Join(target.SkillsBase, name), files); err != nil {
 			return err
 		}
@@ -227,31 +196,53 @@ func (s *Service) installSkills(target Target, packageContents payload) error {
 	return nil
 }
 
-func inspectTarget(target Target) ([]Installation, error) {
-	if target.Agent == AgentCopilot {
-		if _, err := os.Stat(target.InstructionsFile); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("inspect %s: %w", target.InstructionsFile, err)
+func removeStale(target Target, packageContents payload) error {
+	installations, err := inspectTarget(target)
+	if err != nil {
+		return err
+	}
+	for _, installation := range installations {
+		if installation.Path == target.LegacyInstructionsFile || packageContents.skills[installation.Skill] != nil {
+			continue
 		}
-		return []Installation{{
-			Agent:   target.Agent,
-			Skill:   "fortrabbit",
-			Scope:   target.Scope,
-			Version: readVersion(target.VersionFile),
-			Path:    target.InstructionsFile,
-		}}, nil
+		if err := os.RemoveAll(installation.Path); err != nil {
+			return fmt.Errorf("remove %s: %w", installation.Path, err)
+		}
+	}
+	if target.LegacyInstructionsFile == "" {
+		return nil
+	}
+	for _, path := range []string{target.LegacyInstructionsFile, legacyVersionFile(target)} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func inspectTarget(target Target) ([]Installation, error) {
+	var installations []Installation
+	if target.LegacyInstructionsFile != "" {
+		if _, err := os.Stat(target.LegacyInstructionsFile); err == nil {
+			installations = append(installations, Installation{
+				Agent:   target.Agent,
+				Skill:   "fortrabbit",
+				Scope:   target.Scope,
+				Version: readVersion(legacyVersionFile(target)),
+				Path:    target.LegacyInstructionsFile,
+			})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("inspect %s: %w", target.LegacyInstructionsFile, err)
+		}
 	}
 
 	entries, err := os.ReadDir(target.SkillsBase)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return installations, nil
 		}
 		return nil, fmt.Errorf("inspect %s: %w", target.SkillsBase, err)
 	}
-	var installations []Installation
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -280,6 +271,10 @@ func isFortrabbitSkill(directory string, name string) bool {
 	}
 	_, err := os.Stat(filepath.Join(directory, "SKILL.md"))
 	return err == nil
+}
+
+func legacyVersionFile(target Target) string {
+	return target.LegacyInstructionsFile + ".version"
 }
 
 func readVersion(path string) string {

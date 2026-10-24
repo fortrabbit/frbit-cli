@@ -342,8 +342,8 @@ OAuth authorization. Codex authorization can be started with
 `codex mcp login fortrabbit`; in Claude Code, use `/mcp`.
 
 `setup agent` is user-wide and supports Claude Code and Codex. To install only
-the skills, including project-scoped skills or GitHub Copilot instructions, use
-the `frbit skills` commands below.
+the skills, including project-scoped skills or GitHub Copilot skills, use the
+`frbit skills` commands below.
 
 ## MCP server
 
@@ -378,16 +378,23 @@ frbit skills install
 A user-wide install detects existing Claude Code (`~/.claude`) and Codex
 (`~/.codex`) configuration directories. Codex skills are written to its
 user-skill location at `~/.agents/skills`. Select an agent explicitly to bypass
-detection. Repeat `--agent` to install for more than one agent.
+detection. Repeat `--agent` to install for more than one agent. GitHub Copilot
+is never detected: select it with `--agent copilot` to write its user skills to
+`~/.copilot/skills`.
 
 ```sh
 frbit skills install --agent claude-code
 frbit skills install --agent claude-code --agent codex
+frbit skills install --agent copilot
 ```
 
 Install into the current project with `--project`. With no explicit agent, a
-project install writes the skills for Claude Code and Codex and writes the
-repository-scoped GitHub Copilot instructions.
+project install writes the skills for Claude Code (`.claude/skills`), Codex
+(`.agents/skills`) and GitHub Copilot (`.github/skills`).
+
+Install and update remove fortrabbit skills that the release no longer ships,
+and the `.github/instructions/fortrabbit.instructions.md` file written by
+earlier releases for Copilot.
 
 ```sh
 frbit skills install --project
