@@ -35,13 +35,6 @@ func replaceDirectory(target string, files map[string]archiveFile) error {
 	return replacePath(temporary, target)
 }
 
-func installCopilot(target Target, packageContents payload) error {
-	if err := writeFileAtomically(target.InstructionsFile, packageContents.copilot.contents, 0o644); err != nil {
-		return err
-	}
-	return writeFileAtomically(target.VersionFile, []byte(packageContents.version+"\n"), 0o644)
-}
-
 func writeArchiveFile(root string, relativePath string, file archiveFile) error {
 	clean := filepath.Clean(filepath.FromSlash(relativePath))
 	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
@@ -59,31 +52,6 @@ func writeArchiveFile(root string, relativePath string, file archiveFile) error 
 		return fmt.Errorf("write %s: %w", destination, err)
 	}
 	return nil
-}
-
-func writeFileAtomically(target string, contents []byte, mode os.FileMode) error {
-	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", parent, err)
-	}
-	temporary, err := os.CreateTemp(parent, "."+filepath.Base(target)+".tmp-")
-	if err != nil {
-		return fmt.Errorf("create temporary file for %s: %w", target, err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(mode); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("set permissions on %s: %w", temporaryPath, err)
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("write %s: %w", temporaryPath, err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", temporaryPath, err)
-	}
-	return replacePath(temporaryPath, target)
 }
 
 func replacePath(source string, target string) error {

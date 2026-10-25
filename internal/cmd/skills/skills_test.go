@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -19,6 +18,7 @@ import (
 )
 
 type fixtureTransport struct {
+	version      string
 	archive      []byte
 	releaseCalls int
 	archiveCalls int
@@ -30,8 +30,8 @@ func (transport *fixtureTransport) RoundTrip(request *http.Request) (*http.Respo
 	switch request.URL.Path {
 	case "/release":
 		transport.releaseCalls++
-		body = []byte(`{"tag_name":"v1.2.3"}`)
-	case "/archive/v1.2.3":
+		body = []byte(`{"tag_name":"v` + transport.version + `"}`)
+	case "/archive/v" + transport.version:
 		transport.archiveCalls++
 		body = transport.archive
 	default:
@@ -50,7 +50,7 @@ func (transport *fixtureTransport) RoundTrip(request *http.Request) (*http.Respo
 func TestProjectSkillsLifecycle(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	transport := &fixtureTransport{archive: skillsArchive(t, "1.2.3")}
+	transport := &fixtureTransport{version: "1.2.3", archive: skillsArchive(t, "1.2.3", currentReleaseFiles)}
 	service := fixtureService(home, project, transport)
 	factory := &app.Factory{Version: "9.8.7", IOStreams: iostreams.IOStreams{In: strings.NewReader("n\n")}}
 
@@ -59,7 +59,7 @@ func TestProjectSkillsLifecycle(t *testing.T) {
 		"Installed fortrabbit agent skills v1.2.3",
 		filepath.Join(project, ".claude", "skills", "fortrabbit"),
 		filepath.Join(project, ".agents", "skills", "fortrabbit-api-access"),
-		filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md"),
+		filepath.Join(project, ".github", "skills", "fortrabbit"),
 	} {
 		if !strings.Contains(installOutput, expected) {
 			t.Fatalf("install output %q does not contain %q", installOutput, expected)
@@ -68,12 +68,14 @@ func TestProjectSkillsLifecycle(t *testing.T) {
 	assertFileContents(t, filepath.Join(project, ".claude", "skills", "fortrabbit", "SKILL.md"), "# fortrabbit\n")
 	assertFileContents(t, filepath.Join(project, ".agents", "skills", "fortrabbit", "references", "deploy.md"), "deploy\n")
 	assertFileContents(t, filepath.Join(project, ".claude", "skills", "fortrabbit-api-access", ".version"), "1.2.3\n")
-	assertFileContents(t, filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md.version"), "1.2.3\n")
-	if info, err := os.Stat(filepath.Join(project, ".agents", "skills", "fortrabbit", "update.sh")); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o755 {
-		t.Fatalf("update script mode = %o", info.Mode().Perm())
-	}
+	assertFileContents(t, filepath.Join(project, ".github", "skills", "fortrabbit", ".version"), "1.2.3\n")
+	assertFileContents(t, filepath.Join(project, ".github", "skills", "fortrabbit", ".frbit-skill-source"), "https://github.com/fortrabbit/agent-skills\n")
+	assertMissing(t,
+		filepath.Join(project, ".agents", "skills", "fortrabbit", "update.sh"),
+		filepath.Join(project, ".agents", "skills", "fortrabbit", "uninstall.sh"),
+		filepath.Join(project, ".agents", "skills", "fortrabbit", ".last-update-check"),
+		filepath.Join(project, ".github", "instructions"),
+	)
 
 	listOutput := executeSkills(t, factory, service, "list", "--project")
 	for _, expected := range []string{"frbit CLI version: 9.8.7", "AGENT", "claude-code", "codex", "copilot", "fortrabbit-api-access", "1.2.3", "project"} {
@@ -103,21 +105,75 @@ func TestProjectSkillsLifecycle(t *testing.T) {
 	if !strings.Contains(removeOutput, "Removed ") {
 		t.Fatalf("remove output = %q", removeOutput)
 	}
-	for _, path := range []string{
+	assertMissing(t,
 		filepath.Join(project, ".claude", "skills", "fortrabbit"),
 		filepath.Join(project, ".agents", "skills", "fortrabbit-api-access"),
-		filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md"),
-		filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md.version"),
-	} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("%s still exists or stat failed unexpectedly: %v", path, err)
-		}
+		filepath.Join(project, ".github", "skills", "fortrabbit"),
+	)
+}
+
+func TestInstallMergedReleaseRemovesLegacyFiles(t *testing.T) {
+	project := t.TempDir()
+	instructions := filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md")
+	writeFile(t, instructions, "# Copilot\n")
+	writeFile(t, instructions+".version", "1.2.3\n")
+	writeFile(t, filepath.Join(project, ".claude", "skills", "fortrabbit-api-access", "SKILL.md"), "# API access\n")
+	writeFile(t, filepath.Join(project, ".claude", "skills", "fortrabbit-api-access", ".frbit-skill-source"), "https://github.com/fortrabbit/agent-skills\n")
+	writeFile(t, filepath.Join(project, ".claude", "skills", "other", "SKILL.md"), "# other\n")
+	writeFile(t, filepath.Join(project, ".github", "instructions", "other.instructions.md"), "# other\n")
+
+	transport := &fixtureTransport{version: "2.0.0", archive: skillsArchive(t, "2.0.0", mergedReleaseFiles)}
+	service := fixtureService(t.TempDir(), project, transport)
+	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+	executeSkills(t, factory, service, "install", "--project")
+
+	for _, root := range []string{".claude", ".agents", ".github"} {
+		assertFileContents(t, filepath.Join(project, root, "skills", "fortrabbit", ".version"), "2.0.0\n")
 	}
+	assertMissing(t,
+		filepath.Join(project, ".claude", "skills", "fortrabbit-api-access"),
+		instructions,
+		instructions+".version",
+	)
+	assertFileContents(t, filepath.Join(project, ".claude", "skills", "other", "SKILL.md"), "# other\n")
+	assertFileContents(t, filepath.Join(project, ".github", "instructions", "other.instructions.md"), "# other\n")
+}
+
+func TestListAndRemoveFindLegacyCopilotInstructions(t *testing.T) {
+	project := t.TempDir()
+	instructions := filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md")
+	writeFile(t, instructions, "# Copilot\n")
+	writeFile(t, instructions+".version", "1.2.3\n")
+
+	transport := &fixtureTransport{version: "1.2.3", archive: skillsArchive(t, "1.2.3", currentReleaseFiles)}
+	service := fixtureService(t.TempDir(), project, transport)
+	factory := &app.Factory{Version: "9.8.7", IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+
+	listOutput := executeSkills(t, factory, service, "list", "--project", "--agent", "copilot")
+	if !strings.Contains(listOutput, instructions) || !strings.Contains(listOutput, "1.2.3") {
+		t.Fatalf("list output = %q", listOutput)
+	}
+	executeSkills(t, factory, service, "remove", "--project", "--agent", "copilot", "--yes")
+	assertMissing(t, instructions, instructions+".version")
+}
+
+func TestInstallCopilotUserScope(t *testing.T) {
+	home := t.TempDir()
+	transport := &fixtureTransport{version: "2.0.0", archive: skillsArchive(t, "2.0.0", mergedReleaseFiles)}
+	service := fixtureService(home, t.TempDir(), transport)
+	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+
+	output := executeSkills(t, factory, service, "install", "--agent", "copilot")
+	skill := filepath.Join(home, ".copilot", "skills", "fortrabbit")
+	if !strings.Contains(output, skill) {
+		t.Fatalf("install output = %q", output)
+	}
+	assertFileContents(t, filepath.Join(skill, "SKILL.md"), "# fortrabbit\n")
 }
 
 func TestInstallTargetsOnlyExplicitAgent(t *testing.T) {
 	project := t.TempDir()
-	transport := &fixtureTransport{archive: skillsArchive(t, "1.2.3")}
+	transport := &fixtureTransport{version: "1.2.3", archive: skillsArchive(t, "1.2.3", currentReleaseFiles)}
 	service := fixtureService(t.TempDir(), project, transport)
 	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
 
@@ -145,7 +201,7 @@ func TestUpdateMigratesExistingScriptInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	transport := &fixtureTransport{archive: skillsArchive(t, "1.2.3")}
+	transport := &fixtureTransport{version: "1.2.3", archive: skillsArchive(t, "1.2.3", currentReleaseFiles)}
 	service := fixtureService(t.TempDir(), project, transport)
 	factory := &app.Factory{Version: "9.8.7", IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
 	output := executeSkills(t, factory, service, "update", "--project", "--agent", "codex")
@@ -162,7 +218,7 @@ func TestUpdateMigratesExistingScriptInstall(t *testing.T) {
 
 func TestInstallRejectsArchiveVersionMismatch(t *testing.T) {
 	project := t.TempDir()
-	transport := &fixtureTransport{archive: skillsArchive(t, "9.9.9")}
+	transport := &fixtureTransport{version: "1.2.3", archive: skillsArchive(t, "9.9.9", currentReleaseFiles)}
 	service := fixtureService(t.TempDir(), project, transport)
 	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
 	command := NewCmdSkills(factory, service)
@@ -196,21 +252,30 @@ func fixtureService(home string, project string, transport *fixtureTransport) *a
 		},
 		HomeDir:    func() (string, error) { return home, nil },
 		WorkingDir: func() (string, error) { return project, nil },
-		Now:        func() time.Time { return time.Unix(123456789, 0) },
 		UserAgent:  "frbit/test",
 	})
 }
 
-func skillsArchive(t *testing.T, version string) []byte {
+// currentReleaseFiles mirrors the 1.x package layout, which still ships the scripts and Copilot instructions.
+var currentReleaseFiles = map[string]string{
+	"update.sh":                                       "#!/bin/sh\n",
+	"uninstall.sh":                                    "#!/bin/sh\n",
+	"skills/fortrabbit/SKILL.md":                      "# fortrabbit\n",
+	"skills/fortrabbit/references/deploy.md":          "deploy\n",
+	"skills/fortrabbit-api-access/SKILL.md":           "# API access\n",
+	".github/instructions/fortrabbit.instructions.md": "# Copilot\n",
+}
+
+var mergedReleaseFiles = map[string]string{
+	"skills/fortrabbit/SKILL.md":             "# fortrabbit\n",
+	"skills/fortrabbit/references/deploy.md": "deploy\n",
+}
+
+func skillsArchive(t *testing.T, version string, releaseFiles map[string]string) []byte {
 	t.Helper()
-	files := map[string]string{
-		"agent-skills-fixture/VERSION":                                         version + "\n",
-		"agent-skills-fixture/update.sh":                                       "#!/bin/sh\n",
-		"agent-skills-fixture/uninstall.sh":                                    "#!/bin/sh\n",
-		"agent-skills-fixture/skills/fortrabbit/SKILL.md":                      "# fortrabbit\n",
-		"agent-skills-fixture/skills/fortrabbit/references/deploy.md":          "deploy\n",
-		"agent-skills-fixture/skills/fortrabbit-api-access/SKILL.md":           "# API access\n",
-		"agent-skills-fixture/.github/instructions/fortrabbit.instructions.md": "# Copilot\n",
+	files := map[string]string{"agent-skills-fixture/VERSION": version + "\n"}
+	for name, contents := range releaseFiles {
+		files["agent-skills-fixture/"+name] = contents
 	}
 	buffer := &bytes.Buffer{}
 	gzipWriter := gzip.NewWriter(buffer)
@@ -241,6 +306,25 @@ func skillsArchive(t *testing.T, version string) []byte {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+func writeFile(t *testing.T, path string, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertMissing(t *testing.T, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s still exists or stat failed unexpectedly: %v", path, err)
+		}
+	}
 }
 
 func assertFileContents(t *testing.T, path string, expected string) {

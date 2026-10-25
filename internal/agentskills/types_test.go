@@ -80,13 +80,27 @@ func TestExplicitAgentDoesNotRequireDetection(t *testing.T) {
 	}
 }
 
-func TestCopilotRequiresProjectScope(t *testing.T) {
+func TestCopilotTargetsSkillDirectories(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
 	service := NewService(Options{
-		HomeDir:    func() (string, error) { return t.TempDir(), nil },
-		WorkingDir: func() (string, error) { return t.TempDir(), nil },
+		HomeDir:    func() (string, error) { return home, nil },
+		WorkingDir: func() (string, error) { return workDir, nil },
 	})
-	if _, err := service.InstallTargets(false, []Agent{AgentCopilot}); err == nil {
-		t.Fatal("expected project-scope error")
+	for _, test := range []struct {
+		project bool
+		want    string
+	}{
+		{project: false, want: filepath.Join(home, ".copilot", "skills")},
+		{project: true, want: filepath.Join(workDir, ".github", "skills")},
+	} {
+		targets, err := service.InstallTargets(test.project, []Agent{AgentCopilot})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(targets) != 1 || targets[0].SkillsBase != test.want {
+			t.Fatalf("project=%v targets = %#v, want skills base %q", test.project, targets, test.want)
+		}
 	}
 }
 
