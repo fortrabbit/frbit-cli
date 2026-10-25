@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	ServerName    = "fortrabbit"
-	ServerURL     = "https://mcp.fortrabbit.com/mcp"
-	CodexClientID = "https://api.fortrabbit.com/.well-known/oauth-client/codex"
+	ServerName = "fortrabbit"
+	ServerURL  = "https://mcp.fortrabbit.com/mcp"
+	// Codex before 0.148 needed this static client ID; entries that carry it keep working.
+	LegacyCodexClientID = "https://api.fortrabbit.com/.well-known/oauth-client/codex"
 )
 
 type Change string
@@ -201,7 +202,7 @@ func (s *Service) inspectOne(ctx context.Context, target agent.Agent) (Registrat
 	registration.URL = extractURL(output)
 	registration.Current = registration.URL == ServerURL
 	if target == agent.Codex && registration.Current {
-		if clientID, present := extractJSONValue(output, "oauth_client_id", "oauthClientId"); present && clientID != CodexClientID {
+		if clientID, present := extractJSONValue(output, "oauth_client_id", "oauthClientId"); present && clientID != LegacyCodexClientID {
 			registration.Current = false
 		}
 	}
@@ -232,7 +233,7 @@ func (s *Service) addOne(ctx context.Context, target agent.Agent) error {
 	case agent.ClaudeCode:
 		output, err = s.runner.Run(ctx, "claude", "mcp", "add", "--transport", "http", "--scope", "user", ServerName, ServerURL)
 	case agent.Codex:
-		output, err = s.runner.Run(ctx, "codex", "mcp", "add", ServerName, "--url", ServerURL, "--oauth-client-id", CodexClientID)
+		output, err = s.runner.Run(ctx, "codex", "mcp", "add", ServerName, "--url", ServerURL)
 	}
 	if err != nil {
 		return fmt.Errorf("register fortrabbit MCP server with %s: %w: %s", target.Label(), err, strings.TrimSpace(output))
