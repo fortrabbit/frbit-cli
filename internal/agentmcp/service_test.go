@@ -112,6 +112,44 @@ func TestInstallReplacesCodexRegistrationWithForeignClientID(t *testing.T) {
 	}
 }
 
+func TestWithoutClaudePlugin(t *testing.T) {
+	both := []agent.Agent{agent.ClaudeCode, agent.Codex}
+	for name, tc := range map[string]struct {
+		response fakeResponse
+		skipped  bool
+	}{
+		"enabled":             {response: fakeResponse{output: `[{"id":"fortrabbit@fortrabbit","enabled":true}]`}, skipped: true},
+		"other marketplace":   {response: fakeResponse{output: `[{"id":"fortrabbit@claude-plugins-official","enabled":true}]`}, skipped: true},
+		"warning before json": {response: fakeResponse{output: "warning: update available\n" + `[{"id":"fortrabbit@fortrabbit","enabled":true}]`}, skipped: true},
+		"disabled":            {response: fakeResponse{output: `[{"id":"fortrabbit@fortrabbit","enabled":false}]`}},
+		"other plugin":        {response: fakeResponse{output: `[{"id":"fortrabbit-extras@fortrabbit","enabled":true}]`}},
+		"no plugin support":   {response: fakeResponse{output: "error: unknown command 'plugin'", err: errors.New("exit 1")}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{responses: map[string]fakeResponse{"claude plugin list --json": tc.response}}
+			remaining, skipped := testService(runner).WithoutClaudePlugin(context.Background(), both)
+			if skipped != tc.skipped {
+				t.Fatalf("skipped = %v, want %v", skipped, tc.skipped)
+			}
+			want := both
+			if tc.skipped {
+				want = []agent.Agent{agent.Codex}
+			}
+			if !reflect.DeepEqual(remaining, want) {
+				t.Fatalf("remaining = %#v, want %#v", remaining, want)
+			}
+		})
+	}
+}
+
+func TestWithoutClaudePluginLeavesCodexOnlyAlone(t *testing.T) {
+	runner := &fakeRunner{}
+	remaining, skipped := testService(runner).WithoutClaudePlugin(context.Background(), []agent.Agent{agent.Codex})
+	if skipped || len(remaining) != 1 || len(runner.calls) != 0 {
+		t.Fatalf("remaining = %#v, skipped = %v, calls = %#v", remaining, skipped, runner.calls)
+	}
+}
+
 func TestPreflightReportsMissingAgentCLI(t *testing.T) {
 	service := NewService(Options{
 		HomeDir: func() (string, error) { return "/home/test", nil },

@@ -47,6 +47,15 @@ func newCmdInstall(service *agentmcp.Service) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			agents, pluginSkipped := service.WithoutClaudePlugin(cmd.Context(), agents)
+			if pluginSkipped {
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Claude Code: skipped, the fortrabbit plugin already brings the MCP server."); err != nil {
+					return err
+				}
+				if len(agents) == 0 {
+					return nil
+				}
+			}
 			results, err := service.Install(cmd.Context(), agents)
 			if err != nil {
 				return err
