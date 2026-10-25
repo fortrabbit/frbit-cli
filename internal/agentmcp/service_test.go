@@ -42,7 +42,7 @@ func testService(runner Runner) *Service {
 func TestInstallAddsMissingAndLeavesCurrentRegistrationAlone(t *testing.T) {
 	runner := &fakeRunner{responses: map[string]fakeResponse{
 		"claude mcp get fortrabbit":       {output: "No MCP server named: fortrabbit", err: errors.New("exit 1")},
-		"codex mcp get fortrabbit --json": {output: fmt.Sprintf(`{"transport":{"url":%q},"oauth_client_id":%q}`, ServerURL, CodexClientID)},
+		"codex mcp get fortrabbit --json": {output: fmt.Sprintf(`{"transport":{"url":%q},"oauth_client_id":%q}`, ServerURL, LegacyCodexClientID)},
 	}}
 	results, err := testService(runner).Install(context.Background(), []agent.Agent{agent.ClaudeCode, agent.Codex})
 	if err != nil {
@@ -79,10 +79,36 @@ func TestInstallReplacesOnlyNamedStaleRegistration(t *testing.T) {
 	wantCalls := []string{
 		"codex mcp get fortrabbit --json",
 		"codex mcp remove fortrabbit",
-		"codex mcp add fortrabbit --url " + ServerURL + " --oauth-client-id " + CodexClientID,
+		"codex mcp add fortrabbit --url " + ServerURL,
 	}
 	if !reflect.DeepEqual(runner.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, wantCalls)
+	}
+}
+
+func TestInstallLeavesCodexRegistrationWithoutClientIDAlone(t *testing.T) {
+	runner := &fakeRunner{responses: map[string]fakeResponse{
+		"codex mcp get fortrabbit --json": {output: fmt.Sprintf(`{"transport":{"url":%q},"oauth_client_id":null}`, ServerURL)},
+	}}
+	results, err := testService(runner).Install(context.Background(), []agent.Agent{agent.Codex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Change != ChangeUnchanged {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
+func TestInstallReplacesCodexRegistrationWithForeignClientID(t *testing.T) {
+	runner := &fakeRunner{responses: map[string]fakeResponse{
+		"codex mcp get fortrabbit --json": {output: fmt.Sprintf(`{"transport":{"url":%q},"oauth_client_id":"https://other.example/client"}`, ServerURL)},
+	}}
+	results, err := testService(runner).Install(context.Background(), []agent.Agent{agent.Codex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Change != ChangeUpdated {
+		t.Fatalf("results = %#v", results)
 	}
 }
 

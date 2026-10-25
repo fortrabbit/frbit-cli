@@ -39,7 +39,7 @@ func TestInstallReportsChangesAndOAuthHint(t *testing.T) {
 			t.Fatalf("output %q does not contain %q", output, expected)
 		}
 	}
-	if got := runner.calls[len(runner.calls)-1]; !strings.Contains(got, "--oauth-client-id "+agentmcp.CodexClientID) {
+	if got := runner.calls[len(runner.calls)-1]; got != "codex mcp add fortrabbit --url "+agentmcp.ServerURL {
 		t.Fatalf("add call = %q", got)
 	}
 }
