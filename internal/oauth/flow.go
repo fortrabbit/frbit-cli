@@ -325,7 +325,8 @@ func completeCallback(ctx context.Context, client *http.Client, metadata serverM
 		}
 		return credentials.Credential{}, errors.New(message)
 	}
-	if issuer := query.Get("iss"); issuer != "" && issuer != metadata.Issuer {
+	// FRAPI always sends iss (RFC 9207), so a callback without it did not come from the expected server.
+	if issuer := query.Get("iss"); issuer != metadata.Issuer {
 		return credentials.Credential{}, fmt.Errorf("sign-in came from issuer %q, expected %q", issuer, metadata.Issuer)
 	}
 	code := query.Get("code")

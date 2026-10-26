@@ -177,7 +177,11 @@ func (b *browser) open(rawURL string) error {
 	go func() {
 		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		for _, callback := range b.callbacks {
-			response, err := client.Get(redirectURI + "?" + callback(redirectURI, query.Get("state")).Encode())
+			values := callback(redirectURI, query.Get("state"))
+			if _, set := values["iss"]; !set {
+				values.Set("iss", b.fake.issuer())
+			}
+			response, err := client.Get(redirectURI + "?" + values.Encode())
 			if err != nil {
 				b.t.Errorf("callback: %v", err)
 				return
@@ -247,6 +251,28 @@ func TestLoginIgnoresWrongState(t *testing.T) {
 	defer fake.mu.Unlock()
 	if len(fake.tokenRequests) != 1 || fake.tokenRequests[0].Get("code") != "the-code" {
 		t.Fatalf("token requests = %#v", fake.tokenRequests)
+	}
+}
+
+func TestLoginRejectsMissingOrWrongIssuer(t *testing.T) {
+	for name, issuer := range map[string]string{"missing": "", "wrong": "https://evil.example"} {
+		t.Run(name, func(t *testing.T) {
+			fake := newFakeServer(t)
+			callback := func(_ string, state string) url.Values {
+				return url.Values{"code": {"the-code"}, "state": {state}, "iss": {issuer}}
+			}
+			person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{callback}, responses: make(chan *http.Response, 1)}
+
+			_, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: person.open, Out: &strings.Builder{}, Timeout: 5 * time.Second})
+			if err == nil || !strings.Contains(err.Error(), "sign-in came from issuer") {
+				t.Fatalf("Login() error = %v", err)
+			}
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			if len(fake.tokenRequests) != 0 {
+				t.Fatalf("token requests = %#v", fake.tokenRequests)
+			}
+		})
 	}
 }
 
@@ -408,7 +434,7 @@ func TestLoginAnswersReplayAndOtherPaths(t *testing.T) {
 		fake.mu.Lock()
 		fake.challenge, fake.redirectURI = query.Get("code_challenge"), query.Get("redirect_uri")
 		fake.mu.Unlock()
-		callback := query.Get("redirect_uri") + "?" + url.Values{"code": {"the-code"}, "state": {query.Get("state")}}.Encode()
+		callback := query.Get("redirect_uri") + "?" + url.Values{"code": {"the-code"}, "state": {query.Get("state")}, "iss": {fake.issuer()}}.Encode()
 		get := func(target string) {
 			response, err := client.Get(target)
 			if err != nil {

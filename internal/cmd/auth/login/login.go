@@ -120,6 +120,9 @@ func runBrowser(options *Options) error {
 	if err != nil {
 		return err
 	}
+	if err := cmdutil.WarnNonDefaultHost(command, host); err != nil {
+		return err
+	}
 	dashboardURL, err := config.DashboardURL()
 	if err != nil {
 		return err
@@ -199,6 +202,9 @@ func runToken(options *Options) error {
 	}
 	host, err := cmdutil.Host(options.Command, options.Factory)
 	if err != nil {
+		return err
+	}
+	if err := cmdutil.WarnNonDefaultHost(options.Command, host); err != nil {
 		return err
 	}
 	client, err := cmdutil.Client(options.Factory, host, token)

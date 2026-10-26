@@ -113,7 +113,7 @@ func (f *fakeAPI) approve(t *testing.T) func(string) error {
 		f.mu.Unlock()
 		go func() {
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			response, err := client.Get(query.Get("redirect_uri") + "?" + url.Values{"code": {"the-code"}, "state": {query.Get("state")}}.Encode())
+			response, err := client.Get(query.Get("redirect_uri") + "?" + url.Values{"code": {"the-code"}, "state": {query.Get("state")}, "iss": {f.URL}}.Encode())
 			if err != nil {
 				t.Errorf("callback: %v", err)
 				return
@@ -126,17 +126,24 @@ func (f *fakeAPI) approve(t *testing.T) func(string) error {
 
 func executeLogin(t *testing.T, factory *app.Factory, host string, args ...string) (string, error) {
 	t.Helper()
+	output, _, err := executeLoginWithStderr(t, factory, host, args...)
+	return output, err
+}
+
+func executeLoginWithStderr(t *testing.T, factory *app.Factory, host string, args ...string) (string, string, error) {
+	t.Helper()
 	output := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
 	factory.IOStreams.Out = output
 	root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().String("host", "", "")
 	root.PersistentFlags().String("profile", app.DefaultProfile, "")
 	root.AddCommand(NewCmdLogin(factory, nil))
 	root.SetOut(output)
-	root.SetErr(&bytes.Buffer{})
+	root.SetErr(stderr)
 	root.SetArgs(append([]string{"--host", host, "login"}, args...))
 	err := root.Execute()
-	return output.String(), err
+	return output.String(), stderr.String(), err
 }
 
 func loginFactory(t *testing.T, fake *fakeAPI) (*app.Factory, *memoryCredentialStore, *memoryConfigStore) {
@@ -178,6 +185,22 @@ func TestLoginSignsInThroughTheBrowserWithoutATerminal(t *testing.T) {
 	}
 	if strings.Index(output, "/oauth2/authorize?") > strings.Index(output, "ada@example.com") {
 		t.Fatalf("URL was not printed first: %q", output)
+	}
+}
+
+func TestLoginWarnsAboutANonDefaultHost(t *testing.T) {
+	for _, args := range [][]string{{"--json"}, {"--token-stdin"}} {
+		fake := newFakeAPI(t)
+		factory, _, _ := loginFactory(t, fake)
+		factory.IOStreams.In = strings.NewReader("frbit-at-test\n")
+
+		_, stderr, err := executeLoginWithStderr(t, factory, fake.URL, args...)
+		if err != nil {
+			t.Fatalf("login %v error = %v", args, err)
+		}
+		if !strings.Contains(stderr, "non-default host "+fake.URL) {
+			t.Fatalf("login %v stderr = %q", args, stderr)
+		}
 	}
 }
 

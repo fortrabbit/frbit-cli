@@ -60,10 +60,8 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 	if err != nil {
 		return nil, err
 	}
-	if !isDefaultHost(host) {
-		if _, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host); err != nil {
-			return nil, err
-		}
+	if err := WarnNonDefaultHost(command, host); err != nil {
+		return nil, err
 	}
 	profile, err := Profile(command)
 	if err != nil {
@@ -74,6 +72,15 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 		return nil, err
 	}
 	return CredentialClient(factory, host, profile, credential)
+}
+
+// WarnNonDefaultHost flags a host set by flag, environment or config, since a cloned repo can set FRBIT_HOST.
+func WarnNonDefaultHost(command *cobra.Command, host string) error {
+	if isDefaultHost(host) {
+		return nil
+	}
+	_, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host)
+	return err
 }
 
 func isDefaultHost(host string) bool {
