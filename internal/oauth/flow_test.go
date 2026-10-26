@@ -43,6 +43,8 @@ type fakeServer struct {
 	challenge     string
 	redirectURI   string
 	tokenRequests []url.Values
+	// exchanging, when set, receives a signal and blocks the token endpoint until it is closed.
+	exchanging chan chan struct{}
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -71,6 +73,11 @@ func (f *fakeServer) serve(writer http.ResponseWriter, request *http.Request) {
 		}
 		if err := request.ParseForm(); err != nil {
 			f.t.Errorf("parse form: %v", err)
+		}
+		if f.exchanging != nil {
+			release := make(chan struct{})
+			f.exchanging <- release
+			<-release
 		}
 		f.mu.Lock()
 		f.tokenRequests = append(f.tokenRequests, request.PostForm)
@@ -188,7 +195,7 @@ func TestLoginCompletesBrowserFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if credential.Kind != credentials.KindOAuth || credential.AccessToken != "access-1" || credential.RefreshToken != "refresh-1" {
+	if credential.Kind != credentials.KindOAuth || credential.AccessToken != "access-1" || credential.RefreshToken != "refresh-1" || credential.Issuer != fake.issuer() {
 		t.Fatalf("credential = %#v", credential)
 	}
 	if until := time.Until(credential.ExpiresAt); until < 59*time.Minute || until > time.Hour {
@@ -298,5 +305,97 @@ func TestRefreshRotatesTokens(t *testing.T) {
 	var tokenErr *TokenError
 	if !errors.As(err, &tokenErr) || tokenErr.Code != "invalid_grant" {
 		t.Fatalf("Refresh() error = %v", err)
+	}
+}
+
+func TestLoginAnswersReplayAndOtherPaths(t *testing.T) {
+	fake := newFakeServer(t)
+	fake.exchanging = make(chan chan struct{})
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	statuses := make(chan int, 3)
+	open := func(rawURL string) error {
+		authorize, _ := url.Parse(rawURL)
+		query := authorize.Query()
+		fake.mu.Lock()
+		fake.challenge, fake.redirectURI = query.Get("code_challenge"), query.Get("redirect_uri")
+		fake.mu.Unlock()
+		callback := query.Get("redirect_uri") + "?" + url.Values{"code": {"the-code"}, "state": {query.Get("state")}}.Encode()
+		get := func(target string) {
+			response, err := client.Get(target)
+			if err != nil {
+				t.Errorf("GET %s: %v", target, err)
+				statuses <- 0
+				return
+			}
+			_ = response.Body.Close()
+			statuses <- response.StatusCode
+		}
+		go func() {
+			go get(callback)
+			release := <-fake.exchanging
+			get(callback)
+			get(strings.TrimSuffix(query.Get("redirect_uri"), "/callback") + "/favicon.ico")
+			close(release)
+		}()
+		return nil
+	}
+
+	if _, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: open, Out: &strings.Builder{}, Timeout: 5 * time.Second}); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	got := []int{<-statuses, <-statuses, <-statuses}
+	want := map[int]bool{http.StatusConflict: true, http.StatusNotFound: true, http.StatusFound: true}
+	for _, status := range got {
+		if !want[status] {
+			t.Fatalf("statuses = %v", got)
+		}
+		delete(want, status)
+	}
+}
+
+func metadataServer(t *testing.T, metadata func(origin string) map[string]any) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(metadata("http://" + request.Host))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestDiscoverRejectsEndpointsOffTheIssuerOrigin(t *testing.T) {
+	server := metadataServer(t, func(origin string) map[string]any {
+		return map[string]any{"issuer": origin, "authorization_endpoint": origin + "/oauth2/authorize", "token_endpoint": "https://evil.example/oauth2/token"}
+	})
+
+	_, err := discover(context.Background(), server.Client(), server.URL)
+	if err == nil || !strings.Contains(err.Error(), "token_endpoint") {
+		t.Fatalf("discover() error = %v", err)
+	}
+}
+
+func TestDiscoverAcceptsMissingScopesSupported(t *testing.T) {
+	server := metadataServer(t, func(origin string) map[string]any {
+		return map[string]any{"issuer": origin, "authorization_endpoint": origin + "/oauth2/authorize", "token_endpoint": origin + "/oauth2/token"}
+	})
+
+	if _, err := discover(context.Background(), server.Client(), server.URL); err != nil {
+		t.Fatalf("discover() error = %v", err)
+	}
+}
+
+func TestSameOrigin(t *testing.T) {
+	for _, test := range []struct {
+		first, second string
+		want          bool
+	}{
+		{"https://api.fortrabbit.com", "https://API.fortrabbit.com:443/v1", true},
+		{"http://127.0.0.1:8085", "http://127.0.0.1:8085/", true},
+		{"https://api.fortrabbit.com", "https://evil.example", false},
+		{"http://127.0.0.1:8085", "http://127.0.0.1:8086", false},
+		{"https://api.fortrabbit.com", "", false},
+	} {
+		if got := SameOrigin(test.first, test.second); got != test.want {
+			t.Errorf("SameOrigin(%q, %q) = %t", test.first, test.second, got)
+		}
 	}
 }

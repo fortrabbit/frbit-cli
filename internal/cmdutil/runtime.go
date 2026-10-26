@@ -42,6 +42,9 @@ func CredentialClient(factory *app.Factory, host string, profile string, credent
 	if credential.Kind != credentials.KindOAuth {
 		return Client(factory, host, credential.AccessToken)
 	}
+	if !oauth.SameOrigin(host, credential.Issuer) {
+		return nil, fmt.Errorf("profile %q is signed in to %s, not %s; run `frbit auth login` for that host", profile, credential.Issuer, host)
+	}
 	if factory.CredentialLockPath == "" {
 		return nil, fmt.Errorf("no credential lock path is configured")
 	}

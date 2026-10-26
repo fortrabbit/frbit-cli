@@ -49,8 +49,7 @@ func (staticToken) Refresh(context.Context, string) (string, error) { return "",
 
 type RefreshFunc func(ctx context.Context, refreshToken string) (credentials.Credential, error)
 
-// OAuthTokens refreshes a stored OAuth credential. Refresh tokens rotate and a reused one revokes
-// the whole grant, so concurrent frbit processes refresh under a file lock and re-read the store first.
+// OAuthTokens refreshes under a file lock and re-reads the store first, since reusing a rotated refresh token revokes the grant.
 type OAuthTokens struct {
 	store    credentials.Store
 	profile  string

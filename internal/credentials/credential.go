@@ -17,13 +17,18 @@ type Credential struct {
 	AccessToken  string    `json:"accessToken"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt,omitzero"`
+	Issuer       string    `json:"issuer,omitempty"`
 }
 
 func APIToken(token string) Credential {
 	return Credential{Kind: KindAPIToken, AccessToken: token}
 }
 
+// Encode keeps API tokens as plain strings so older frbit binaries can still read them.
 func Encode(credential Credential) (string, error) {
+	if credential.Kind == KindAPIToken {
+		return credential.AccessToken, nil
+	}
 	encoded, err := json.Marshal(credential)
 	if err != nil {
 		return "", fmt.Errorf("encode credential: %w", err)

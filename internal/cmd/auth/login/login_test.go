@@ -322,14 +322,19 @@ func TestLoginTokenStdinKeepsTheTokenPath(t *testing.T) {
 	}
 }
 
-func TestLoginWithFRBITTokenKeepsTheTokenPath(t *testing.T) {
+func TestLoginRefusesWhileFRBITTokenIsSet(t *testing.T) {
 	fake := newFakeAPI(t)
 	factory, _, _ := loginFactory(t, fake)
 	t.Setenv("FRBIT_TOKEN", "frbit-at-env")
+	const message = "FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser"
 
 	_, err := executeLogin(t, factory, fake.URL)
-	if err == nil || !strings.Contains(err.Error(), "--token-stdin") {
+	if err == nil || err.Error() != message {
 		t.Fatalf("login error = %v", err)
+	}
+	output, err := executeLogin(t, factory, fake.URL, "--json")
+	if err == nil || strings.TrimSpace(output) != `{"status":"error","error":"`+message+`"}` {
+		t.Fatalf("login --json output = %q, error = %v", output, err)
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -344,5 +349,71 @@ func TestLoginHelpMentionsTheBrowserAndTokenStdin(t *testing.T) {
 		if !strings.Contains(command.Long, expected) {
 			t.Fatalf("help %q does not mention %q", command.Long, expected)
 		}
+	}
+}
+
+func TestLoginJSONReportsTerminalErrorAsJSONLine(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "")
+	factory := &app.Factory{
+		IOStreams:       iostreams.IOStreams{In: strings.NewReader("")},
+		ConfigStore:     &memoryConfigStore{},
+		CredentialStore: &memoryCredentialStore{credentials: map[string]credentials.Credential{}},
+		HTTPClient:      server.Client(),
+	}
+
+	output, err := executeLogin(t, factory, server.URL, "--json")
+	if err == nil {
+		t.Fatal("login succeeded without a sign-in server")
+	}
+	var line struct{ Status, Error string }
+	if decodeErr := json.Unmarshal([]byte(output), &line); decodeErr != nil || line.Status != "error" || line.Error != err.Error() {
+		t.Fatalf("output = %q (%v), error = %v", output, decodeErr, err)
+	}
+}
+
+// urlWriter starts the callback once the JSON waiting line arrives, standing in for a person who copies the URL.
+type urlWriter struct {
+	mu      sync.Mutex
+	buffer  bytes.Buffer
+	started bool
+	onURL   func(string) error
+}
+
+func (w *urlWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.started {
+		var waiting struct{ URL string }
+		if json.Unmarshal(bytes.TrimSpace(p), &waiting) == nil && waiting.URL != "" {
+			w.started = true
+			_ = w.onURL(waiting.URL)
+		}
+	}
+	return w.buffer.Write(p)
+}
+
+func TestLoginNoBrowserDoesNotOpenTheBrowser(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, store, _ := loginFactory(t, fake)
+	factory.OpenBrowser = func(string) error {
+		t.Error("browser opened with --no-browser")
+		return nil
+	}
+	writer := &urlWriter{onURL: fake.approve(t)}
+	root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().String("host", "", "")
+	root.PersistentFlags().String("profile", app.DefaultProfile, "")
+	root.AddCommand(NewCmdLogin(factory, nil))
+	root.SetOut(writer)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--host", fake.URL, "login", "--no-browser", "--json"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("login error = %v", err)
+	}
+	if store.credentials["default"].Kind != credentials.KindOAuth {
+		t.Fatalf("stored credential = %#v", store.credentials["default"])
 	}
 }

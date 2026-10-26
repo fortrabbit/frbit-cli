@@ -70,6 +70,26 @@ func (m serverMetadata) clientID() string {
 	return strings.TrimRight(m.Issuer, "/") + clientIDPath
 }
 
+// SameOrigin reports whether two absolute URLs share scheme, host and effective port.
+func SameOrigin(first string, second string) bool {
+	a, errA := url.Parse(first)
+	b, errB := url.Parse(second)
+	if errA != nil || errB != nil || a.Host == "" || b.Host == "" {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Hostname(), b.Hostname()) && effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(value *url.URL) string {
+	if port := value.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(value.Scheme, "http") {
+		return "80"
+	}
+	return "443"
+}
+
 func (m serverMetadata) resource() string {
 	return strings.TrimRight(m.Issuer, "/") + "/v1"
 }
@@ -260,9 +280,15 @@ func discover(ctx context.Context, client *http.Client, host string) (serverMeta
 	if len(metadata.ScopesSupported) > 0 && !slices.Contains(metadata.ScopesSupported, scope) {
 		return serverMetadata{}, unsupported
 	}
-	for name, value := range map[string]string{"issuer": metadata.Issuer, "authorization_endpoint": metadata.AuthorizationEndpoint, "token_endpoint": metadata.TokenEndpoint} {
+	if _, err := checkEndpoint(metadata.Issuer); err != nil {
+		return serverMetadata{}, fmt.Errorf("sign-in server metadata issuer: %w", err)
+	}
+	for name, value := range map[string]string{"authorization_endpoint": metadata.AuthorizationEndpoint, "token_endpoint": metadata.TokenEndpoint} {
 		if _, err := checkEndpoint(value); err != nil {
 			return serverMetadata{}, fmt.Errorf("sign-in server metadata %s: %w", name, err)
+		}
+		if !SameOrigin(value, metadata.Issuer) {
+			return serverMetadata{}, fmt.Errorf("sign-in server metadata %s %q is not on the issuer's origin %q", name, value, metadata.Issuer)
 		}
 	}
 	return metadata, nil
@@ -321,7 +347,7 @@ func requestTokens(ctx context.Context, client *http.Client, metadata serverMeta
 	if payload.TokenType != "" && !strings.EqualFold(payload.TokenType, "Bearer") {
 		return credentials.Credential{}, fmt.Errorf("token response has unsupported token type %q", payload.TokenType)
 	}
-	credential := credentials.Credential{Kind: credentials.KindOAuth, AccessToken: payload.AccessToken, RefreshToken: payload.RefreshToken}
+	credential := credentials.Credential{Kind: credentials.KindOAuth, AccessToken: payload.AccessToken, RefreshToken: payload.RefreshToken, Issuer: metadata.Issuer}
 	if payload.ExpiresIn > 0 {
 		credential.ExpiresAt = time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second).UTC()
 	}

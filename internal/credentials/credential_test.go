@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,17 +16,38 @@ func TestDecodeLegacyStringIsAPIToken(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeOAuthCredential(t *testing.T) {
-	expiresAt := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
-	encoded, err := Encode(Credential{Kind: KindOAuth, AccessToken: "access", RefreshToken: "refresh", ExpiresAt: expiresAt})
+func TestEncodeKeepsAPITokenAsPlainString(t *testing.T) {
+	encoded, err := Encode(APIToken("frbit-at-plain"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if encoded != "frbit-at-plain" {
+		t.Fatalf("encoded = %q", encoded)
 	}
 	credential, err := Decode(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.Kind != KindOAuth || credential.AccessToken != "access" || credential.RefreshToken != "refresh" || !credential.ExpiresAt.Equal(expiresAt) {
+	if credential != APIToken("frbit-at-plain") {
+		t.Fatalf("credential = %#v", credential)
+	}
+}
+
+func TestEncodeDecodeOAuthCredential(t *testing.T) {
+	expiresAt := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	original := Credential{Kind: KindOAuth, AccessToken: "access", RefreshToken: "refresh", ExpiresAt: expiresAt, Issuer: "https://api.fortrabbit.com"}
+	encoded, err := Encode(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(encoded, "{") {
+		t.Fatalf("encoded = %q, want JSON", encoded)
+	}
+	credential, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential != original {
 		t.Fatalf("credential = %#v", credential)
 	}
 }

@@ -2,6 +2,7 @@ package login
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,7 +39,9 @@ With --json, the command prints {"url": …, "status": "waiting"} at once and
 
 In CI or without a browser, pipe a personal API token to --token-stdin, or set
 FRBIT_TOKEN for each command instead of signing in. With FRBIT_TOKEN set, login
-asks for a token instead of opening the browser.`
+refuses to start, since FRBIT_TOKEN overrides any stored credential.
+
+With --json, a failure prints {"status": "error", "error": …}.`
 
 func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command {
 	options := &Options{Factory: factory}
@@ -65,10 +68,22 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 }
 
 func run(options *Options) error {
-	if options.TokenStdin || strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) != "" {
+	if options.TokenStdin {
 		return runToken(options)
 	}
-	return runBrowser(options)
+	var err error
+	if strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) != "" {
+		err = errors.New("FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser")
+	} else {
+		err = runBrowser(options)
+	}
+	if err != nil && options.JSON {
+		_ = writeJSONLine(options.Command.OutOrStdout(), struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		}{"error", err.Error()})
+	}
+	return err
 }
 
 func runBrowser(options *Options) error {

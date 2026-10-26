@@ -722,7 +722,7 @@ func TestAuthStatusJSONReportsOAuthCredential(t *testing.T) {
 	factory := testFactory(output)
 	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	factory.CredentialStore = &memoryCredentialStore{tokens: map[string]credentials.Credential{
-		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-mcp-at-1", RefreshToken: "frbit-mcp-rt-1", ExpiresAt: expiresAt},
+		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-mcp-at-1", RefreshToken: "frbit-mcp-rt-1", ExpiresAt: expiresAt, Issuer: server.URL},
 	}}
 	factory.CredentialLockPath = filepath.Join(t.TempDir(), "credentials.lock")
 
@@ -741,5 +741,33 @@ func TestAuthStatusJSONReportsOAuthCredential(t *testing.T) {
 	}
 	if status.Profile != app.DefaultProfile || status.Host != server.URL || status.Kind != credentials.KindOAuth || !status.ExpiresAt.Equal(expiresAt) || status.Next.Step != "connect_git" {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestOAuthCredentialIsNotSentToAnotherHost(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.CredentialStore = &memoryCredentialStore{tokens: map[string]credentials.Credential{
+		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-mcp-at-1", RefreshToken: "frbit-mcp-rt-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: "https://api.fortrabbit.com"},
+	}}
+	factory.CredentialLockPath = filepath.Join(t.TempDir(), "credentials.lock")
+
+	for _, args := range [][]string{{"apps", "list"}, {"auth", "status"}} {
+		command := NewCmdRoot(factory)
+		command.SetArgs(append([]string{"--host", server.URL}, args...))
+		err := command.Execute()
+		if err == nil || !strings.Contains(err.Error(), "run `frbit auth login` for that host") {
+			t.Fatalf("%v error = %v", args, err)
+		}
+	}
+	if called {
+		t.Fatal("the OAuth credential was sent to a host other than its issuer")
 	}
 }

@@ -47,7 +47,7 @@ Sign in through the browser:
 frbit auth login
 ```
 
-The command prints the sign-in URL first, opens it in your default browser, and waits up to 15 minutes. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires.
+The command prints the sign-in URL first, opens it in your default browser, and waits up to 15 minutes. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
 
 | Option | Effect |
 |--|--|
@@ -76,7 +76,7 @@ Use `FRBIT_TOKEN` in CI, scripts, containers, and agents. It is used only for th
 FRBIT_TOKEN=frbit-at-… frbit apps list
 ```
 
-Without a browser, store a personal API token from standard input instead of signing in. Avoid placing tokens directly in shell history or command-line arguments.
+Without a browser, store a personal API token from standard input instead of signing in. `frbit auth login` without `--token-stdin` refuses to start while `FRBIT_TOKEN` is set. Avoid placing tokens directly in shell history or command-line arguments.
 
 ```sh
 printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
