@@ -56,6 +56,8 @@ The command prints the sign-in URL first, opens it in your default browser, and 
 | `--signup` | Open the sign-up page instead of the login page, for people without an account |
 | `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
 
+If the person denies the consent request, the browser tab shows "Not connected. Your agent knows; you can close this tab." and the command fails. With `--json` the last line is `{"status": "error", "code": "access_denied", "error": …}`. The consent request is used up, so ask the person before running `frbit auth login` again. Other stable codes: `timeout` and `frbit_token_set`.
+
 Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`. For a person without an account they add `--signup`.
 
 Verify the active credential at any time. It shows the profile, host, credential kind, expiry, and the next setup step. With `--json` it prints one line with `"status": "signed_in"` and the same fields, `{"status": "signed_out"}` (exit 0) without a credential, or `{"status": "error", "error": …}` (exit 1):

@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const codeFrbitTokenSet = "frbit_token_set"
+
 type Options struct {
 	Factory    *app.Factory
 	Command    *cobra.Command
@@ -47,7 +49,9 @@ Use --signup when the person has no fortrabbit account yet: the browser opens th
 sign-up page instead of the login page. --name suggests the name for the new
 account (1 to 100 characters); pass only a name the person gave you or their git user.name.
 
-With --json, a failure prints {"status": "error", "error": …}.`
+With --json, a failure prints {"status": "error", "code": …, "error": …}. The code is
+set when it is stable: access_denied (the person denied the consent request, which is
+then used up), timeout, or frbit_token_set.`
 
 func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command {
 	options := &Options{Factory: factory}
@@ -87,8 +91,9 @@ func run(options *Options) error {
 	if err != nil && options.JSON {
 		_ = writeJSONLine(options.Command.OutOrStdout(), struct {
 			Status string `json:"status"`
+			Code   string `json:"code,omitempty"`
 			Error  string `json:"error"`
-		}{"error", err.Error()})
+		}{"error", oauth.ErrorCode(err), err.Error()})
 	}
 	return err
 }
@@ -100,7 +105,7 @@ func checkBrowserOptions(options *Options) error {
 		}
 	}
 	if strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) != "" {
-		return errors.New("FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser")
+		return &oauth.CodedError{Code: codeFrbitTokenSet, Message: "FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser"}
 	}
 	return nil
 }

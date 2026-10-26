@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -43,6 +44,8 @@ type fakeServer struct {
 	challenge     string
 	redirectURI   string
 	tokenRequests []url.Values
+	revokeStatus  int
+	revokeForms   []url.Values
 	// exchanging, when set, receives a signal and blocks the token endpoint until it is closed.
 	exchanging chan chan struct{}
 }
@@ -67,6 +70,18 @@ func (f *fakeServer) serve(writer http.ResponseWriter, request *http.Request) {
 			"revocation_endpoint":    f.issuer() + "/oauth2/revoke",
 			"scopes_supported":       []string{"mcp", "api"},
 		})
+	case "/oauth2/revoke":
+		_ = request.ParseForm()
+		f.mu.Lock()
+		f.revokeForms = append(f.revokeForms, request.PostForm)
+		status := f.revokeStatus
+		f.mu.Unlock()
+		if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			f.t.Errorf("revoke request %s %q", request.Method, request.Header.Get("Content-Type"))
+		}
+		if status != 0 {
+			writer.WriteHeader(status)
+		}
 	case "/oauth2/token":
 		if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
 			f.t.Errorf("token request %s %q", request.Method, request.Header.Get("Content-Type"))
@@ -243,8 +258,82 @@ func TestLoginReportsDeniedConsent(t *testing.T) {
 	person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{denied}, responses: make(chan *http.Response, 1)}
 
 	_, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: person.open, Out: &strings.Builder{}, Timeout: 5 * time.Second})
-	if err == nil || !strings.Contains(err.Error(), "access_denied") {
+	if err == nil || !strings.Contains(err.Error(), "access_denied") || ErrorCode(err) != CodeAccessDenied {
+		t.Fatalf("Login() error = %v, code %q", err, ErrorCode(err))
+	}
+}
+
+func TestDeniedConsentAnswersPlainPageWithoutRedirect(t *testing.T) {
+	fake := newFakeServer(t)
+	type answer struct {
+		page, contentType, location string
+		status                      int
+	}
+	answers := make(chan answer, 1)
+	opened := func(rawURL string) error {
+		authorize, _ := url.Parse(rawURL)
+		query := authorize.Query()
+		go func() {
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			target := query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}, "redirect_to": {"https://evil.example/"}}.Encode()
+			response, err := client.Get(target)
+			if err != nil {
+				t.Errorf("callback: %v", err)
+				return
+			}
+			defer response.Body.Close()
+			body, _ := io.ReadAll(response.Body)
+			answers <- answer{string(body), response.Header.Get("Content-Type"), response.Header.Get("Location"), response.StatusCode}
+		}()
+		return nil
+	}
+
+	_, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: opened, Out: &strings.Builder{}, Timeout: 5 * time.Second})
+	if ErrorCode(err) != CodeAccessDenied {
 		t.Fatalf("Login() error = %v", err)
+	}
+	got := <-answers
+	if got.status != http.StatusOK || !strings.HasPrefix(got.contentType, "text/plain") || got.location != "" {
+		t.Fatalf("status %d, type %q, location %q", got.status, got.contentType, got.location)
+	}
+	if strings.TrimSpace(got.page) != "Not connected. Your agent knows; you can close this tab." {
+		t.Fatalf("page = %q", got.page)
+	}
+}
+
+func TestRevokePostsRefreshToken(t *testing.T) {
+	fake := newFakeServer(t)
+
+	if err := Revoke(context.Background(), fake.URL, nil, "refresh-1"); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.revokeForms) != 1 {
+		t.Fatalf("revoke requests = %d", len(fake.revokeForms))
+	}
+	form := fake.revokeForms[0]
+	if form.Get("token") != "refresh-1" || form.Get("token_type_hint") != "refresh_token" || form.Get("client_id") != fake.issuer()+"/.well-known/oauth-client/frbit-cli" {
+		t.Fatalf("revoke form = %v", form)
+	}
+}
+
+func TestRevokeReportsServerError(t *testing.T) {
+	fake := newFakeServer(t)
+	fake.revokeStatus = http.StatusInternalServerError
+
+	if err := Revoke(context.Background(), fake.URL, nil, "refresh-1"); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+}
+
+func TestRevokeFailsWithoutEndpoint(t *testing.T) {
+	server := metadataServer(t, func(origin string) map[string]any {
+		return map[string]any{"issuer": origin, "authorization_endpoint": origin + "/a", "token_endpoint": origin + "/t"}
+	})
+
+	if err := Revoke(context.Background(), server.URL, nil, "refresh-1"); err == nil || !strings.Contains(err.Error(), "revocation") {
+		t.Fatalf("Revoke() error = %v", err)
 	}
 }
 
@@ -268,8 +357,8 @@ func TestLoginTimeoutNamesTokenStdin(t *testing.T) {
 	fake := newFakeServer(t)
 
 	_, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, Out: &strings.Builder{}, Timeout: 50 * time.Millisecond})
-	if err == nil || !strings.Contains(err.Error(), "--token-stdin") {
-		t.Fatalf("Login() error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "--token-stdin") || ErrorCode(err) != CodeTimeout {
+		t.Fatalf("Login() error = %v, code %q", err, ErrorCode(err))
 	}
 }
 

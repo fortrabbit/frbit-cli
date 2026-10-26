@@ -246,13 +246,47 @@ func TestLoginRefusesWhileFRBITTokenIsSet(t *testing.T) {
 		t.Fatalf("login error = %v", err)
 	}
 	output, err := executeLogin(t, factory, fake.URL, "--json")
-	if err == nil || strings.TrimSpace(output) != `{"status":"error","error":"`+message+`"}` {
+	if err == nil || strings.TrimSpace(output) != `{"status":"error","code":"frbit_token_set","error":"`+message+`"}` {
 		t.Fatalf("login --json output = %q, error = %v", output, err)
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	if fake.discoveries != 0 {
 		t.Fatalf("browser sign-in started with FRBIT_TOKEN set")
+	}
+}
+
+func TestLoginJSONReportsDeniedConsentWithCode(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, store, _ := loginFactory(t, fake)
+	factory.OpenBrowser = func(rawURL string) error {
+		authorize, err := url.Parse(rawURL)
+		if err != nil {
+			return err
+		}
+		query := authorize.Query()
+		go func() {
+			response, err := http.Get(query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}}.Encode())
+			if err != nil {
+				t.Errorf("callback: %v", err)
+				return
+			}
+			_ = response.Body.Close()
+		}()
+		return nil
+	}
+
+	output, err := executeLogin(t, factory, fake.URL, "--json")
+	if err == nil {
+		t.Fatal("login succeeded after a denied consent")
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var line struct{ Status, Code, Error string }
+	if decodeErr := json.Unmarshal([]byte(lines[len(lines)-1]), &line); decodeErr != nil || line.Status != "error" || line.Code != "access_denied" || line.Error == "" {
+		t.Fatalf("output = %q (%v)", output, decodeErr)
+	}
+	if _, err := store.Get(app.DefaultProfile); err == nil {
+		t.Fatal("a credential was stored after a denied consent")
 	}
 }
 

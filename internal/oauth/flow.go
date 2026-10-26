@@ -61,6 +61,29 @@ func ValidateNameHint(name string) error {
 	return nil
 }
 
+// Stable codes for machine-readable failures.
+const (
+	CodeAccessDenied = "access_denied"
+	CodeTimeout      = "timeout"
+)
+
+// CodedError is a failure with a stable code that --json output carries.
+type CodedError struct {
+	Code    string
+	Message string
+}
+
+func (e *CodedError) Error() string { return e.Message }
+
+// ErrorCode returns the stable code of err, or an empty string.
+func ErrorCode(err error) string {
+	var coded *CodedError
+	if errors.As(err, &coded) {
+		return coded.Code
+	}
+	return ""
+}
+
 type TokenError struct {
 	Status      int
 	Code        string
@@ -82,6 +105,7 @@ type serverMetadata struct {
 	Issuer                string   `json:"issuer"`
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`
 	TokenEndpoint         string   `json:"token_endpoint"`
+	RevocationEndpoint    string   `json:"revocation_endpoint"`
 	ScopesSupported       []string `json:"scopes_supported"`
 }
 
@@ -190,6 +214,11 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 		accepted.Unlock()
 
 		credential, err := completeCallback(ctx, client, metadata, query, redirectURI, verifier)
+		if ErrorCode(err) == CodeAccessDenied {
+			writePage(writer, http.StatusOK, "Not connected. Your agent knows; you can close this tab.")
+			results <- callbackResult{err: err}
+			return
+		}
 		if err != nil {
 			writePage(writer, http.StatusBadRequest, "frbit CLI could not sign in: "+err.Error()+"\nReturn to your terminal.")
 			results <- callbackResult{err: err}
@@ -225,7 +254,7 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 		return result.credential, result.err
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return credentials.Credential{}, fmt.Errorf("no browser sign-in within %s; in CI or without a browser, pipe an API token to `frbit auth login --token-stdin` or set FRBIT_TOKEN", humanDuration(timeout))
+			return credentials.Credential{}, &CodedError{Code: CodeTimeout, Message: fmt.Sprintf("no browser sign-in within %s; in CI or without a browser, pipe an API token to `frbit auth login --token-stdin` or set FRBIT_TOKEN", humanDuration(timeout))}
 		}
 		return credentials.Credential{}, ctx.Err()
 	}
@@ -252,12 +281,49 @@ func Refresh(ctx context.Context, host string, httpClient *http.Client, refreshT
 	return credential, nil
 }
 
+// Revoke asks the server to revoke a refresh token (RFC 7009). A 200 answer means revoked or already unknown.
+func Revoke(ctx context.Context, host string, httpClient *http.Client, refreshToken string) error {
+	client := tokenClient(httpClient)
+	metadata, err := discover(ctx, client, host)
+	if err != nil {
+		return err
+	}
+	if metadata.RevocationEndpoint == "" {
+		return errors.New("the sign-in server offers no revocation endpoint")
+	}
+	form := url.Values{
+		"token":           {refreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {metadata.clientID()},
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, metadata.RevocationEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("create revocation request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Accept", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("perform revocation request: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("revocation request failed with HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func completeCallback(ctx context.Context, client *http.Client, metadata serverMetadata, query url.Values, redirectURI string, verifier string) (credentials.Credential, error) {
 	if code := query.Get("error"); code != "" {
 		if description := query.Get("error_description"); description != "" {
 			code += ": " + description
 		}
-		return credentials.Credential{}, fmt.Errorf("sign-in was not completed: %s", code)
+		message := fmt.Sprintf("sign-in was not completed: %s", code)
+		if query.Get("error") == CodeAccessDenied {
+			return credentials.Credential{}, &CodedError{Code: CodeAccessDenied, Message: message}
+		}
+		return credentials.Credential{}, errors.New(message)
 	}
 	if issuer := query.Get("iss"); issuer != "" && issuer != metadata.Issuer {
 		return credentials.Credential{}, fmt.Errorf("sign-in came from issuer %q, expected %q", issuer, metadata.Issuer)
@@ -315,7 +381,10 @@ func discover(ctx context.Context, client *http.Client, host string) (serverMeta
 	if !SameOrigin(metadata.Issuer, origin.String()) {
 		return serverMetadata{}, fmt.Errorf("the sign-in metadata of %s names another issuer, %s; sign in against that host or check the API host", origin, metadata.Issuer)
 	}
-	for name, value := range map[string]string{"authorization_endpoint": metadata.AuthorizationEndpoint, "token_endpoint": metadata.TokenEndpoint} {
+	for name, value := range map[string]string{"authorization_endpoint": metadata.AuthorizationEndpoint, "token_endpoint": metadata.TokenEndpoint, "revocation_endpoint": metadata.RevocationEndpoint} {
+		if name == "revocation_endpoint" && value == "" {
+			continue
+		}
 		if _, err := checkEndpoint(value); err != nil {
 			return serverMetadata{}, fmt.Errorf("sign-in server metadata %s: %w", name, err)
 		}
