@@ -17,6 +17,7 @@ type mcpService interface {
 	ResolveAgents([]agent.Agent) ([]agent.Agent, error)
 	Preflight([]agent.Agent) error
 	Install(context.Context, []agent.Agent) ([]agentmcp.Result, error)
+	WithoutClaudePlugin(context.Context, []agent.Agent) ([]agent.Agent, bool)
 }
 
 type skillsService interface {
@@ -66,6 +67,15 @@ func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *co
 			if err := mcp.Preflight(agents); err != nil {
 				return err
 			}
+			agents, pluginSkipped := mcp.WithoutClaudePlugin(cmd.Context(), agents)
+			if pluginSkipped {
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), claudePluginNotice); err != nil {
+					return err
+				}
+				if len(agents) == 0 {
+					return nil
+				}
+			}
 
 			targets, err := skills.InstallTargets(false, agents)
 			if err != nil {
@@ -95,6 +105,8 @@ func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *co
 	command.Flags().StringArrayVar(&agentValues, "agent", nil, "Target agent (claude-code or codex); repeat to target more than one")
 	return command
 }
+
+const claudePluginNotice = "Claude Code: skipped, the fortrabbit plugin already brings the skill and the MCP server."
 
 func printSummary(
 	writer io.Writer,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/agent"
@@ -111,6 +112,44 @@ func (s *Service) Preflight(agents []agent.Agent) error {
 		}
 	}
 	return nil
+}
+
+// ClaudePluginName is the Claude Code plugin from fortrabbit/agent-skills; it brings its own skill and MCP server.
+const ClaudePluginName = "fortrabbit"
+
+// WithoutClaudePlugin drops Claude Code from agents when the fortrabbit plugin is enabled there.
+func (s *Service) WithoutClaudePlugin(ctx context.Context, agents []agent.Agent) ([]agent.Agent, bool) {
+	if !slices.Contains(agents, agent.ClaudeCode) || !s.claudePluginEnabled(ctx) {
+		return agents, false
+	}
+	return slices.DeleteFunc(slices.Clone(agents), func(target agent.Agent) bool {
+		return target == agent.ClaudeCode
+	}), true
+}
+
+// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
+func (s *Service) claudePluginEnabled(ctx context.Context) bool {
+	output, err := s.runner.Run(ctx, "claude", "plugin", "list", "--json")
+	if err != nil {
+		return false
+	}
+	if start := strings.Index(output, "["); start > 0 {
+		output = output[start:]
+	}
+	var plugins []struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if json.Unmarshal([]byte(output), &plugins) != nil {
+		return false
+	}
+	for _, plugin := range plugins {
+		name, _, _ := strings.Cut(plugin.ID, "@")
+		if plugin.Enabled && name == ClaudePluginName {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) Inspect(ctx context.Context, agents []agent.Agent) ([]Registration, error) {

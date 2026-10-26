@@ -345,6 +345,9 @@ OAuth authorization. Codex authorization can be started with
 the skills, including project-scoped skills or GitHub Copilot skills, use the
 `frbit skills` commands below.
 
+When Claude Code has the fortrabbit plugin enabled, `setup agent` and
+`mcp install` skip Claude Code: the plugin brings its own skill and MCP server.
+
 ## MCP server
 
 Manage the MCP registration independently when you do not want to change the
