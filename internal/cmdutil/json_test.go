@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -31,5 +32,25 @@ func TestParseAssignmentsKeepsEqualsAndCommasInValue(t *testing.T) {
 	}
 	if values["TOKEN"] != "abc=def" || values["HOSTS"] != "one,two" {
 		t.Fatalf("values = %#v", values)
+	}
+}
+
+func TestWriteJSONLineKeepsHTMLAndSlashesPlain(t *testing.T) {
+	var out bytes.Buffer
+	if err := WriteJSONLine(&out, map[string]string{"url": "https://a.example/x?a=1&b=<2>"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "{\"url\":\"https://a.example/x?a=1&b=<2>\"}\n" {
+		t.Fatalf("line = %q", got)
+	}
+}
+
+func TestPlainJSONDropsSlashEscapes(t *testing.T) {
+	got, err := PlainJSON([]byte(`{"step":"connect_git","url":"https:\/\/dash.example\/git?a=1&b=2","n":1.50}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"n":1.50,"step":"connect_git","url":"https://dash.example/git?a=1&b=2"}` {
+		t.Fatalf("got %s", got)
 	}
 }

@@ -435,3 +435,51 @@ func TestHumanDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginAuthorizeURLCarriesSignupAndNameHint(t *testing.T) {
+	cases := []struct {
+		name    string
+		options Options
+		prompt  string
+		hint    string
+	}{
+		{"plain", Options{}, "", ""},
+		{"signup", Options{Signup: true}, "create", ""},
+		{"name", Options{NameHint: "Ada Lovelace"}, "", "Ada Lovelace"},
+		{"both", Options{Signup: true, NameHint: "Ada & Co"}, "create", "Ada & Co"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeServer(t)
+			person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{validCallback}, responses: make(chan *http.Response, 1)}
+			shown := ""
+			options := tc.options
+			options.Host, options.DashboardURL, options.OpenBrowser, options.Out, options.Timeout = fake.URL, dashboardURL, person.open, &strings.Builder{}, 5*time.Second
+			options.OnURL = func(rawURL string) error { shown = rawURL; return nil }
+			if _, err := Login(context.Background(), options); err != nil {
+				t.Fatalf("Login() error = %v", err)
+			}
+			authorize, err := url.Parse(shown)
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := authorize.Query()
+			if query.Get("prompt") != tc.prompt || query.Get("name_hint") != tc.hint || query.Has("prompt") != (tc.prompt != "") || query.Has("name_hint") != (tc.hint != "") {
+				t.Fatalf("query = %v", query)
+			}
+		})
+	}
+}
+
+func TestValidateNameHint(t *testing.T) {
+	for _, valid := range []string{"A", strings.Repeat("ä", 100), "Ada Lovelace"} {
+		if err := ValidateNameHint(valid); err != nil {
+			t.Errorf("ValidateNameHint(%q) = %v", valid, err)
+		}
+	}
+	for _, invalid := range []string{"", strings.Repeat("a", 101), "a\tb", "a\x00b", "a\u0085b"} {
+		if err := ValidateNameHint(invalid); err == nil {
+			t.Errorf("ValidateNameHint(%q) accepted", invalid)
+		}
+	}
+}

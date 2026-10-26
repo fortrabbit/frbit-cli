@@ -84,6 +84,10 @@ func report(options *Options) error {
 
 	out := options.Command.OutOrStdout()
 	if options.JSON {
+		next, err := cmdutil.PlainJSON(you.Next)
+		if err != nil {
+			return err
+		}
 		status := struct {
 			Status    string          `json:"status"`
 			Profile   string          `json:"profile"`
@@ -93,7 +97,7 @@ func report(options *Options) error {
 			ExpiresAt *time.Time      `json:"expiresAt"`
 			Email     string          `json:"email"`
 			Next      json.RawMessage `json:"next"`
-		}{Status: "signed_in", Profile: profile, Host: host, Source: source, Kind: credential.Kind, Email: you.You.Email, Next: you.Next}
+		}{Status: "signed_in", Profile: profile, Host: host, Source: source, Kind: credential.Kind, Email: you.You.Email, Next: next}
 		if !credential.ExpiresAt.IsZero() {
 			status.ExpiresAt = &credential.ExpiresAt
 		}
@@ -110,12 +114,7 @@ func report(options *Options) error {
 }
 
 func writeJSON(writer io.Writer, value any) error {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("encode JSON output: %w", err)
-	}
-	_, err = fmt.Fprintf(writer, "%s\n", encoded)
-	return err
+	return cmdutil.WriteJSONLine(writer, value)
 }
 
 func describe(credential credentials.Credential) string {

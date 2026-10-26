@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
 )
@@ -40,6 +42,23 @@ type Options struct {
 	HTTPClient   *http.Client
 	// OnURL replaces the default sign-in prompt on Out, for machine-readable output.
 	OnURL func(string) error
+	// Signup sends prompt=create, so a person without an account lands on the sign-up page.
+	Signup bool
+	// NameHint suggests the name for a new account, sent as name_hint.
+	NameHint string
+}
+
+// ValidateNameHint checks the name suggestion the way FRAPI does: 1 to 100 characters, no control characters.
+func ValidateNameHint(name string) error {
+	if length := utf8.RuneCountInString(name); length < 1 || length > 100 {
+		return errors.New("--name must be 1 to 100 characters")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return errors.New("--name must not contain control characters")
+		}
+	}
+	return nil
 }
 
 type TokenError struct {
@@ -112,6 +131,11 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 		out = io.Discard
 	}
 
+	if options.NameHint != "" {
+		if err := ValidateNameHint(options.NameHint); err != nil {
+			return credentials.Credential{}, err
+		}
+	}
 	client := tokenClient(options.HTTPClient)
 	metadata, err := discover(ctx, client, options.Host)
 	if err != nil {
@@ -135,7 +159,7 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 		return credentials.Credential{}, fmt.Errorf("listen for the browser callback: %w", err)
 	}
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", listener.Addr().(*net.TCPAddr).Port)
-	authorizeURL, err := metadata.authorizeURL(redirectURI, codeChallenge(verifier), state)
+	authorizeURL, err := metadata.authorizeURL(redirectURI, codeChallenge(verifier), state, options)
 	if err != nil {
 		_ = listener.Close()
 		return credentials.Credential{}, err
@@ -302,7 +326,7 @@ func discover(ctx context.Context, client *http.Client, host string) (serverMeta
 	return metadata, nil
 }
 
-func (m serverMetadata) authorizeURL(redirectURI string, challenge string, state string) (string, error) {
+func (m serverMetadata) authorizeURL(redirectURI string, challenge string, state string, options Options) (string, error) {
 	endpoint, err := url.Parse(m.AuthorizationEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("parse authorization endpoint: %w", err)
@@ -316,6 +340,12 @@ func (m serverMetadata) authorizeURL(redirectURI string, challenge string, state
 	query.Set("code_challenge", challenge)
 	query.Set("code_challenge_method", "S256")
 	query.Set("state", state)
+	if options.Signup {
+		query.Set("prompt", "create")
+	}
+	if options.NameHint != "" {
+		query.Set("name_hint", options.NameHint)
+	}
 	endpoint.RawQuery = query.Encode()
 	return endpoint.String(), nil
 }

@@ -53,6 +53,8 @@ The command prints the sign-in URL first, opens it in your default browser, and 
 |--|--|
 | `--no-browser` | Print the URL without opening a browser |
 | `--json` | Print `{"url": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
+| `--signup` | Open the sign-up page instead of the login page, for people without an account |
+| `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
 
 Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`.
 
@@ -443,7 +445,7 @@ frbit --profile work auth logout
 
 | Command | Description |
 | --- | --- |
-| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, and `--token-stdin` for a personal API token. |
+| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--signup`, `--name`, and `--token-stdin` for a personal API token. |
 | `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
 | `frbit auth logout` | Remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |

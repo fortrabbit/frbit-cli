@@ -55,6 +55,7 @@ type fakeAPI struct {
 	mu           sync.Mutex
 	challenge    string
 	redirectURI  string
+	authorize    url.Values
 	discoveries  int
 	bearerTokens []string
 }
@@ -85,7 +86,7 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 			_, _ = writer.Write([]byte(`{"access_token":"frbit-mcp-at-1","token_type":"Bearer","expires_in":3600,"refresh_token":"frbit-mcp-rt-1"}`))
 		case "/v1/you":
 			fake.bearerTokens = append(fake.bearerTokens, request.Header.Get("Authorization"))
-			_, _ = writer.Write([]byte(`{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub to deploy from a repository.","url":"https://dash.example/git"},"optional":[]}`))
+			_, _ = writer.Write([]byte(`{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub to deploy from a repository.","url":"https:\/\/dash.example\/git?a=1&b=2"},"optional":[]}`))
 		case "/v1/apps":
 			fake.bearerTokens = append(fake.bearerTokens, request.Header.Get("Authorization"))
 			_, _ = writer.Write([]byte(`[]`))
@@ -108,6 +109,7 @@ func (f *fakeAPI) approve(t *testing.T) func(string) error {
 		f.mu.Lock()
 		f.challenge = query.Get("code_challenge")
 		f.redirectURI = query.Get("redirect_uri")
+		f.authorize = query
 		f.mu.Unlock()
 		go func() {
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -169,7 +171,7 @@ func TestLoginSignsInThroughTheBrowserWithoutATerminal(t *testing.T) {
 	if configStore.config.Host != fake.URL {
 		t.Fatalf("saved host = %q", configStore.config.Host)
 	}
-	for _, expected := range []string{fake.URL + "/oauth2/authorize?", "ada@example.com", "Connect GitHub to deploy from a repository.", "https://dash.example/git"} {
+	for _, expected := range []string{fake.URL + "/oauth2/authorize?", "ada@example.com", "Connect GitHub to deploy from a repository.", "https://dash.example/git?a=1&b=2"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output %q does not contain %q", output, expected)
 		}
@@ -326,5 +328,82 @@ func TestLoginNoBrowserDoesNotOpenTheBrowser(t *testing.T) {
 	}
 	if store.credentials["default"].Kind != credentials.KindOAuth {
 		t.Fatalf("stored credential = %#v", store.credentials["default"])
+	}
+}
+
+func TestLoginJSONLinesAreNotEscaped(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, _, _ := loginFactory(t, fake)
+
+	output, err := executeLogin(t, factory, fake.URL, "--json")
+	if err != nil {
+		t.Fatalf("login error = %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if !strings.Contains(lines[0], "&") || strings.Contains(lines[0], `\u0026`) || strings.Contains(lines[0], `\/`) {
+		t.Fatalf("waiting line is escaped: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], `"url":"https://dash.example/git?a=1&b=2"`) || strings.Contains(lines[1], `\/`) {
+		t.Fatalf("signed_in line is escaped: %q", lines[1])
+	}
+}
+
+func TestLoginSignupAndNameReachTheAuthorizeURL(t *testing.T) {
+	for _, extra := range [][]string{{}, {"--json"}, {"--no-browser", "--json"}} {
+		fake := newFakeAPI(t)
+		factory, _, _ := loginFactory(t, fake)
+		args := append([]string{"--signup", "--name", "Ada Lovelace & Co"}, extra...)
+		var err error
+		if len(extra) > 1 {
+			writer := &urlWriter{onURL: fake.approve(t)}
+			factory.OpenBrowser = func(string) error { t.Error("browser opened with --no-browser"); return nil }
+			root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}
+			root.PersistentFlags().String("host", "", "")
+			root.PersistentFlags().String("profile", app.DefaultProfile, "")
+			root.AddCommand(NewCmdLogin(factory, nil))
+			root.SetOut(writer)
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs(append([]string{"--host", fake.URL, "login"}, args...))
+			err = root.Execute()
+		} else {
+			_, err = executeLogin(t, factory, fake.URL, args...)
+		}
+		if err != nil {
+			t.Fatalf("login %v error = %v", args, err)
+		}
+		fake.mu.Lock()
+		query := fake.authorize
+		fake.mu.Unlock()
+		if query.Get("prompt") != "create" || query.Get("name_hint") != "Ada Lovelace & Co" {
+			t.Fatalf("login %v authorize query = %v", args, query)
+		}
+	}
+}
+
+func TestLoginWithoutSignupSendsNeitherParameter(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, _, _ := loginFactory(t, fake)
+	if _, err := executeLogin(t, factory, fake.URL); err != nil {
+		t.Fatalf("login error = %v", err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.authorize.Has("prompt") || fake.authorize.Has("name_hint") {
+		t.Fatalf("authorize query = %v", fake.authorize)
+	}
+}
+
+func TestLoginRejectsInvalidNameBeforeOpeningTheBrowser(t *testing.T) {
+	for _, name := range []string{"", strings.Repeat("a", 101), "Ada\nLovelace", "Ada\x07"} {
+		fake := newFakeAPI(t)
+		factory, _, _ := loginFactory(t, fake)
+		factory.OpenBrowser = func(string) error { t.Error("browser opened for an invalid name"); return nil }
+		output, err := executeLogin(t, factory, fake.URL, "--signup", "--name", name, "--json")
+		if err == nil || !strings.Contains(err.Error(), "--name") {
+			t.Fatalf("name %q: error = %v", name, err)
+		}
+		if fake.discoveries != 0 || !strings.Contains(output, `"status":"error"`) {
+			t.Fatalf("name %q: discoveries = %d, output = %q", name, fake.discoveries, output)
+		}
 	}
 }

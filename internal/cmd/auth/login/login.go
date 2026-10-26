@@ -24,6 +24,8 @@ type Options struct {
 	TokenStdin bool
 	NoBrowser  bool
 	JSON       bool
+	Signup     bool
+	Name       string
 	Timeout    time.Duration
 }
 
@@ -41,6 +43,10 @@ In CI or without a browser, pipe a personal API token to --token-stdin, or set
 FRBIT_TOKEN for each command instead of signing in. With FRBIT_TOKEN set, login
 refuses to start, since FRBIT_TOKEN overrides any stored credential.
 
+Use --signup when the person has no fortrabbit account yet: the browser opens the
+sign-up page instead of the login page. --name suggests the name for the new
+account (1 to 100 characters); pass only a name the person gave you.
+
 With --json, a failure prints {"status": "error", "error": …}.`
 
 func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command {
@@ -51,6 +57,7 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 		Long:  longHelp,
 		Example: `  frbit auth login
   frbit auth login --json
+  frbit auth login --signup --name "Ada Lovelace"
   printf '%s' "$TOKEN" | frbit auth login --token-stdin`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -64,6 +71,8 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 	command.Flags().BoolVar(&options.TokenStdin, "token-stdin", false, "Read a personal API token from standard input instead of signing in")
 	command.Flags().BoolVar(&options.NoBrowser, "no-browser", false, "Print the sign-in URL without opening a browser")
 	command.Flags().BoolVar(&options.JSON, "json", false, "Print the sign-in URL and result as JSON lines")
+	command.Flags().BoolVar(&options.Signup, "signup", false, "Open the sign-up page, for people without an account")
+	command.Flags().StringVar(&options.Name, "name", "", "Suggest a name for the new account")
 	return command
 }
 
@@ -71,10 +80,8 @@ func run(options *Options) error {
 	if options.TokenStdin {
 		return runToken(options)
 	}
-	var err error
-	if strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) != "" {
-		err = errors.New("FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser")
-	} else {
+	err := checkBrowserOptions(options)
+	if err == nil {
 		err = runBrowser(options)
 	}
 	if err != nil && options.JSON {
@@ -84,6 +91,18 @@ func run(options *Options) error {
 		}{"error", err.Error()})
 	}
 	return err
+}
+
+func checkBrowserOptions(options *Options) error {
+	if options.Command.Flags().Changed("name") {
+		if err := oauth.ValidateNameHint(options.Name); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) != "" {
+		return errors.New("FRBIT_TOKEN is set and overrides any stored credential; unset it to sign in in the browser")
+	}
+	return nil
 }
 
 func runBrowser(options *Options) error {
@@ -102,7 +121,7 @@ func runBrowser(options *Options) error {
 	}
 
 	out := command.OutOrStdout()
-	loginOptions := oauth.Options{Host: host, DashboardURL: dashboardURL, Out: out, Timeout: options.Timeout, HTTPClient: options.Factory.HTTPClient}
+	loginOptions := oauth.Options{Signup: options.Signup, NameHint: options.Name, Host: host, DashboardURL: dashboardURL, Out: out, Timeout: options.Timeout, HTTPClient: options.Factory.HTTPClient}
 	if !options.NoBrowser {
 		loginOptions.OpenBrowser = options.Factory.OpenBrowser
 	}
@@ -135,10 +154,14 @@ func runBrowser(options *Options) error {
 		return fmt.Errorf("signed in, but reading the account failed: %w", err)
 	}
 	if options.JSON {
+		next, err := cmdutil.PlainJSON(you.Next)
+		if err != nil {
+			return err
+		}
 		return writeJSONLine(out, struct {
 			Status string          `json:"status"`
 			Next   json.RawMessage `json:"next"`
-		}{"signed_in", you.Next})
+		}{"signed_in", next})
 	}
 	if _, err := fmt.Fprintf(out, "Signed in as %s. Profile %q is authenticated against %s.\n", you.You.Email, profile, host); err != nil {
 		return err
@@ -160,12 +183,7 @@ func storeCredential(options *Options, profile string, credential credentials.Cr
 }
 
 func writeJSONLine(writer io.Writer, value any) error {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("encode JSON output: %w", err)
-	}
-	_, err = fmt.Fprintf(writer, "%s\n", encoded)
-	return err
+	return cmdutil.WriteJSONLine(writer, value)
 }
 
 func runToken(options *Options) error {
