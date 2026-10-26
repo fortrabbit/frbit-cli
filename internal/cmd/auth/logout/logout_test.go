@@ -215,3 +215,16 @@ func TestLogoutNeedsACredentialLockPath(t *testing.T) {
 }
 
 func timeAfterShort() <-chan time.Time { return time.After(300 * time.Millisecond) }
+
+func TestLogoutSkipsRevokeForACredentialWithoutIssuer(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	fake := newFakeServer(t)
+	store := &memoryStore{credentials: map[string]credentials.Credential{
+		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-at-1", RefreshToken: "frbit-rt-1"},
+	}}
+
+	_, stderr, err := execute(t, fake, store, filepath.Join(t.TempDir(), "credentials.lock"))
+	if err != nil || len(store.credentials) != 0 || fake.requests() != 0 || !strings.Contains(stderr, "stays listed under Connections in the dashboard until you disconnect it there") {
+		t.Fatalf("error %v, stored %v, revokes %d, stderr %q", err, store.credentials, fake.requests(), stderr)
+	}
+}

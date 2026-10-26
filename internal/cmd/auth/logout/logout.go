@@ -78,14 +78,10 @@ func run(options *Options) error {
 	return err
 }
 
-// revoke uses the host the credential was issued for, falling back to the configured host.
+// revoke asks the host that issued the credential; a credential without an issuer is corrupt and cannot be revoked.
 func revoke(options *Options, credential credentials.Credential) error {
-	host := credential.Issuer
-	if host == "" {
-		var err error
-		if host, err = cmdutil.Host(options.Command, options.Factory); err != nil {
-			return err
-		}
+	if credential.Issuer == "" {
+		return errors.New("the stored sign-in names no issuer")
 	}
-	return oauth.Revoke(options.Command.Context(), host, options.Factory.HTTPClient, credential.RefreshToken)
+	return oauth.Revoke(options.Command.Context(), credential.Issuer, options.Factory.HTTPClient, credential.RefreshToken)
 }
