@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ const (
 	KindAPIToken = "api_token"
 	KindOAuth    = "oauth"
 )
+
+var ErrNotFound = errors.New("no stored credential")
 
 type Credential struct {
 	Kind         string    `json:"kind"`

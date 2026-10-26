@@ -13,9 +13,9 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
+	"github.com/fortrabbit/frbit-cli/internal/filelock"
 	"github.com/fortrabbit/frbit-cli/internal/oauth"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 type Options struct {
@@ -119,7 +119,7 @@ func runBrowser(options *Options) error {
 	if err != nil {
 		return err
 	}
-	if err := options.Factory.CredentialStore.Set(profile, credential); err != nil {
+	if err := storeCredential(options, profile, credential); err != nil {
 		return err
 	}
 	if err := options.Factory.ConfigStore.Save(config.Config{Host: host}); err != nil {
@@ -146,6 +146,19 @@ func runBrowser(options *Options) error {
 	return cmdutil.WriteNext(out, you.You.Next)
 }
 
+// storeCredential takes the refresh lock so a concurrent refresh cannot overwrite the new sign-in.
+func storeCredential(options *Options, profile string, credential credentials.Credential) error {
+	if options.Factory.CredentialLockPath == "" {
+		return errors.New("no credential lock path is configured")
+	}
+	lock, err := filelock.Acquire(options.Command.Context(), options.Factory.CredentialLockPath)
+	if err != nil {
+		return fmt.Errorf("store credential: %w", err)
+	}
+	defer func() { _ = lock.Release() }()
+	return options.Factory.CredentialStore.Set(profile, credential)
+}
+
 func writeJSONLine(writer io.Writer, value any) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -156,9 +169,6 @@ func writeJSONLine(writer io.Writer, value any) error {
 }
 
 func runToken(options *Options) error {
-	if err := prepareTokenEntry(options); err != nil {
-		return err
-	}
 	token, err := readToken(options)
 	if err != nil {
 		return err
@@ -189,57 +199,14 @@ func runToken(options *Options) error {
 	return err
 }
 
-func prepareTokenEntry(options *Options) error {
-	if options.TokenStdin || !options.Factory.IOStreams.IsTTY {
-		return nil
-	}
-
-	tokenURL, err := config.TokenCreationURL()
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(options.Command.OutOrStdout(), "Create an API token at:\n%s\n\n", tokenURL); err != nil {
-		return err
-	}
-	if options.NoBrowser || options.Factory.OpenBrowser == nil {
-		return nil
-	}
-	_ = options.Factory.OpenBrowser(tokenURL)
-	return nil
-}
-
 func readToken(options *Options) (string, error) {
-	if options.TokenStdin {
-		contents, err := io.ReadAll(options.Factory.IOStreams.In)
-		if err != nil {
-			return "", fmt.Errorf("read token from standard input: %w", err)
-		}
-		token := cmdutil.TrimToken(string(contents))
-		if token == "" {
-			return "", fmt.Errorf("token from standard input is empty")
-		}
-		return token, nil
-	}
-	if !options.Factory.IOStreams.IsTTY {
-		return "", fmt.Errorf("refusing to read a token from a non-interactive terminal; use --token-stdin or FRBIT_TOKEN")
-	}
-	file, ok := options.Factory.IOStreams.In.(*os.File)
-	if !ok {
-		return "", fmt.Errorf("interactive token entry requires a terminal")
-	}
-	if _, err := fmt.Fprint(options.Command.OutOrStdout(), "Token: "); err != nil {
-		return "", err
-	}
-	contents, err := term.ReadPassword(int(file.Fd()))
+	contents, err := io.ReadAll(options.Factory.IOStreams.In)
 	if err != nil {
-		return "", fmt.Errorf("read token: %w", err)
-	}
-	if _, err := fmt.Fprintln(options.Command.OutOrStdout()); err != nil {
-		return "", err
+		return "", fmt.Errorf("read token from standard input: %w", err)
 	}
 	token := cmdutil.TrimToken(string(contents))
 	if token == "" {
-		return "", fmt.Errorf("token is empty")
+		return "", fmt.Errorf("token from standard input is empty")
 	}
 	return token, nil
 }

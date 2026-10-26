@@ -51,7 +51,7 @@ func CredentialClient(factory *app.Factory, host string, profile string, credent
 	refresh := func(ctx context.Context, refreshToken string) (credentials.Credential, error) {
 		return oauth.Refresh(ctx, host, factory.HTTPClient, refreshToken)
 	}
-	tokens := api.NewOAuthTokens(factory.CredentialStore, profile, factory.CredentialLockPath, credential, refresh)
+	tokens := api.NewOAuthTokens(host, factory.CredentialStore, profile, factory.CredentialLockPath, credential, refresh)
 	return api.NewClientWithTokens(host, tokens, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
 }
 

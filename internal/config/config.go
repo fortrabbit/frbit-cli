@@ -103,12 +103,3 @@ func DashboardURL() (string, error) {
 
 	return strings.TrimRight(dashboardURL, "/"), nil
 }
-
-// TokenCreationURL returns the dashboard's API token creation page.
-func TokenCreationURL() (string, error) {
-	dashboardURL, err := DashboardURL()
-	if err != nil {
-		return "", err
-	}
-	return dashboardURL + "/new/api-token", nil
-}

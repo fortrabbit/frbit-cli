@@ -2,7 +2,9 @@ package status
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -22,7 +24,7 @@ func NewCmdStatus(factory *app.Factory, runF func(*Options) error) *cobra.Comman
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Validate the active public API credential",
-		Long:  "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.",
+		Long:  "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.\n\nWith --json, the status is signed_in, signed_out (no credential, exit 0), or error.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.Command = cmd
@@ -37,6 +39,22 @@ func NewCmdStatus(factory *app.Factory, runF func(*Options) error) *cobra.Comman
 }
 
 func run(options *Options) error {
+	err := report(options)
+	if !options.JSON {
+		return err
+	}
+	out := options.Command.OutOrStdout()
+	if errors.Is(err, credentials.ErrNotFound) {
+		// Agents poll this while a browser sign-in is pending, so a missing credential is a state, not a failure.
+		return writeJSON(out, map[string]string{"status": "signed_out"})
+	}
+	if err != nil {
+		_ = writeJSON(out, map[string]string{"status": "error", "error": err.Error()})
+	}
+	return err
+}
+
+func report(options *Options) error {
 	profile, err := cmdutil.Profile(options.Command)
 	if err != nil {
 		return err
@@ -67,6 +85,7 @@ func run(options *Options) error {
 	out := options.Command.OutOrStdout()
 	if options.JSON {
 		status := struct {
+			Status    string          `json:"status"`
 			Profile   string          `json:"profile"`
 			Host      string          `json:"host"`
 			Source    string          `json:"source"`
@@ -74,16 +93,11 @@ func run(options *Options) error {
 			ExpiresAt *time.Time      `json:"expiresAt"`
 			Email     string          `json:"email"`
 			Next      json.RawMessage `json:"next"`
-		}{Profile: profile, Host: host, Source: source, Kind: credential.Kind, Email: you.You.Email, Next: you.Next}
+		}{Status: "signed_in", Profile: profile, Host: host, Source: source, Kind: credential.Kind, Email: you.You.Email, Next: you.Next}
 		if !credential.ExpiresAt.IsZero() {
 			status.ExpiresAt = &credential.ExpiresAt
 		}
-		encoded, err := json.Marshal(status)
-		if err != nil {
-			return fmt.Errorf("encode JSON output: %w", err)
-		}
-		_, err = fmt.Fprintf(out, "%s\n", encoded)
-		return err
+		return writeJSON(out, status)
 	}
 
 	if _, err := fmt.Fprintf(out, "Authenticated profile %q against %s using %s.\n", profile, host, source); err != nil {
@@ -93,6 +107,15 @@ func run(options *Options) error {
 		return err
 	}
 	return cmdutil.WriteNext(out, you.You.Next)
+}
+
+func writeJSON(writer io.Writer, value any) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode JSON output: %w", err)
+	}
+	_, err = fmt.Fprintf(writer, "%s\n", encoded)
+	return err
 }
 
 func describe(credential credentials.Credential) string {

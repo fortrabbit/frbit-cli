@@ -146,6 +146,11 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 	done := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writePage(writer, http.StatusMethodNotAllowed, "Method not allowed.")
+			return
+		}
 		query := request.URL.Query()
 		if subtle.ConstantTimeCompare([]byte(query.Get("state")), []byte(state)) != 1 {
 			writePage(writer, http.StatusBadRequest, "This sign-in does not belong to the waiting frbit CLI. Start again from your terminal.")
@@ -189,14 +194,14 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 			_, _ = fmt.Fprintln(out, "Could not open a browser. Open the URL above to continue.")
 		}
 	}
-	_, _ = fmt.Fprintf(out, "Waiting up to %s for the browser sign-in…\n", timeout)
+	_, _ = fmt.Fprintf(out, "Waiting up to %s for the browser sign-in…\n", humanDuration(timeout))
 
 	select {
 	case result := <-results:
 		return result.credential, result.err
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return credentials.Credential{}, fmt.Errorf("no browser sign-in within %s; in CI or without a browser, pipe an API token to `frbit auth login --token-stdin` or set FRBIT_TOKEN", timeout)
+			return credentials.Credential{}, fmt.Errorf("no browser sign-in within %s; in CI or without a browser, pipe an API token to `frbit auth login --token-stdin` or set FRBIT_TOKEN", humanDuration(timeout))
 		}
 		return credentials.Credential{}, ctx.Err()
 	}
@@ -282,6 +287,9 @@ func discover(ctx context.Context, client *http.Client, host string) (serverMeta
 	}
 	if _, err := checkEndpoint(metadata.Issuer); err != nil {
 		return serverMetadata{}, fmt.Errorf("sign-in server metadata issuer: %w", err)
+	}
+	if !SameOrigin(metadata.Issuer, origin.String()) {
+		return serverMetadata{}, fmt.Errorf("the sign-in metadata of %s names another issuer, %s; sign in against that host or check the API host", origin, metadata.Issuer)
 	}
 	for name, value := range map[string]string{"authorization_endpoint": metadata.AuthorizationEndpoint, "token_endpoint": metadata.TokenEndpoint} {
 		if _, err := checkEndpoint(value); err != nil {
@@ -394,6 +402,16 @@ func connectedURL(dashboardURL string) (string, error) {
 		return "", fmt.Errorf("invalid dashboard URL %q", dashboardURL)
 	}
 	return strings.TrimRight(dashboardURL, "/") + connectedPath, nil
+}
+
+func humanDuration(duration time.Duration) string {
+	if duration < time.Minute || duration%time.Minute != 0 {
+		return duration.String()
+	}
+	if minutes := int(duration / time.Minute); minutes != 1 {
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	return "1 minute"
 }
 
 func randomString() (string, error) {

@@ -37,7 +37,7 @@ type memoryCredentialStore struct {
 func (s *memoryCredentialStore) Get(profile string) (credentials.Credential, error) {
 	token, ok := s.tokens[profile]
 	if !ok {
-		return credentials.Credential{}, fmt.Errorf("credential not found")
+		return credentials.Credential{}, credentials.ErrNotFound
 	}
 	return token, nil
 }
@@ -732,14 +732,14 @@ func TestAuthStatusJSONReportsOAuthCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status struct {
-		Profile, Host, Kind string
-		ExpiresAt           time.Time
-		Next                struct{ Step string }
+		Status, Profile, Host, Kind string
+		ExpiresAt                   time.Time
+		Next                        struct{ Step string }
 	}
 	if err := json.Unmarshal(output.Bytes(), &status); err != nil {
 		t.Fatalf("decode %q: %v", output.String(), err)
 	}
-	if status.Profile != app.DefaultProfile || status.Host != server.URL || status.Kind != credentials.KindOAuth || !status.ExpiresAt.Equal(expiresAt) || status.Next.Step != "connect_git" {
+	if status.Status != "signed_in" || status.Profile != app.DefaultProfile || status.Host != server.URL || status.Kind != credentials.KindOAuth || !status.ExpiresAt.Equal(expiresAt) || status.Next.Step != "connect_git" {
 		t.Fatalf("status = %#v", status)
 	}
 }
@@ -769,5 +769,34 @@ func TestOAuthCredentialIsNotSentToAnotherHost(t *testing.T) {
 	}
 	if called {
 		t.Fatal("the OAuth credential was sent to a host other than its issuer")
+	}
+}
+
+func TestAuthStatusJSONReportsSignedOut(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", "https://api.fortrabbit.com", "auth", "status", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("status error = %v", err)
+	}
+	if strings.TrimSpace(output.String()) != `{"status":"signed_out"}` {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestAuthStatusJSONReportsErrors(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "frbit-at-revoked")
+	server := youServer(t, "frbit-at-valid")
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", server.URL, "auth", "status", "--json"})
+	err := command.Execute()
+	if err == nil {
+		t.Fatal("status succeeded with a rejected token")
+	}
+	var line struct{ Status, Error string }
+	if decodeErr := json.Unmarshal(output.Bytes(), &line); decodeErr != nil || line.Status != "error" || line.Error != err.Error() {
+		t.Fatalf("output = %q (%v)", output.String(), decodeErr)
 	}
 }

@@ -51,6 +51,7 @@ type RefreshFunc func(ctx context.Context, refreshToken string) (credentials.Cre
 
 // OAuthTokens refreshes under a file lock and re-reads the store first, since reusing a rotated refresh token revokes the grant.
 type OAuthTokens struct {
+	host     string
 	store    credentials.Store
 	profile  string
 	lockPath string
@@ -61,8 +62,8 @@ type OAuthTokens struct {
 	current credentials.Credential
 }
 
-func NewOAuthTokens(store credentials.Store, profile string, lockPath string, current credentials.Credential, refresh RefreshFunc) *OAuthTokens {
-	return &OAuthTokens{store: store, profile: profile, lockPath: lockPath, refresh: refresh, now: time.Now, current: current}
+func NewOAuthTokens(host string, store credentials.Store, profile string, lockPath string, current credentials.Credential, refresh RefreshFunc) *OAuthTokens {
+	return &OAuthTokens{host: host, store: store, profile: profile, lockPath: lockPath, refresh: refresh, now: time.Now, current: current}
 }
 
 func (s *OAuthTokens) Token(ctx context.Context) (string, error) {
@@ -99,6 +100,9 @@ func (s *OAuthTokens) refreshLocked(ctx context.Context, stale string) (string, 
 	stored, err := s.store.Get(s.profile)
 	if err != nil {
 		return "", err
+	}
+	if stored.Kind == credentials.KindOAuth && !sameOriginString(s.host, stored.Issuer) {
+		return "", fmt.Errorf("profile %q is now signed in to %s, not %s; run `frbit auth login` for that host", s.profile, stored.Issuer, s.host)
 	}
 	if stored.AccessToken != stale && (stored.Kind == credentials.KindAPIToken || s.fresh(stored)) {
 		s.current = stored
@@ -206,6 +210,12 @@ func clientForOrigin(httpClient *http.Client, origin *url.URL) *http.Client {
 		return nil
 	}
 	return &clone
+}
+
+func sameOriginString(first string, second string) bool {
+	a, errA := url.Parse(strings.TrimSpace(first))
+	b, errB := url.Parse(strings.TrimSpace(second))
+	return errA == nil && errB == nil && a.Host != "" && b.Host != "" && sameOrigin(a, b)
 }
 
 func sameOrigin(first *url.URL, second *url.URL) bool {

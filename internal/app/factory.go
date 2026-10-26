@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -77,7 +76,7 @@ func (f Factory) Credential(profile string) (credentials.Credential, string, err
 		return credentials.Credential{}, "", fmt.Errorf("no API token is available; set FRBIT_TOKEN or run `frbit auth login`: %w", err)
 	}
 	if strings.TrimSpace(credential.AccessToken) == "" {
-		return credentials.Credential{}, "", errors.New("no API token is available; set FRBIT_TOKEN or run `frbit auth login`")
+		return credentials.Credential{}, "", fmt.Errorf("no API token is available; set FRBIT_TOKEN or run `frbit auth login`: %w", credentials.ErrNotFound)
 	}
 
 	return credential, "system keychain", nil

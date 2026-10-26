@@ -26,7 +26,7 @@ func (s *memoryStore) Get(profile string) (credentials.Credential, error) {
 	defer s.mu.Unlock()
 	credential, ok := s.credentials[profile]
 	if !ok {
-		return credentials.Credential{}, fmt.Errorf("credential not found")
+		return credentials.Credential{}, credentials.ErrNotFound
 	}
 	return credential, nil
 }
@@ -127,7 +127,7 @@ func newOAuthClient(t *testing.T, server *rotatingServer, store credentials.Stor
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClientWithTokens(server.URL, NewOAuthTokens(store, "default", lockPath, current, server.refresh), server.Client(), "frbit/test")
+	client, err := NewClientWithTokens(server.URL, NewOAuthTokens(server.URL, store, "default", lockPath, current, server.refresh), server.Client(), "frbit/test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func newOAuthClient(t *testing.T, server *rotatingServer, store credentials.Stor
 func TestConcurrentRefreshesShareOneRotation(t *testing.T) {
 	server := newRotatingServer(t, "access-1", "refresh-1")
 	store := &memoryStore{credentials: map[string]credentials.Credential{
-		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute)},
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: server.URL},
 	}}
 	lockPath := filepath.Join(t.TempDir(), "credentials.lock")
 	// Each client stands for a separate frbit process: own in-memory credential, shared store and lock file.
@@ -171,7 +171,7 @@ func TestConcurrentRefreshesShareOneRotation(t *testing.T) {
 func TestRefreshesOnceAfterUnauthorized(t *testing.T) {
 	server := newRotatingServer(t, "access-0", "refresh-1")
 	store := &memoryStore{credentials: map[string]credentials.Credential{
-		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(time.Hour)},
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(time.Hour), Issuer: server.URL},
 	}}
 	client := newOAuthClient(t, server, store, filepath.Join(t.TempDir(), "credentials.lock"))
 
@@ -189,7 +189,7 @@ func TestRefreshesOnceAfterUnauthorized(t *testing.T) {
 func TestRefreshesBeforeExpiry(t *testing.T) {
 	server := newRotatingServer(t, "access-1", "refresh-1")
 	store := &memoryStore{credentials: map[string]credentials.Credential{
-		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(30 * time.Second)},
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(30 * time.Second), Issuer: server.URL},
 	}}
 	client := newOAuthClient(t, server, store, filepath.Join(t.TempDir(), "credentials.lock"))
 
@@ -204,7 +204,7 @@ func TestRefreshesBeforeExpiry(t *testing.T) {
 func TestRevokedGrantAsksToSignInAgain(t *testing.T) {
 	server := newRotatingServer(t, "access-0", "refresh-other")
 	store := &memoryStore{credentials: map[string]credentials.Credential{
-		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute)},
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: server.URL},
 	}}
 	client := newOAuthClient(t, server, store, filepath.Join(t.TempDir(), "credentials.lock"))
 
@@ -229,5 +229,23 @@ func TestStaticTokenIsNotRetriedAfterUnauthorized(t *testing.T) {
 	_, err = client.Apps(context.Background(), 1)
 	if httpErr, ok := err.(*HTTPError); !ok || httpErr.Status != http.StatusUnauthorized || calls != 1 {
 		t.Fatalf("Apps() error = %v, calls = %d", err, calls)
+	}
+}
+
+func TestRefreshRefusesACredentialFromAnotherIssuer(t *testing.T) {
+	server := newRotatingServer(t, "access-1", "refresh-1")
+	store := &memoryStore{credentials: map[string]credentials.Credential{
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: server.URL},
+	}}
+	client := newOAuthClient(t, server, store, filepath.Join(t.TempDir(), "credentials.lock"))
+	// Another process signs the profile in to a different host after this one started.
+	_ = store.Set("default", credentials.Credential{Kind: credentials.KindOAuth, AccessToken: "other", RefreshToken: "other-refresh", ExpiresAt: time.Now().Add(-time.Minute), Issuer: "https://api.fortrabbit.com"})
+
+	_, err := client.Apps(context.Background(), 1)
+	if err == nil || !strings.Contains(err.Error(), "run `frbit auth login` for that host") {
+		t.Fatalf("Apps() error = %v", err)
+	}
+	if calls := server.calls(); calls != 0 {
+		t.Fatalf("refresh calls = %d", calls)
 	}
 }

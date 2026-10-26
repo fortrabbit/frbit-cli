@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/zalando/go-keyring"
@@ -18,6 +19,9 @@ type KeyringStore struct{}
 
 func (KeyringStore) Get(profile string) (Credential, error) {
 	value, err := keyring.Get(service, profile)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return Credential{}, ErrNotFound
+	}
 	if err != nil {
 		return Credential{}, fmt.Errorf("read credential from system keychain: %w", err)
 	}

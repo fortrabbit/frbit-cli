@@ -182,7 +182,7 @@ func TestLoginCompletesBrowserFlow(t *testing.T) {
 	fake := newFakeServer(t)
 	person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{validCallback}, responses: make(chan *http.Response, 1)}
 	shown := ""
-	host := strings.Replace(fake.URL, "127.0.0.1", "localhost", 1) + "/"
+	host := fake.URL + "/"
 
 	credential, err := Login(context.Background(), Options{
 		Host:         host,
@@ -312,7 +312,7 @@ func TestLoginAnswersReplayAndOtherPaths(t *testing.T) {
 	fake := newFakeServer(t)
 	fake.exchanging = make(chan chan struct{})
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	statuses := make(chan int, 3)
+	statuses := make(chan int, 4)
 	open := func(rawURL string) error {
 		authorize, _ := url.Parse(rawURL)
 		query := authorize.Query()
@@ -335,6 +335,13 @@ func TestLoginAnswersReplayAndOtherPaths(t *testing.T) {
 			release := <-fake.exchanging
 			get(callback)
 			get(strings.TrimSuffix(query.Get("redirect_uri"), "/callback") + "/favicon.ico")
+			if response, err := client.Post(callback, "text/plain", nil); err == nil {
+				_ = response.Body.Close()
+				statuses <- response.StatusCode
+			} else {
+				t.Errorf("POST callback: %v", err)
+				statuses <- 0
+			}
 			close(release)
 		}()
 		return nil
@@ -343,8 +350,8 @@ func TestLoginAnswersReplayAndOtherPaths(t *testing.T) {
 	if _, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: open, Out: &strings.Builder{}, Timeout: 5 * time.Second}); err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	got := []int{<-statuses, <-statuses, <-statuses}
-	want := map[int]bool{http.StatusConflict: true, http.StatusNotFound: true, http.StatusFound: true}
+	got := []int{<-statuses, <-statuses, <-statuses, <-statuses}
+	want := map[int]bool{http.StatusConflict: true, http.StatusNotFound: true, http.StatusMethodNotAllowed: true, http.StatusFound: true}
 	for _, status := range got {
 		if !want[status] {
 			t.Fatalf("statuses = %v", got)
@@ -396,6 +403,35 @@ func TestSameOrigin(t *testing.T) {
 	} {
 		if got := SameOrigin(test.first, test.second); got != test.want {
 			t.Errorf("SameOrigin(%q, %q) = %t", test.first, test.second, got)
+		}
+	}
+}
+
+func TestDiscoverRejectsMetadataNamingAnotherIssuer(t *testing.T) {
+	// A local FRAPI configured with the production issuer must not send the browser or the code exchange there.
+	server := metadataServer(t, func(string) map[string]any {
+		return map[string]any{
+			"issuer":                 "https://api.fortrabbit.com",
+			"authorization_endpoint": "https://api.fortrabbit.com/oauth2/authorize",
+			"token_endpoint":         "https://api.fortrabbit.com/oauth2/token",
+			"scopes_supported":       []string{"mcp", "api"},
+		}
+	})
+
+	_, err := Login(context.Background(), Options{Host: server.URL, DashboardURL: dashboardURL, Out: &strings.Builder{}, Timeout: time.Second,
+		OpenBrowser: func(string) error { t.Error("browser opened for a foreign issuer"); return nil }})
+	if err == nil || !strings.Contains(err.Error(), "names another issuer") {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if _, err := Refresh(context.Background(), server.URL, server.Client(), "refresh"); err == nil || !strings.Contains(err.Error(), "names another issuer") {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+}
+
+func TestHumanDuration(t *testing.T) {
+	for duration, want := range map[time.Duration]string{15 * time.Minute: "15 minutes", time.Minute: "1 minute", 50 * time.Millisecond: "50ms", 90 * time.Second: "1m30s"} {
+		if got := humanDuration(duration); got != want {
+			t.Errorf("humanDuration(%s) = %q, want %q", duration, got, want)
 		}
 	}
 }
