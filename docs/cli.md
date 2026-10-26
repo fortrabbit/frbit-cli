@@ -66,7 +66,7 @@ Verify the active credential at any time. It shows the profile, host, credential
 frbit auth status
 ```
 
-Remove the stored credential when you no longer need it on this machine:
+Remove the stored credential when you no longer need it on this machine. A browser sign-in is revoked on the server first, so it leaves the Connections list in the dashboard. When the server cannot be reached, the credential is still removed here and the sign-in stays under Connections until you disconnect it there. A stored API token is only removed locally; revoke it under API tokens. While `FRBIT_TOKEN` is set, `logout` and `auth status` warn on stderr that the token is used instead of a stored sign-in (`auth status --json` adds a `warning` field):
 
 ```sh
 frbit auth logout
@@ -88,7 +88,7 @@ printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
 
 ## Uninstall
 
-Sign out while the binary is still in place. `frbit auth logout` removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
+Sign out while the binary is still in place. `frbit auth logout` revokes a browser sign-in and removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
 
 Then remove the CLI with the counterpart of the install method:
 
@@ -449,7 +449,7 @@ frbit --profile work auth logout
 | --- | --- |
 | `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--signup`, `--name`, and `--token-stdin` for a personal API token. |
 | `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
-| `frbit auth logout` | Remove the stored credential for the selected profile. |
+| `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |

@@ -24,7 +24,7 @@ func NewCmdStatus(factory *app.Factory, runF func(*Options) error) *cobra.Comman
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Validate the active public API credential",
-		Long:  "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.\n\nWith --json, the status is signed_in, signed_out (no credential, exit 0), or error.",
+		Long:  "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.\n\nWith FRBIT_TOKEN set, a warning says the token is used instead of a stored sign-in; with --json it is the warning field.\n\nWith --json, the status is signed_in, signed_out (no credential, exit 0), or error.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.Command = cmd
@@ -94,7 +94,11 @@ func report(options *Options) error {
 			ExpiresAt *time.Time      `json:"expiresAt"`
 			Email     string          `json:"email"`
 			Next      json.RawMessage `json:"next"`
+			Warning   string          `json:"warning,omitempty"`
 		}{Status: "signed_in", Profile: profile, Host: host, Source: source, Kind: credential.Kind, Email: you.You.Email, Next: next}
+		if cmdutil.FrbitTokenSet() {
+			status.Warning = cmdutil.FrbitTokenWarning
+		}
 		if !credential.ExpiresAt.IsZero() {
 			status.ExpiresAt = &credential.ExpiresAt
 		}
@@ -106,6 +110,11 @@ func report(options *Options) error {
 	}
 	if _, err := fmt.Fprintf(out, "Account: %s\nCredential: %s\n", you.You.Email, describe(credential)); err != nil {
 		return err
+	}
+	if cmdutil.FrbitTokenSet() {
+		if _, err := fmt.Fprintln(options.Command.ErrOrStderr(), cmdutil.FrbitTokenWarning); err != nil {
+			return err
+		}
 	}
 	return cmdutil.WriteNext(out, you.You.Next)
 }
