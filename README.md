@@ -18,16 +18,25 @@ supported method.
 
 ## Authenticate
 
-Create a personal API token in the fortrabbit dashboard, then store it in your
-operating-system credential store:
+Sign in through the browser and store the credential in your operating-system
+credential store:
 
 ```sh
 frbit auth login
 ```
 
-Interactive login prints the token creation URL and tries to open it in your
-default browser. Use `frbit auth login --no-browser` to keep the flow entirely
-in the terminal.
+The command prints the sign-in URL, opens it in your default browser, and waits
+up to 15 minutes. Without an account, the same page signs you up. Use
+`--no-browser` to only print the URL, and `--json` for machine-readable output:
+`{"url": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}`.
+The credential refreshes itself; `frbit auth status` shows its expiry and the next
+setup step.
+
+In CI or without a browser, store a personal API token from standard input:
+
+```sh
+printf '%s' "$TOKEN" | frbit auth login --token-stdin
+```
 
 Or supply it for one command or an automated job:
 
@@ -132,8 +141,8 @@ FRBIT_DASHBOARD_URL=http://localhost:3001 \
   just run --host http://localhost:8085 auth login
 ```
 
-`FRBIT_DASHBOARD_URL` controls the dashboard origin used for the token creation
-link during interactive login.
+`FRBIT_DASHBOARD_URL` controls the dashboard origin for the page shown after the
+browser sign-in and for the token creation link.
 
 Host resolution is: `--host`, `FRBIT_HOST`, saved host, then the production
 default. The CLI warns before it sends credentials to a non-default host; only

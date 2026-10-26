@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ type Factory struct {
 	Date            string
 	CheckForUpdate  func(context.Context, string) (string, error)
 	OpenBrowser     func(string) error
+	// CredentialLockPath serialises OAuth refreshes across frbit processes.
+	CredentialLockPath string
 }
 
 func NewFactory(version string, commit string, date string) *Factory {
@@ -42,15 +45,16 @@ func NewFactory(version string, commit string, date string) *Factory {
 	checker := update.NewChecker(httpClient)
 
 	return &Factory{
-		IOStreams:       iostreams.System(),
-		ConfigStore:     configStore,
-		CredentialStore: credentials.KeyringStore{},
-		HTTPClient:      httpClient,
-		Version:         version,
-		Commit:          commit,
-		Date:            date,
-		CheckForUpdate:  checker.Latest,
-		OpenBrowser:     browser.Open,
+		IOStreams:          iostreams.System(),
+		ConfigStore:        configStore,
+		CredentialStore:    credentials.KeyringStore{},
+		HTTPClient:         httpClient,
+		Version:            version,
+		Commit:             commit,
+		Date:               date,
+		CheckForUpdate:     checker.Latest,
+		OpenBrowser:        browser.Open,
+		CredentialLockPath: filepath.Join(filepath.Dir(configStore.Path), "credentials.lock"),
 	}
 }
 
@@ -62,19 +66,19 @@ func (f Factory) Host(flagHost string) (string, error) {
 	return config.ResolveHost(flagHost, stored), nil
 }
 
-// Token resolves the environment value before the secure local credential.
-func (f Factory) Token(profile string) (string, string, error) {
+// Credential resolves the environment value before the secure local credential.
+func (f Factory) Credential(profile string) (credentials.Credential, string, error) {
 	if token := strings.TrimSpace(os.Getenv("FRBIT_TOKEN")); token != "" {
-		return token, "FRBIT_TOKEN", nil
+		return credentials.APIToken(token), "FRBIT_TOKEN", nil
 	}
 
-	token, err := f.CredentialStore.Get(profile)
+	credential, err := f.CredentialStore.Get(profile)
 	if err != nil {
-		return "", "", fmt.Errorf("no API token is available; set FRBIT_TOKEN or run `frbit auth login`: %w", err)
+		return credentials.Credential{}, "", fmt.Errorf("no API token is available; set FRBIT_TOKEN or run `frbit auth login`: %w", err)
 	}
-	if strings.TrimSpace(token) == "" {
-		return "", "", errors.New("no API token is available; set FRBIT_TOKEN or run `frbit auth login`")
+	if strings.TrimSpace(credential.AccessToken) == "" {
+		return credentials.Credential{}, "", errors.New("no API token is available; set FRBIT_TOKEN or run `frbit auth login`")
 	}
 
-	return token, "system keychain", nil
+	return credential, "system keychain", nil
 }

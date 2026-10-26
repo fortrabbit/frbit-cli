@@ -41,15 +41,22 @@ saves it in `~/.zfunc/_frbit` and adds that directory to zsh's completion path.
 
 ## Authenticate
 
-Create a personal API token in the fortrabbit dashboard, then sign in:
+Sign in through the browser:
 
 ```sh
 frbit auth login
 ```
 
-The command prompts for the token and stores it in your operating system's credential store. It also saves the API host for subsequent commands.
+The command prints the sign-in URL first, opens it in your default browser, and waits up to 15 minutes. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires.
 
-Verify the active credential at any time:
+| Option | Effect |
+|--|--|
+| `--no-browser` | Print the URL without opening a browser |
+| `--json` | Print `{"url": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
+
+Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`.
+
+Verify the active credential at any time. It shows the profile, host, credential kind, expiry, and the next setup step; `--json` prints the same as JSON:
 
 ```sh
 frbit auth status
@@ -69,7 +76,7 @@ Use `FRBIT_TOKEN` in CI, scripts, containers, and agents. It is used only for th
 FRBIT_TOKEN=frbit-at-… frbit apps list
 ```
 
-To save a token without an interactive prompt, pass it on standard input. Avoid placing tokens directly in shell history or command-line arguments.
+Without a browser, store a personal API token from standard input instead of signing in. Avoid placing tokens directly in shell history or command-line arguments.
 
 ```sh
 printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
@@ -436,8 +443,8 @@ frbit --profile work auth logout
 
 | Command | Description |
 | --- | --- |
-| `frbit auth login` | Validate and store a public API token. Accepts `--token-stdin`. |
-| `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN`. |
+| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, and `--token-stdin` for a personal API token. |
+| `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
 | `frbit auth logout` | Remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
@@ -481,6 +488,6 @@ Global options:
 
 ## Troubleshooting
 
-If a command reports that no API token is available, set `FRBIT_TOKEN` for that command or run `frbit auth login` interactively.
+If a command reports that no API token is available, set `FRBIT_TOKEN` for that command or run `frbit auth login`.
 
 If authentication fails, confirm that the token is active and has access to the expected apps, then run `frbit auth status` to test the exact profile and host in use.

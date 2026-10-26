@@ -77,9 +77,11 @@ type missingCredentials struct{}
 
 var _ credentials.Store = missingCredentials{}
 
-func (missingCredentials) Get(string) (string, error) { return "", errors.New("missing") }
-func (missingCredentials) Set(string, string) error   { return nil }
-func (missingCredentials) Delete(string) error        { return nil }
+func (missingCredentials) Get(string) (credentials.Credential, error) {
+	return credentials.Credential{}, errors.New("missing")
+}
+func (missingCredentials) Set(string, credentials.Credential) error { return nil }
+func (missingCredentials) Delete(string) error                      { return nil }
 
 func TestAgentSetupPrintsCombinedSummary(t *testing.T) {
 	output := &bytes.Buffer{}
