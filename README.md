@@ -32,7 +32,8 @@ up to 15 minutes. Without an account, the same page signs you up. Use
 The credential refreshes itself; `frbit auth status` shows its expiry and the next
 setup step.
 
-`--signup` opens the sign-up page, for people without an account. `--name "<name>"` suggests the name for the new account (1 to 100 characters).
+`--signup` opens the sign-up page, for people without an account.
+`--name "<name>"` suggests the name for the new account (1 to 100 characters).
 
 In CI or without a browser, store a personal API token from standard input:
 

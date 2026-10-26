@@ -46,11 +46,16 @@ func TestWriteJSONLineKeepsHTMLAndSlashesPlain(t *testing.T) {
 }
 
 func TestPlainJSONDropsSlashEscapes(t *testing.T) {
-	got, err := PlainJSON([]byte(`{"step":"connect_git","url":"https:\/\/dash.example\/git?a=1&b=2","n":1.50}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := PlainJSON([]byte(`{"step":"connect_git","url":"https:\/\/dash.example\/git?a=1&b=2","n":1.50}`))
 	if string(got) != `{"n":1.50,"step":"connect_git","url":"https://dash.example/git?a=1&b=2"}` {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestPlainJSONFallsBackToTheRawValue(t *testing.T) {
+	for _, raw := range []string{`{"url":`, `not json`} {
+		if got := PlainJSON([]byte(raw)); string(got) != raw {
+			t.Fatalf("PlainJSON(%q) = %q", raw, got)
+		}
 	}
 }

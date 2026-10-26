@@ -56,7 +56,7 @@ The command prints the sign-in URL first, opens it in your default browser, and 
 | `--signup` | Open the sign-up page instead of the login page, for people without an account |
 | `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
 
-Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`.
+Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`. For a person without an account they add `--signup`.
 
 Verify the active credential at any time. It shows the profile, host, credential kind, expiry, and the next setup step. With `--json` it prints one line with `"status": "signed_in"` and the same fields, `{"status": "signed_out"}` (exit 0) without a credential, or `{"status": "error", "error": …}` (exit 1):
 

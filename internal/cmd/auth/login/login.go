@@ -45,7 +45,7 @@ refuses to start, since FRBIT_TOKEN overrides any stored credential.
 
 Use --signup when the person has no fortrabbit account yet: the browser opens the
 sign-up page instead of the login page. --name suggests the name for the new
-account (1 to 100 characters); pass only a name the person gave you.
+account (1 to 100 characters); pass only a name the person gave you or their git user.name.
 
 With --json, a failure prints {"status": "error", "error": …}.`
 
@@ -154,10 +154,7 @@ func runBrowser(options *Options) error {
 		return fmt.Errorf("signed in, but reading the account failed: %w", err)
 	}
 	if options.JSON {
-		next, err := cmdutil.PlainJSON(you.Next)
-		if err != nil {
-			return err
-		}
+		next := cmdutil.PlainJSON(you.Next)
 		return writeJSONLine(out, struct {
 			Status string          `json:"status"`
 			Next   json.RawMessage `json:"next"`

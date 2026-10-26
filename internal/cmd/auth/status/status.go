@@ -84,10 +84,7 @@ func report(options *Options) error {
 
 	out := options.Command.OutOrStdout()
 	if options.JSON {
-		next, err := cmdutil.PlainJSON(you.Next)
-		if err != nil {
-			return err
-		}
+		next := cmdutil.PlainJSON(you.Next)
 		status := struct {
 			Status    string          `json:"status"`
 			Profile   string          `json:"profile"`

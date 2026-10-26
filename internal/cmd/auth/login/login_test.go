@@ -349,12 +349,16 @@ func TestLoginJSONLinesAreNotEscaped(t *testing.T) {
 }
 
 func TestLoginSignupAndNameReachTheAuthorizeURL(t *testing.T) {
-	for _, extra := range [][]string{{}, {"--json"}, {"--no-browser", "--json"}} {
+	cases := []struct {
+		extra     []string
+		noBrowser bool
+	}{{nil, false}, {[]string{"--json"}, false}, {[]string{"--no-browser", "--json"}, true}}
+	for _, tc := range cases {
 		fake := newFakeAPI(t)
 		factory, _, _ := loginFactory(t, fake)
-		args := append([]string{"--signup", "--name", "Ada Lovelace & Co"}, extra...)
+		args := append([]string{"--signup", "--name", "Ada Lovelace & Co"}, tc.extra...)
 		var err error
-		if len(extra) > 1 {
+		if tc.noBrowser {
 			writer := &urlWriter{onURL: fake.approve(t)}
 			factory.OpenBrowser = func(string) error { t.Error("browser opened with --no-browser"); return nil }
 			root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}

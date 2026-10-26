@@ -22,21 +22,22 @@ func WriteJSONLine(writer io.Writer, value any) error {
 }
 
 // PlainJSON re-encodes a raw FRAPI value without \/ escapes. Object keys come out sorted.
-func PlainJSON(raw json.RawMessage) (json.RawMessage, error) {
+// It returns raw unchanged when the value cannot be re-encoded.
+func PlainJSON(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
-		return raw, nil
+		return raw
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("decode JSON value: %w", err)
+		return raw
 	}
 	var buffer bytes.Buffer
 	if err := WriteJSONLine(&buffer, value); err != nil {
-		return nil, err
+		return raw
 	}
-	return json.RawMessage(bytes.TrimSpace(buffer.Bytes())), nil
+	return json.RawMessage(bytes.TrimSpace(buffer.Bytes()))
 }
 
 const maxJSONInputSize = 10 << 20
