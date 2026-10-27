@@ -19,7 +19,7 @@ printf '#!/bin/sh\nexit 0\n' > "$test_dir/gh"
 chmod 0755 "$test_dir/gh"
 printf '#!/bin/sh\nexit 1\n' > "$test_dir/strict-bin/gh"
 chmod 0755 "$test_dir/strict-bin/gh"
-printf '#!/bin/sh\nprintf "frbit installer fixture\\n"\n' > "$test_dir/package/frbit"
+printf '#!/bin/sh\nprintf "frbit installer fixture%%s\\n" "${*:+ $*}"\n' > "$test_dir/package/frbit"
 chmod 0755 "$test_dir/package/frbit"
 tar -czf "$test_dir/release/$asset" -C "$test_dir/package" frbit
 
@@ -45,4 +45,17 @@ else
   printf 'strict provenance check did not fail\n' >&2
   exit 1
 fi
+install_fixture() {
+  FRBIT_RELEASE_BASE_URL="file://$test_dir/release" \
+    FRBIT_INSTALL_TESTING=1 \
+    FRBIT_INSTALL_DIR="$test_dir/agent-bin" \
+    PATH="$test_dir:$PATH" \
+    sh "$root/install.sh" "$@"
+}
+
+install_fixture --setup-agent | grep -qx 'frbit installer fixture setup agent' || { printf -- '--setup-agent did not run setup agent\n' >&2; exit 1; }
+install_fixture --agent codex --agent claude-code | grep -qx 'frbit installer fixture setup agent --agent codex --agent claude-code' || { printf -- '--agent was not forwarded\n' >&2; exit 1; }
+if install_fixture --agent 'codex;id' >/dev/null 2>&1; then printf 'invalid agent name was accepted\n' >&2; exit 1; fi
+if install_fixture --unknown >/dev/null 2>&1; then printf 'unknown option was accepted\n' >&2; exit 1; fi
+
 printf 'installer test passed\n'
