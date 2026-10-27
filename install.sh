@@ -9,6 +9,36 @@ fail() {
   exit 1
 }
 
+usage() {
+  cat <<'USAGE'
+Usage: install.sh [--setup-agent] [--agent <name>]...
+
+  --setup-agent   After installing, run `frbit setup agent` for the detected coding agents.
+  --agent <name>  Set up this agent only, e.g. claude-code or codex. Repeatable; implies --setup-agent.
+  -h, --help      Show this help.
+USAGE
+}
+
+setup_agent=0
+agent_args=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --setup-agent) setup_agent=1 ;;
+    --agent)
+      [ "$#" -ge 2 ] || fail "--agent needs a name"
+      case "$2" in
+        *[!a-z0-9-]*|"") fail "invalid agent name: $2" ;;
+      esac
+      setup_agent=1
+      agent_args="$agent_args --agent $2"
+      shift
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown option: $1 (see --help)" ;;
+  esac
+  shift
+done
+
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v tar >/dev/null 2>&1 || fail "tar is required"
 
@@ -112,4 +142,11 @@ case ":${PATH:-}:" in
   *":$install_dir:"*) ;;
   *) printf 'Add %s to PATH to run frbit.\n' "$install_dir" ;;
 esac
-printf 'For shell completion, run: frbit completion install <bash|fish|powershell|zsh>\n'
+
+if [ "$setup_agent" -eq 1 ]; then
+  # agent_args holds only validated names, so word splitting is safe here.
+  # shellcheck disable=SC2086
+  "$install_dir/frbit" setup agent $agent_args
+else
+  printf 'For shell completion, run: frbit completion install <bash|fish|powershell|zsh>\n'
+fi

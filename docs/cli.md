@@ -340,6 +340,13 @@ prints every skills and MCP configuration path it touched. Re-running the
 command is safe: current MCP entries are left unchanged and the skills are
 refreshed from their independently versioned release.
 
+The install script runs the same step right after installing when given
+`--setup-agent`, or `--agent <name>` for one agent:
+
+```sh
+curl -fsSL https://github.com/fortrabbit/frbit-cli/releases/latest/download/install.sh | sh -s -- --setup-agent
+```
+
 Select one or more agents explicitly to bypass detection:
 
 ```sh
