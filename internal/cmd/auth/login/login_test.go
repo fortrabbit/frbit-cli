@@ -216,8 +216,11 @@ func TestLoginJSONPrintsWaitingThenSignedIn(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("output lines = %q", lines)
 	}
-	var waiting struct{ URL, Status string }
-	if err := json.Unmarshal([]byte(lines[0]), &waiting); err != nil || waiting.Status != "waiting" || !strings.HasPrefix(waiting.URL, fake.URL+"/oauth2/authorize?") {
+	var waiting struct {
+		URL, Status string
+		Code        string `json:"confirmation_code"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &waiting); err != nil || waiting.Status != "waiting" || !strings.HasPrefix(waiting.URL, fake.URL+"/oauth2/authorize?") || len(waiting.Code) != 9 {
 		t.Fatalf("first line = %q (%v)", lines[0], err)
 	}
 	if !strings.HasPrefix(lines[0], `{"url":`) {
@@ -289,7 +292,7 @@ func TestLoginJSONReportsDeniedConsentWithCode(t *testing.T) {
 		}
 		query := authorize.Query()
 		go func() {
-			response, err := http.Get(query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}}.Encode())
+			response, err := http.Get(query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}, "iss": {fake.URL}}.Encode())
 			if err != nil {
 				t.Errorf("callback: %v", err)
 				return

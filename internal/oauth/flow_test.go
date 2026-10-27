@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -200,7 +201,7 @@ func validCallback(_ string, state string) url.Values {
 func TestLoginCompletesBrowserFlow(t *testing.T) {
 	fake := newFakeServer(t)
 	person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{validCallback}, responses: make(chan *http.Response, 1)}
-	shown := ""
+	shown, shownCode := "", ""
 	host := fake.URL + "/"
 
 	credential, err := Login(context.Background(), Options{
@@ -209,7 +210,7 @@ func TestLoginCompletesBrowserFlow(t *testing.T) {
 		OpenBrowser:  person.open,
 		Out:          &strings.Builder{},
 		Timeout:      5 * time.Second,
-		OnURL:        func(rawURL string) error { shown = rawURL; return nil },
+		OnURL:        func(rawURL string, code string) error { shown, shownCode = rawURL, code; return nil },
 	})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
@@ -222,6 +223,10 @@ func TestLoginCompletesBrowserFlow(t *testing.T) {
 	}
 	if !strings.HasPrefix(shown, fake.issuer()+"/oauth2/authorize?") {
 		t.Fatalf("shown URL = %q", shown)
+	}
+	authorize, _ := url.Parse(shown)
+	if got := authorize.Query().Get("confirmation_challenge"); got != confirmationChallenge(shownCode, authorize.Query().Get("code_challenge")) {
+		t.Fatalf("confirmation_challenge = %q for code %q", got, shownCode)
 	}
 	response := <-person.responses
 	if response.StatusCode != http.StatusFound || response.Header.Get("Location") != dashboardURL+"/oauth2/connected?client=frbit-cli" {
@@ -301,7 +306,7 @@ func TestDeniedConsentAnswersPlainPageWithoutRedirect(t *testing.T) {
 		query := authorize.Query()
 		go func() {
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			target := query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}, "redirect_to": {"https://evil.example/"}}.Encode()
+			target := query.Get("redirect_uri") + "?" + url.Values{"error": {"access_denied"}, "state": {query.Get("state")}, "redirect_to": {"https://evil.example/"}, "iss": {fake.issuer()}}.Encode()
 			response, err := client.Get(target)
 			if err != nil {
 				t.Errorf("callback: %v", err)
@@ -570,7 +575,7 @@ func TestLoginAuthorizeURLCarriesSignupAndNameHint(t *testing.T) {
 			shown := ""
 			options := tc.options
 			options.Host, options.DashboardURL, options.OpenBrowser, options.Out, options.Timeout = fake.URL, dashboardURL, person.open, &strings.Builder{}, 5*time.Second
-			options.OnURL = func(rawURL string) error { shown = rawURL; return nil }
+			options.OnURL = func(rawURL string, _ string) error { shown = rawURL; return nil }
 			if _, err := Login(context.Background(), options); err != nil {
 				t.Fatalf("Login() error = %v", err)
 			}
@@ -596,5 +601,43 @@ func TestValidateNameHint(t *testing.T) {
 		if err := ValidateNameHint(invalid); err == nil {
 			t.Errorf("ValidateNameHint(%q) accepted", invalid)
 		}
+	}
+}
+
+func TestConfirmationChallengeMatchesFRAPI(t *testing.T) {
+	// The value FRAPI's OAuthConsentRequest::confirms() computes for this code and challenge.
+	if got := confirmationChallenge("WDJB-MJHT", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"); got != "VUDrkPwfVEfHI_VG9IidfbgS1ES30RGRKObkoK748oI" {
+		t.Fatalf("confirmationChallenge() = %q", got)
+	}
+}
+
+func TestConfirmationCodesUseTheAlphabetAndDiffer(t *testing.T) {
+	pattern := regexp.MustCompile(`^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$`)
+	seen := map[string]bool{}
+	for range 50 {
+		code, err := newConfirmationCode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !pattern.MatchString(code) {
+			t.Fatalf("code = %q", code)
+		}
+		seen[code] = true
+	}
+	if len(seen) < 49 {
+		t.Fatalf("only %d distinct codes in 50", len(seen))
+	}
+}
+
+func TestLoginPrintsTheConfirmationCode(t *testing.T) {
+	fake := newFakeServer(t)
+	person := &browser{t: t, fake: fake, callbacks: []func(string, string) url.Values{validCallback}, responses: make(chan *http.Response, 1)}
+	output := &strings.Builder{}
+
+	if _, err := Login(context.Background(), Options{Host: fake.URL, DashboardURL: dashboardURL, OpenBrowser: person.open, Out: output, Timeout: 5 * time.Second}); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if !regexp.MustCompile(`Enter this code on the consent page: [A-Z]{4}-[A-Z]{4}`).MatchString(output.String()) {
+		t.Fatalf("output = %q", output.String())
 	}
 }

@@ -25,10 +25,10 @@ credential store:
 frbit auth login
 ```
 
-The command prints the sign-in URL, opens it in your default browser, and waits
-up to 15 minutes. Without an account, the same page signs you up. Use
-`--no-browser` to only print the URL, and `--json` for machine-readable output:
-`{"url": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}`.
+The command prints the sign-in URL and a code, opens the URL in your default browser,
+and waits up to 15 minutes. Type the code on the consent page. Without an account,
+the same page signs you up. Use `--no-browser` to only print the URL, and `--json`
+for machine-readable output: `{"url": …, "confirmation_code": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}`.
 The credential refreshes itself; `frbit auth status` shows its expiry and the next
 setup step.
 

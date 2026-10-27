@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -40,8 +41,8 @@ type Options struct {
 	Out          io.Writer
 	Timeout      time.Duration
 	HTTPClient   *http.Client
-	// OnURL replaces the default sign-in prompt on Out, for machine-readable output.
-	OnURL func(string) error
+	// OnURL replaces the default sign-in prompt on Out, for machine-readable output. It gets the URL and the confirmation code.
+	OnURL func(authorizeURL string, confirmationCode string) error
 	// Signup sends prompt=create, so a person without an account lands on the sign-up page.
 	Signup bool
 	// NameHint suggests the name for a new account, sent as name_hint.
@@ -177,13 +178,18 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 	if err != nil {
 		return credentials.Credential{}, err
 	}
+	confirmationCode, err := newConfirmationCode()
+	if err != nil {
+		return credentials.Credential{}, err
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return credentials.Credential{}, fmt.Errorf("listen for the browser callback: %w", err)
 	}
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", listener.Addr().(*net.TCPAddr).Port)
-	authorizeURL, err := metadata.authorizeURL(redirectURI, codeChallenge(verifier), state, options)
+	challenge := codeChallenge(verifier)
+	authorizeURL, err := metadata.authorizeURL(redirectURI, challenge, confirmationChallenge(confirmationCode, challenge), state, options)
 	if err != nil {
 		_ = listener.Close()
 		return credentials.Credential{}, err
@@ -236,10 +242,10 @@ func Login(ctx context.Context, options Options) (credentials.Credential, error)
 	}()
 
 	if options.OnURL != nil {
-		if err := options.OnURL(authorizeURL); err != nil {
+		if err := options.OnURL(authorizeURL, confirmationCode); err != nil {
 			return credentials.Credential{}, err
 		}
-	} else if _, err := fmt.Fprintf(out, "Open this URL to sign in to fortrabbit:\n%s\n\n", authorizeURL); err != nil {
+	} else if _, err := fmt.Fprintf(out, "Open this URL to sign in to fortrabbit:\n%s\n\nEnter this code on the consent page: %s\n\n", authorizeURL, confirmationCode); err != nil {
 		return credentials.Credential{}, err
 	}
 	if options.OpenBrowser != nil {
@@ -315,6 +321,10 @@ func Revoke(ctx context.Context, host string, httpClient *http.Client, refreshTo
 }
 
 func completeCallback(ctx context.Context, client *http.Client, metadata serverMetadata, query url.Values, redirectURI string, verifier string) (credentials.Credential, error) {
+	// FRAPI always sends iss (RFC 9207), so a callback or denial without it did not come from the expected server.
+	if issuer := query.Get("iss"); issuer != metadata.Issuer {
+		return credentials.Credential{}, fmt.Errorf("sign-in came from issuer %q, expected %q", issuer, metadata.Issuer)
+	}
 	if code := query.Get("error"); code != "" {
 		if description := query.Get("error_description"); description != "" {
 			code += ": " + description
@@ -324,10 +334,6 @@ func completeCallback(ctx context.Context, client *http.Client, metadata serverM
 			return credentials.Credential{}, &CodedError{Code: CodeAccessDenied, Message: message}
 		}
 		return credentials.Credential{}, errors.New(message)
-	}
-	// FRAPI always sends iss (RFC 9207), so a callback without it did not come from the expected server.
-	if issuer := query.Get("iss"); issuer != metadata.Issuer {
-		return credentials.Credential{}, fmt.Errorf("sign-in came from issuer %q, expected %q", issuer, metadata.Issuer)
 	}
 	code := query.Get("code")
 	if code == "" {
@@ -396,7 +402,7 @@ func discover(ctx context.Context, client *http.Client, host string) (serverMeta
 	return metadata, nil
 }
 
-func (m serverMetadata) authorizeURL(redirectURI string, challenge string, state string, options Options) (string, error) {
+func (m serverMetadata) authorizeURL(redirectURI string, challenge string, confirmation string, state string, options Options) (string, error) {
 	endpoint, err := url.Parse(m.AuthorizationEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("parse authorization endpoint: %w", err)
@@ -410,6 +416,7 @@ func (m serverMetadata) authorizeURL(redirectURI string, challenge string, state
 	query.Set("code_challenge", challenge)
 	query.Set("code_challenge_method", "S256")
 	query.Set("state", state)
+	query.Set("confirmation_challenge", confirmation)
 	if options.Signup {
 		query.Set("prompt", "create")
 	}
@@ -520,6 +527,32 @@ func randomString() (string, error) {
 		return "", fmt.Errorf("generate random value: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+// The alphabet has no vowels, so a code never spells a word, and no 0/O or 1/I to mix up.
+const confirmationAlphabet = "BCDFGHJKLMNPQRSTVWXZ"
+
+// newConfirmationCode returns the code the person types on the consent page, as XXXX-XXXX.
+func newConfirmationCode() (string, error) {
+	code := make([]byte, 0, 9)
+	for len(code) < 9 {
+		if len(code) == 4 {
+			code = append(code, '-')
+			continue
+		}
+		index, err := rand.Int(rand.Reader, big.NewInt(int64(len(confirmationAlphabet))))
+		if err != nil {
+			return "", fmt.Errorf("generate confirmation code: %w", err)
+		}
+		code = append(code, confirmationAlphabet[index.Int64()])
+	}
+	return string(code), nil
+}
+
+// confirmationChallenge binds the code to this sign-in's PKCE challenge, the way FRAPI checks it.
+func confirmationChallenge(confirmationCode string, codeChallenge string) string {
+	sum := sha256.Sum256([]byte(strings.ReplaceAll(confirmationCode, "-", "") + "." + codeChallenge))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 func codeChallenge(verifier string) string {

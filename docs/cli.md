@@ -47,12 +47,12 @@ Sign in through the browser:
 frbit auth login
 ```
 
-The command prints the sign-in URL first, opens it in your default browser, and waits up to 15 minutes. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
+The command prints the sign-in URL and a code first, opens the URL in your default browser, and waits up to 15 minutes. Type the code on the consent page: it shows that the sign-in in the browser belongs to this terminal. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
 
 | Option | Effect |
 |--|--|
 | `--no-browser` | Print the URL without opening a browser |
-| `--json` | Print `{"url": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
+| `--json` | Print `{"url": …, "confirmation_code": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
 | `--signup` | Open the sign-up page instead of the login page, for people without an account |
 | `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
 

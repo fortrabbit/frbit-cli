@@ -33,12 +33,13 @@ type Options struct {
 
 const longHelp = `Sign in to fortrabbit in the browser and store the credential in the system keychain.
 
-The command prints the sign-in URL first, opens it in the default browser unless
---no-browser is set, and waits up to 15 minutes for the sign-in to finish. This also
+The command prints the sign-in URL and a code first, opens the URL in the default
+browser unless --no-browser is set, and waits up to 15 minutes for the sign-in to finish. This also
 works without a terminal, for example when a coding agent runs it in the background.
 The credential refreshes itself; frbit auth logout removes it.
 
-With --json, the command prints {"url": …, "status": "waiting"} at once and
+The person types the code on the consent page, which ties the browser to this terminal.
+With --json, the command prints {"url": …, "confirmation_code": …, "status": "waiting"} at once and
 {"status": "signed_in", "next": …} after the sign-in.
 
 In CI or without a browser, pipe a personal API token to --token-stdin, or set
@@ -74,7 +75,7 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 	}
 	command.Flags().BoolVar(&options.TokenStdin, "token-stdin", false, "Read a personal API token from standard input instead of signing in")
 	command.Flags().BoolVar(&options.NoBrowser, "no-browser", false, "Print the sign-in URL without opening a browser")
-	command.Flags().BoolVar(&options.JSON, "json", false, "Print the sign-in URL and result as JSON lines")
+	command.Flags().BoolVar(&options.JSON, "json", false, "Print the sign-in URL, the confirmation code and the result as JSON lines")
 	command.Flags().BoolVar(&options.Signup, "signup", false, "Open the sign-up page, for people without an account")
 	command.Flags().StringVar(&options.Name, "name", "", "Suggest a name for the new account")
 	return command
@@ -135,11 +136,12 @@ func runBrowser(options *Options) error {
 	}
 	if options.JSON {
 		loginOptions.Out = command.ErrOrStderr()
-		loginOptions.OnURL = func(authorizeURL string) error {
+		loginOptions.OnURL = func(authorizeURL string, confirmationCode string) error {
 			return writeJSONLine(out, struct {
 				URL    string `json:"url"`
+				Code   string `json:"confirmation_code"`
 				Status string `json:"status"`
-			}{authorizeURL, "waiting"})
+			}{authorizeURL, confirmationCode, "waiting"})
 		}
 	}
 	credential, err := oauth.Login(command.Context(), loginOptions)
