@@ -11,10 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/config"
+	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
+	"github.com/zalando/go-keyring"
 )
 
 type memoryConfigStore struct {
@@ -28,17 +31,17 @@ func (s *memoryConfigStore) Save(value config.Config) error {
 }
 
 type memoryCredentialStore struct {
-	tokens map[string]string
+	tokens map[string]credentials.Credential
 }
 
-func (s *memoryCredentialStore) Get(profile string) (string, error) {
+func (s *memoryCredentialStore) Get(profile string) (credentials.Credential, error) {
 	token, ok := s.tokens[profile]
 	if !ok {
-		return "", fmt.Errorf("credential not found")
+		return credentials.Credential{}, credentials.ErrNotFound
 	}
 	return token, nil
 }
-func (s *memoryCredentialStore) Set(profile string, token string) error {
+func (s *memoryCredentialStore) Set(profile string, token credentials.Credential) error {
 	s.tokens[profile] = token
 	return nil
 }
@@ -659,10 +662,141 @@ func testFactory(output *bytes.Buffer) *app.Factory {
 	return &app.Factory{
 		IOStreams:       iostreams.IOStreams{In: strings.NewReader(""), Out: output, ErrOut: &bytes.Buffer{}, IsTTY: false},
 		ConfigStore:     &memoryConfigStore{},
-		CredentialStore: &memoryCredentialStore{tokens: map[string]string{}},
+		CredentialStore: &memoryCredentialStore{tokens: map[string]credentials.Credential{}},
 		HTTPClient:      &http.Client{},
 		Version:         "test",
 		Commit:          "test",
 		Date:            "test",
+	}
+}
+
+func youServer(t *testing.T, bearer string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+bearer {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/apps":
+			_, _ = writer.Write([]byte(`[]`))
+		case "/v1/you":
+			_, _ = writer.Write([]byte(`{"publicId":"pe-abc123","email":"ada@example.com","next":{"step":"connect_git","instruction":"Connect GitHub.","url":null},"optional":[]}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestLegacyKeychainTokenStillAuthenticates(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set("frbit-cli", app.DefaultProfile, "frbit-at-legacy"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FRBIT_TOKEN", "")
+	server := youServer(t, "frbit-at-legacy")
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.CredentialStore = credentials.KeyringStore{}
+
+	for _, args := range [][]string{{"apps", "list"}, {"auth", "status"}} {
+		command := NewCmdRoot(factory)
+		command.SetArgs(append([]string{"--host", server.URL}, args...))
+		if err := command.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	for _, expected := range []string{"Credential: API token", "Account: ada@example.com", "Next: Connect GitHub."} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("output %q does not contain %q", output.String(), expected)
+		}
+	}
+}
+
+func TestAuthStatusJSONReportsOAuthCredential(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	server := youServer(t, "frbit-mcp-at-1")
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	factory.CredentialStore = &memoryCredentialStore{tokens: map[string]credentials.Credential{
+		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-mcp-at-1", RefreshToken: "frbit-mcp-rt-1", ExpiresAt: expiresAt, Issuer: server.URL},
+	}}
+	factory.CredentialLockPath = filepath.Join(t.TempDir(), "credentials.lock")
+
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"--host", server.URL, "auth", "status", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Status, Profile, Host, Kind string
+		ExpiresAt                   time.Time
+		Next                        struct{ Step string }
+	}
+	if err := json.Unmarshal(output.Bytes(), &status); err != nil {
+		t.Fatalf("decode %q: %v", output.String(), err)
+	}
+	if status.Status != "signed_in" || status.Profile != app.DefaultProfile || status.Host != server.URL || status.Kind != credentials.KindOAuth || !status.ExpiresAt.Equal(expiresAt) || status.Next.Step != "connect_git" {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestOAuthCredentialIsNotSentToAnotherHost(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.CredentialStore = &memoryCredentialStore{tokens: map[string]credentials.Credential{
+		app.DefaultProfile: {Kind: credentials.KindOAuth, AccessToken: "frbit-mcp-at-1", RefreshToken: "frbit-mcp-rt-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: "https://api.fortrabbit.com"},
+	}}
+	factory.CredentialLockPath = filepath.Join(t.TempDir(), "credentials.lock")
+
+	for _, args := range [][]string{{"apps", "list"}, {"auth", "status"}} {
+		command := NewCmdRoot(factory)
+		command.SetArgs(append([]string{"--host", server.URL}, args...))
+		err := command.Execute()
+		if err == nil || !strings.Contains(err.Error(), "run `frbit auth login` for that host") {
+			t.Fatalf("%v error = %v", args, err)
+		}
+	}
+	if called {
+		t.Fatal("the OAuth credential was sent to a host other than its issuer")
+	}
+}
+
+func TestAuthStatusJSONReportsSignedOut(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "")
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", "https://api.fortrabbit.com", "auth", "status", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("status error = %v", err)
+	}
+	if strings.TrimSpace(output.String()) != `{"status":"signed_out"}` {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestAuthStatusJSONReportsErrors(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "frbit-at-revoked")
+	server := youServer(t, "frbit-at-valid")
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", server.URL, "auth", "status", "--json"})
+	err := command.Execute()
+	if err == nil {
+		t.Fatal("status succeeded with a rejected token")
+	}
+	var line struct{ Status, Error string }
+	if decodeErr := json.Unmarshal(output.Bytes(), &line); decodeErr != nil || line.Status != "error" || line.Error != err.Error() {
+		t.Fatalf("output = %q (%v)", output.String(), decodeErr)
 	}
 }

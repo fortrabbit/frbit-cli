@@ -86,9 +86,8 @@ func ResolveHost(flagHost string, config Config) string {
 	return DefaultHost
 }
 
-// TokenCreationURL resolves the dashboard origin from the environment and
-// returns its API token creation page.
-func TokenCreationURL() (string, error) {
+// DashboardURL resolves the dashboard origin from FRBIT_DASHBOARD_URL or the production default.
+func DashboardURL() (string, error) {
 	dashboardURL := strings.TrimSpace(os.Getenv("FRBIT_DASHBOARD_URL"))
 	if dashboardURL == "" {
 		dashboardURL = DefaultDashboardURL
@@ -102,5 +101,5 @@ func TokenCreationURL() (string, error) {
 		return "", fmt.Errorf("invalid dashboard URL %q; provide an origin without a path, query, or fragment", dashboardURL)
 	}
 
-	return strings.TrimRight(dashboardURL, "/") + "/new/api-token", nil
+	return strings.TrimRight(dashboardURL, "/"), nil
 }

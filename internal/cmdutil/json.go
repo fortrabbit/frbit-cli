@@ -11,6 +11,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// WriteJSONLine writes value as one JSON line without escaping &, < or >, so URLs stay readable.
+func WriteJSONLine(writer io.Writer, value any) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return fmt.Errorf("encode JSON output: %w", err)
+	}
+	return nil
+}
+
+// PlainJSON re-encodes a raw FRAPI value without \/ escapes. Object keys come out sorted.
+// It returns raw unchanged when the value cannot be re-encoded.
+func PlainJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return raw
+	}
+	var buffer bytes.Buffer
+	if err := WriteJSONLine(&buffer, value); err != nil {
+		return raw
+	}
+	return json.RawMessage(bytes.TrimSpace(buffer.Bytes()))
+}
+
 const maxJSONInputSize = 10 << 20
 
 // ReadJSONObject reads a JSON object from a file, or from stdin when path is

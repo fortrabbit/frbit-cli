@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -8,6 +9,8 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/config"
+	"github.com/fortrabbit/frbit-cli/internal/credentials"
+	"github.com/fortrabbit/frbit-cli/internal/oauth"
 	"github.com/spf13/cobra"
 )
 
@@ -34,25 +37,50 @@ func Client(factory *app.Factory, host string, token string) (*api.Client, error
 	return api.NewClient(host, token, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
 }
 
+// CredentialClient builds a client that refreshes an OAuth credential of profile as needed.
+func CredentialClient(factory *app.Factory, host string, profile string, credential credentials.Credential) (*api.Client, error) {
+	if credential.Kind != credentials.KindOAuth {
+		return Client(factory, host, credential.AccessToken)
+	}
+	if !oauth.SameOrigin(host, credential.Issuer) {
+		return nil, fmt.Errorf("profile %q is signed in to %s, not %s; run `frbit auth login` for that host", profile, credential.Issuer, host)
+	}
+	if factory.CredentialLockPath == "" {
+		return nil, fmt.Errorf("no credential lock path is configured")
+	}
+	refresh := func(ctx context.Context, refreshToken string) (credentials.Credential, error) {
+		return oauth.Refresh(ctx, host, factory.HTTPClient, refreshToken)
+	}
+	tokens := api.NewOAuthTokens(host, factory.CredentialStore, profile, factory.CredentialLockPath, credential, refresh)
+	return api.NewClientWithTokens(host, tokens, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
+}
+
 func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error) {
 	host, err := Host(command, factory)
 	if err != nil {
 		return nil, err
 	}
-	if !isDefaultHost(host) {
-		if _, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host); err != nil {
-			return nil, err
-		}
+	if err := WarnNonDefaultHost(command, host); err != nil {
+		return nil, err
 	}
 	profile, err := Profile(command)
 	if err != nil {
 		return nil, err
 	}
-	token, _, err := factory.Token(profile)
+	credential, _, err := factory.Credential(profile)
 	if err != nil {
 		return nil, err
 	}
-	return Client(factory, host, token)
+	return CredentialClient(factory, host, profile, credential)
+}
+
+// WarnNonDefaultHost flags a host set by flag, environment or config, since a cloned repo can set FRBIT_HOST.
+func WarnNonDefaultHost(command *cobra.Command, host string) error {
+	if isDefaultHost(host) {
+		return nil
+	}
+	_, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host)
+	return err
 }
 
 func isDefaultHost(host string) bool {

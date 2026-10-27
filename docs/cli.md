@@ -41,21 +41,32 @@ saves it in `~/.zfunc/_frbit` and adds that directory to zsh's completion path.
 
 ## Authenticate
 
-Create a personal API token in the fortrabbit dashboard, then sign in:
+Sign in through the browser:
 
 ```sh
 frbit auth login
 ```
 
-The command prompts for the token and stores it in your operating system's credential store. It also saves the API host for subsequent commands.
+The command prints the sign-in URL and a code first, opens the URL in your default browser, and waits up to 15 minutes. Type the code on the consent page: it shows that the sign-in in the browser belongs to this terminal. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
 
-Verify the active credential at any time:
+| Option | Effect |
+|--|--|
+| `--no-browser` | Print the URL without opening a browser |
+| `--json` | Print `{"url": …, "confirmation_code": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
+| `--signup` | Open the sign-up page instead of the login page, for people without an account |
+| `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
+
+If the person denies the consent request, the browser tab shows "Not connected. Your agent knows; you can close this tab." and the command fails. With `--json` the last line is `{"status": "error", "code": "access_denied", "error": …}`. The consent request is used up, so ask the person before running `frbit auth login` again. Other stable codes: `timeout` and `frbit_token_set`.
+
+Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`. For a person without an account they add `--signup`.
+
+Verify the active credential at any time. It shows the profile, host, credential kind, expiry, and the next setup step. With `--json` it prints one line with `"status": "signed_in"` and the same fields, `{"status": "signed_out"}` (exit 0) without a credential, or `{"status": "error", "error": …}` (exit 1):
 
 ```sh
 frbit auth status
 ```
 
-Remove the stored credential when you no longer need it on this machine:
+Remove the stored credential when you no longer need it on this machine. A browser sign-in is revoked on the server first, so it leaves the Connections list in the dashboard. When the server cannot be reached, the credential is still removed here and the sign-in stays under Connections until you disconnect it there. A stored API token is only removed locally; revoke it under API tokens. While `FRBIT_TOKEN` is set, `logout` and `auth status` warn on stderr that the token is used instead of a stored sign-in (`auth status --json` adds a `warning` field):
 
 ```sh
 frbit auth logout
@@ -69,7 +80,7 @@ Use `FRBIT_TOKEN` in CI, scripts, containers, and agents. It is used only for th
 FRBIT_TOKEN=frbit-at-… frbit apps list
 ```
 
-To save a token without an interactive prompt, pass it on standard input. Avoid placing tokens directly in shell history or command-line arguments.
+Without a browser, store a personal API token from standard input instead of signing in. `frbit auth login` without `--token-stdin` refuses to start while `FRBIT_TOKEN` is set. Avoid placing tokens directly in shell history or command-line arguments.
 
 ```sh
 printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
@@ -77,7 +88,7 @@ printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
 
 ## Uninstall
 
-Sign out while the binary is still in place. `frbit auth logout` removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
+Sign out while the binary is still in place. `frbit auth logout` revokes a browser sign-in and removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
 
 Then remove the CLI with the counterpart of the install method:
 
@@ -436,9 +447,9 @@ frbit --profile work auth logout
 
 | Command | Description |
 | --- | --- |
-| `frbit auth login` | Validate and store a public API token. Accepts `--token-stdin`. |
-| `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN`. |
-| `frbit auth logout` | Remove the stored credential for the selected profile. |
+| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--signup`, `--name`, and `--token-stdin` for a personal API token. |
+| `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
+| `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |
@@ -481,6 +492,6 @@ Global options:
 
 ## Troubleshooting
 
-If a command reports that no API token is available, set `FRBIT_TOKEN` for that command or run `frbit auth login` interactively.
+If a command reports that no API token is available, set `FRBIT_TOKEN` for that command or run `frbit auth login`.
 
 If authentication fails, confirm that the token is active and has access to the expected apps, then run `frbit auth status` to test the exact profile and host in use.

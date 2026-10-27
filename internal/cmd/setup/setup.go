@@ -98,7 +98,7 @@ func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *co
 			if err != nil {
 				return err
 			}
-			_, tokenSource, tokenErr := factory.Token(profile)
+			_, tokenSource, tokenErr := factory.Credential(profile)
 			return printSummary(cmd.OutOrStdout(), release, installations, mcpResults, agents, profile, tokenSource, tokenErr)
 		},
 	}

@@ -2,32 +2,32 @@ package config
 
 import "testing"
 
-func TestTokenCreationURL(t *testing.T) {
+func TestDashboardURL(t *testing.T) {
 	tests := []struct {
 		name      string
 		dashboard string
 		want      string
 	}{
-		{name: "production default", want: "https://dash.fortrabbit.com/new/api-token"},
-		{name: "development override", dashboard: "http://localhost:3001", want: "http://localhost:3001/new/api-token"},
-		{name: "trailing slash", dashboard: "http://localhost:3001/", want: "http://localhost:3001/new/api-token"},
+		{name: "production default", want: "https://dash.fortrabbit.com"},
+		{name: "development override", dashboard: "http://localhost:3001", want: "http://localhost:3001"},
+		{name: "trailing slash", dashboard: "http://localhost:3001/", want: "http://localhost:3001"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("FRBIT_DASHBOARD_URL", test.dashboard)
-			got, err := TokenCreationURL()
+			got, err := DashboardURL()
 			if err != nil {
-				t.Fatalf("TokenCreationURL() error = %v", err)
+				t.Fatalf("DashboardURL() error = %v", err)
 			}
 			if got != test.want {
-				t.Fatalf("TokenCreationURL() = %q, want %q", got, test.want)
+				t.Fatalf("DashboardURL() = %q, want %q", got, test.want)
 			}
 		})
 	}
 }
 
-func TestTokenCreationURLRejectsInvalidOverride(t *testing.T) {
+func TestDashboardURLRejectsInvalidOverride(t *testing.T) {
 	tests := []string{
 		"localhost:3001",
 		"file:///tmp/token",
@@ -38,8 +38,8 @@ func TestTokenCreationURLRejectsInvalidOverride(t *testing.T) {
 	for _, dashboardURL := range tests {
 		t.Run(dashboardURL, func(t *testing.T) {
 			t.Setenv("FRBIT_DASHBOARD_URL", dashboardURL)
-			if _, err := TokenCreationURL(); err == nil {
-				t.Fatalf("TokenCreationURL() error = nil for %q", dashboardURL)
+			if _, err := DashboardURL(); err == nil {
+				t.Fatalf("DashboardURL() error = nil for %q", dashboardURL)
 			}
 		})
 	}

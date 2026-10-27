@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,16 +13,113 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/fortrabbit/frbit-cli/internal/credentials"
+	"github.com/fortrabbit/frbit-cli/internal/filelock"
 )
 
-const defaultTimeout = 15 * time.Second
+const (
+	defaultTimeout = 15 * time.Second
+	refreshMargin  = 60 * time.Second
+	lockTimeout    = time.Minute
+)
 
 type Client struct {
 	baseURL   *url.URL
-	token     string
+	tokens    TokenSource
 	http      *http.Client
 	userAgent string
+}
+
+// TokenSource supplies the bearer token and, for OAuth, replaces one the API rejected.
+type TokenSource interface {
+	Token(ctx context.Context) (string, error)
+	Refresh(ctx context.Context, rejected string) (string, error)
+}
+
+var errNoRefresh = errors.New("credential cannot be refreshed")
+
+type staticToken string
+
+func (t staticToken) Token(context.Context) (string, error) { return string(t), nil }
+
+func (staticToken) Refresh(context.Context, string) (string, error) { return "", errNoRefresh }
+
+type RefreshFunc func(ctx context.Context, refreshToken string) (credentials.Credential, error)
+
+// OAuthTokens refreshes under a file lock and re-reads the store first, since reusing a rotated refresh token revokes the grant.
+type OAuthTokens struct {
+	host     string
+	store    credentials.Store
+	profile  string
+	lockPath string
+	refresh  RefreshFunc
+	now      func() time.Time
+
+	mu      sync.Mutex
+	current credentials.Credential
+}
+
+func NewOAuthTokens(host string, store credentials.Store, profile string, lockPath string, current credentials.Credential, refresh RefreshFunc) *OAuthTokens {
+	return &OAuthTokens{host: host, store: store, profile: profile, lockPath: lockPath, refresh: refresh, now: time.Now, current: current}
+}
+
+func (s *OAuthTokens) Token(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fresh(s.current) {
+		return s.current.AccessToken, nil
+	}
+	return s.refreshLocked(ctx, s.current.AccessToken)
+}
+
+func (s *OAuthTokens) Refresh(ctx context.Context, rejected string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current.AccessToken != rejected {
+		return s.current.AccessToken, nil
+	}
+	return s.refreshLocked(ctx, rejected)
+}
+
+func (s *OAuthTokens) fresh(credential credentials.Credential) bool {
+	return credential.ExpiresAt.IsZero() || s.now().Add(refreshMargin).Before(credential.ExpiresAt)
+}
+
+func (s *OAuthTokens) refreshLocked(ctx context.Context, stale string) (string, error) {
+	lockCtx, cancel := context.WithTimeout(ctx, lockTimeout)
+	defer cancel()
+	lock, err := filelock.Acquire(lockCtx, s.lockPath)
+	if err != nil {
+		return "", fmt.Errorf("refresh credential: %w", err)
+	}
+	defer func() { _ = lock.Release() }()
+
+	stored, err := s.store.Get(s.profile)
+	if err != nil {
+		return "", err
+	}
+	if stored.Kind == credentials.KindOAuth && !sameOriginString(s.host, stored.Issuer) {
+		return "", fmt.Errorf("profile %q is now signed in to %s, not %s; run `frbit auth login` for that host", s.profile, stored.Issuer, s.host)
+	}
+	if stored.AccessToken != stale && (stored.Kind == credentials.KindAPIToken || s.fresh(stored)) {
+		s.current = stored
+		return stored.AccessToken, nil
+	}
+	if stored.Kind != credentials.KindOAuth || stored.RefreshToken == "" {
+		return "", fmt.Errorf("the sign-in for profile %q has expired; run `frbit auth login` again", s.profile)
+	}
+	refreshed, err := s.refresh(ctx, stored.RefreshToken)
+	if err != nil {
+		return "", fmt.Errorf("refresh the sign-in for profile %q: %w; run `frbit auth login` again", s.profile, err)
+	}
+	if err := s.store.Set(s.profile, refreshed); err != nil {
+		return "", fmt.Errorf("save refreshed credential: %w", err)
+	}
+	s.current = refreshed
+	return refreshed.AccessToken, nil
 }
 
 type HTTPError struct {
@@ -42,13 +140,17 @@ func (e *HTTPError) Error() string {
 }
 
 func NewClient(host string, token string, httpClient *http.Client, userAgent string) (*Client, error) {
+	return NewClientWithTokens(host, staticToken(token), httpClient, userAgent)
+}
+
+func NewClientWithTokens(host string, tokens TokenSource, httpClient *http.Client, userAgent string) (*Client, error) {
 	baseURL, err := parseBaseURL(host)
 	if err != nil {
 		return nil, err
 	}
 	httpClient = clientForOrigin(httpClient, baseURL)
 
-	return &Client{baseURL: baseURL, token: token, http: httpClient, userAgent: userAgent}, nil
+	return &Client{baseURL: baseURL, tokens: tokens, http: httpClient, userAgent: userAgent}, nil
 }
 
 func parseBaseURL(host string) (*url.URL, error) {
@@ -108,6 +210,12 @@ func clientForOrigin(httpClient *http.Client, origin *url.URL) *http.Client {
 		return nil
 	}
 	return &clone
+}
+
+func sameOriginString(first string, second string) bool {
+	a, errA := url.Parse(strings.TrimSpace(first))
+	b, errB := url.Parse(strings.TrimSpace(second))
+	return errA == nil && errB == nil && a.Host != "" && b.Host != "" && sameOrigin(a, b)
 }
 
 func sameOrigin(first *url.URL, second *url.URL) bool {
@@ -201,13 +309,33 @@ func (c Client) request(ctx context.Context, method string, path string, query u
 }
 
 func (c Client) requestWithAccept(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string) ([]byte, error) {
+	token, err := c.tokens.Token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	responseBody, err := c.send(ctx, method, path, query, body, contentType, accept, token)
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusUnauthorized {
+		return responseBody, err
+	}
+	refreshed, refreshErr := c.tokens.Refresh(ctx, token)
+	if errors.Is(refreshErr, errNoRefresh) {
+		return nil, err
+	}
+	if refreshErr != nil {
+		return nil, refreshErr
+	}
+	return c.send(ctx, method, path, query, body, contentType, accept, refreshed)
+}
+
+func (c Client) send(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string, token string) ([]byte, error) {
 	endpoint := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: query.Encode()})
 	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	request.Header.Set("Accept", accept)
-	request.Header.Set("Authorization", "Bearer "+c.token)
+	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("User-Agent", c.userAgent)
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)

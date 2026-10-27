@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/zalando/go-keyring"
@@ -9,23 +10,30 @@ import (
 const service = "frbit-cli"
 
 type Store interface {
-	Get(profile string) (string, error)
-	Set(profile string, token string) error
+	Get(profile string) (Credential, error)
+	Set(profile string, credential Credential) error
 	Delete(profile string) error
 }
 
 type KeyringStore struct{}
 
-func (KeyringStore) Get(profile string) (string, error) {
-	token, err := keyring.Get(service, profile)
-	if err != nil {
-		return "", fmt.Errorf("read credential from system keychain: %w", err)
+func (KeyringStore) Get(profile string) (Credential, error) {
+	value, err := keyring.Get(service, profile)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return Credential{}, ErrNotFound
 	}
-	return token, nil
+	if err != nil {
+		return Credential{}, fmt.Errorf("read credential from system keychain: %w", err)
+	}
+	return Decode(value)
 }
 
-func (KeyringStore) Set(profile string, token string) error {
-	if err := keyring.Set(service, profile, token); err != nil {
+func (KeyringStore) Set(profile string, credential Credential) error {
+	value, err := Encode(credential)
+	if err != nil {
+		return err
+	}
+	if err := keyring.Set(service, profile, value); err != nil {
 		return fmt.Errorf("save credential to system keychain: %w", err)
 	}
 	return nil
