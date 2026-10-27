@@ -14,11 +14,13 @@ case "$(uname -s):$(uname -m)" in
   *) printf 'unsupported test platform\n' >&2; exit 1 ;;
 esac
 
-mkdir -p "$test_dir/release" "$test_dir/package" "$test_dir/bin" "$test_dir/strict-bin"
+mkdir -p "$test_dir/release" "$test_dir/package" "$test_dir/bin" "$test_dir/strict-bin" "$test_dir/signed-out-bin"
 printf '#!/bin/sh\nexit 0\n' > "$test_dir/gh"
 chmod 0755 "$test_dir/gh"
-printf '#!/bin/sh\nexit 1\n' > "$test_dir/strict-bin/gh"
+printf '#!/bin/sh\n[ "$1" = auth ] && exit 0\nexit 1\n' > "$test_dir/strict-bin/gh"
 chmod 0755 "$test_dir/strict-bin/gh"
+printf '#!/bin/sh\nexit 1\n' > "$test_dir/signed-out-bin/gh"
+chmod 0755 "$test_dir/signed-out-bin/gh"
 printf '#!/bin/sh\nprintf "frbit installer fixture%%s\\n" "${*:+ $*}"\n' > "$test_dir/package/frbit"
 chmod 0755 "$test_dir/package/frbit"
 tar -czf "$test_dir/release/$asset" -C "$test_dir/package" frbit
@@ -43,6 +45,12 @@ if FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRB
   :
 else
   printf 'strict provenance check did not fail\n' >&2
+  exit 1
+fi
+
+FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/signed-out-install" PATH="$test_dir/signed-out-bin:$PATH" sh "$root/install.sh" >/dev/null 2>&1 || { printf 'signed-out gh blocked the install\n' >&2; exit 1; }
+if FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/signed-out-strict" PATH="$test_dir/signed-out-bin:$PATH" FRBIT_VERIFY_PROVENANCE=1 sh "$root/install.sh" >/dev/null 2>&1; then
+  printf 'strict provenance check accepted a signed-out gh\n' >&2
   exit 1
 fi
 install_fixture() {

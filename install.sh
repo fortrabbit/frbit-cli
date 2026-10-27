@@ -54,6 +54,11 @@ case "$(uname -m)" in
   *) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
+# A shell under Rosetta reports x86_64 on Apple Silicon; install the native binary instead.
+if [ "$os" = "macOS" ] && [ "$arch" = "amd64" ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = "1" ]; then
+  arch="arm64"
+fi
+
 if [ "$os" = "macOS" ]; then
   if [ "$arch" = "arm64" ]; then
     platform="macOS_AppleSilicon"
@@ -97,7 +102,11 @@ else
 fi
 
 tmp_dir=$(mktemp -d 2>/dev/null || mktemp -d -t frbit)
-trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+trap 'rm -rf "$tmp_dir"' EXIT
+# Exit on signals, so the EXIT trap cleans up and the install stops.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 printf 'Downloading frbit for %s/%s...\n' "$os" "$arch"
 curl -fsSL "$release_base_url/$asset" -o "$tmp_dir/$asset"
@@ -117,7 +126,8 @@ fi
 [ "$actual" = "$expected" ] || fail "checksum verification failed for $asset"
 
 verify_provenance() {
-  if command -v gh >/dev/null 2>&1; then
+  # gh attestation verify needs a signed-in gh, so a signed-out gh counts as missing.
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     gh attestation verify "$tmp_dir/checksums.txt" \
       --repo "$repository" \
       --signer-workflow "$repository/.github/workflows/release.yml" \
@@ -126,9 +136,9 @@ verify_provenance() {
     return
   fi
   if [ "${FRBIT_VERIFY_PROVENANCE:-}" = "1" ]; then
-    fail "GitHub CLI (gh) is required when FRBIT_VERIFY_PROVENANCE=1"
+    fail "a signed-in GitHub CLI (gh) is required when FRBIT_VERIFY_PROVENANCE=1"
   fi
-  printf 'frbit installer: GitHub CLI (gh) not found; skipping release provenance verification. Set FRBIT_VERIFY_PROVENANCE=1 to require this check during installation.\n' >&2
+  printf 'frbit installer: GitHub CLI (gh) not found or not signed in; skipping release provenance verification. Set FRBIT_VERIFY_PROVENANCE=1 to require this check during installation.\n' >&2
 }
 
 verify_provenance
