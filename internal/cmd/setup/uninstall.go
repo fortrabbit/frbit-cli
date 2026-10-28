@@ -79,14 +79,14 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 	if err != nil {
 		return err
 	}
-	// MCP entries need the agent CLI, skill folders do not: look for those regardless.
 	if resolveErr != nil {
 		if _, err := fmt.Fprintf(writer, "MCP entries skipped: %v\n", resolveErr); err != nil {
 			return err
 		}
-		if plan.removals, err = skills.Removals(false, []agent.Agent{agent.ClaudeCode, agent.Codex}); err != nil {
-			return err
-		}
+	}
+	// MCP entries need the agent CLI, skill folders do not: look for every agent's skill.
+	if plan.removals, err = skills.Removals(false, []agent.Agent{agent.ClaudeCode, agent.Codex}); err != nil {
+		return err
 	}
 	folders := existingFolders(factory, system)
 	binary, err := locateBinary(system.executable)
@@ -117,16 +117,6 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 		return err
 	}
 
-	// The binary goes first: a failing brew or npm then leaves the rest in place for a retry.
-	finalStep, err := removeBinary(cmd.Context(), system, binary)
-	if err != nil {
-		return err
-	}
-	if finalStep == "" {
-		if _, err := fmt.Fprintf(writer, "Removed %s\n", binary.path); err != nil {
-			return err
-		}
-	}
 	if err := plan.execute(cmd, factory, mcp, skills); err != nil {
 		return err
 	}
@@ -146,12 +136,16 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(writer, "frbit uninstalled.\n\n%s\n", disconnectHint); err != nil {
+	// The binary goes last, so any failure above leaves frbit in place to run again.
+	finalStep, err := removeBinary(cmd.Context(), system, binary)
+	if err != nil {
 		return err
 	}
 	if finalStep != "" {
-		_, err = fmt.Fprintln(writer, finalStep)
+		_, err = fmt.Fprintf(writer, "%s\n\n%s\n", finalStep, disconnectHint)
+		return err
 	}
+	_, err = fmt.Fprintf(writer, "Removed %s\nfrbit uninstalled.\n\n%s\n", binary.path, disconnectHint)
 	return err
 }
 
@@ -177,10 +171,12 @@ func locateBinary(executable func() (string, error)) (binaryRemoval, error) {
 	if err != nil {
 		return binaryRemoval{}, fmt.Errorf("find the frbit binary: %w", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
+	// Detect the package manager on the real file, but delete the path itself: a symlink goes, its target stays.
+	resolved := path
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		resolved = target
 	}
-	slashed := filepath.ToSlash(path)
+	slashed := filepath.ToSlash(resolved)
 	switch {
 	case strings.Contains(slashed, "/Cellar/frbit/"):
 		return binaryRemoval{path: path, command: []string{"brew", "uninstall", "frbit"}}, nil
@@ -204,13 +200,17 @@ func removeBinary(ctx context.Context, system uninstallSystem, binary binaryRemo
 	// Windows keeps a running executable locked, also for brew or npm.
 	if system.goos == "windows" {
 		if binary.command != nil {
-			return fmt.Sprintf("Run %s to finish.", strings.Join(binary.command, " ")), nil
+			return fmt.Sprintf("One step left: run %s.", strings.Join(binary.command, " ")), nil
 		}
-		return fmt.Sprintf("Delete %s to finish.", binary.path), nil
+		return fmt.Sprintf("One step left: delete %s.", binary.path), nil
 	}
 	if binary.command != nil {
 		if output, err := system.runner.Run(ctx, binary.command[0], binary.command[1:]...); err != nil {
 			return "", fmt.Errorf("%s: %w: %s", strings.Join(binary.command, " "), err, strings.TrimSpace(output))
+		}
+		// pnpm, yarn and bun use the same node_modules layout, and npm succeeds on a package it does not own.
+		if _, err := os.Stat(binary.path); err == nil {
+			return "", fmt.Errorf("%s is still in place after %s; remove it with the package manager that installed it", binary.path, strings.Join(binary.command, " "))
 		}
 		return "", nil
 	}

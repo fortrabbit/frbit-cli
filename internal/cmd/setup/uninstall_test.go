@@ -17,11 +17,16 @@ import (
 )
 
 type recordingRunner struct {
-	calls []string
+	calls  []string
+	remove string
 }
 
+// Run stands in for brew or npm, which delete the binary.
 func (r *recordingRunner) Run(_ context.Context, name string, args ...string) (string, error) {
 	r.calls = append(r.calls, strings.Join(append([]string{name}, args...), " "))
+	if r.remove != "" {
+		_ = os.Remove(r.remove)
+	}
 	return "", nil
 }
 
@@ -115,12 +120,10 @@ func TestUninstallUsesThePackageManager(t *testing.T) {
 		"lib/node_modules/@fortrabbit/cli-darwin-arm64/bin/frbit": "npm uninstall --global @fortrabbit/cli",
 	} {
 		fixture := newUninstallFixture(t, binaryPath)
+		fixture.runner.remove = fixture.binary
 		fixture.run(t, "", &fakeMCPService{}, fakeSkillsService{}, "darwin", "--yes")
 		if !reflect.DeepEqual(fixture.runner.calls, []string{want}) {
 			t.Fatalf("calls = %#v, want %q", fixture.runner.calls, want)
-		}
-		if !exists(fixture.binary) {
-			t.Fatalf("%s was deleted by hand", fixture.binary)
 		}
 	}
 }
@@ -128,7 +131,7 @@ func TestUninstallUsesThePackageManager(t *testing.T) {
 func TestUninstallLeavesTheRunningBinaryToWindowsUsers(t *testing.T) {
 	fixture := newUninstallFixture(t, "frbit.exe")
 	output := fixture.run(t, "", &fakeMCPService{}, fakeSkillsService{}, "windows", "--yes")
-	if !strings.Contains(output, "Delete "+fixture.binary+" to finish.") || !exists(fixture.binary) {
+	if !strings.Contains(output, "One step left: delete "+fixture.binary+".") || !exists(fixture.binary) {
 		t.Fatalf("output = %q", output)
 	}
 }
@@ -145,7 +148,50 @@ func TestUninstallAbortsWithoutConfirmation(t *testing.T) {
 func TestUninstallLeavesNpmToWindowsUsers(t *testing.T) {
 	fixture := newUninstallFixture(t, "node_modules/@fortrabbit/cli-win32-x64/bin/frbit.exe")
 	output := fixture.run(t, "", &fakeMCPService{}, fakeSkillsService{}, "windows", "--yes")
-	if !strings.Contains(output, "Run npm uninstall --global @fortrabbit/cli to finish.") || len(fixture.runner.calls) != 0 {
+	if !strings.Contains(output, "One step left: run npm uninstall --global @fortrabbit/cli.") || len(fixture.runner.calls) != 0 {
 		t.Fatalf("output = %q, calls = %#v", output, fixture.runner.calls)
+	}
+}
+
+func TestUninstallFailsWhenThePackageManagerLeavesTheBinary(t *testing.T) {
+	fixture := newUninstallFixture(t, "pnpm/global/node_modules/@fortrabbit/cli-darwin-arm64/bin/frbit")
+	output := &bytes.Buffer{}
+	factory := &app.Factory{
+		IOStreams:          iostreams.IOStreams{In: strings.NewReader(""), Out: output, ErrOut: output},
+		CredentialStore:    missingCredentials{},
+		CredentialLockPath: filepath.Join(fixture.configDir, "credentials.lock"),
+	}
+	system := uninstallSystem{
+		executable: func() (string, error) { return fixture.binary, nil },
+		cacheDir:   func() (string, error) { return fixture.cacheDir, nil },
+		runner:     fixture.runner,
+		goos:       "darwin",
+	}
+	root := &cobra.Command{Use: "frbit"}
+	root.PersistentFlags().String("profile", app.DefaultProfile, "Credential profile")
+	root.AddCommand(newCmdUninstall(factory, &fakeMCPService{}, fakeSkillsService{}, system))
+	root.SetOut(output)
+	root.SetErr(output)
+	root.SetArgs([]string{"uninstall", "--yes"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "still in place") || strings.Contains(output.String(), "frbit uninstalled.") {
+		t.Fatalf("err = %v, output = %q", err, output.String())
+	}
+}
+
+func TestUninstallRemovesASymlinkButNotItsTarget(t *testing.T) {
+	fixture := newUninstallFixture(t, "build/frbit")
+	link := filepath.Join(filepath.Dir(filepath.Dir(fixture.binary)), "bin", "frbit")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(fixture.binary, link); err != nil {
+		t.Fatal(err)
+	}
+	target := fixture.binary
+	fixture.binary = link
+	fixture.run(t, "", &fakeMCPService{}, fakeSkillsService{}, "darwin", "--yes")
+	if _, err := os.Lstat(link); err == nil || !exists(target) {
+		t.Fatalf("link removed = %v, target kept = %v", err != nil, exists(target))
 	}
 }
