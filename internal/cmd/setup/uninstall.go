@@ -70,11 +70,7 @@ Lists everything first and asks once. Apps, environments and the account stay.`,
 
 func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skills skillsService, system uninstallSystem, yes bool) error {
 	writer := cmd.OutOrStdout()
-	// Without Claude Code or Codex there is no agent setup to undo, only the CLI itself.
-	agents, err := mcp.ResolveAgents(nil)
-	if err != nil {
-		agents = nil
-	}
+	agents, resolveErr := mcp.ResolveAgents(nil)
 	pluginID := ""
 	if slices.Contains(agents, agent.ClaudeCode) {
 		pluginID = mcp.ClaudePluginID(cmd.Context())
@@ -82,6 +78,15 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 	plan, err := planRemoval(cmd, factory, mcp, skills, agents)
 	if err != nil {
 		return err
+	}
+	// MCP entries need the agent CLI, skill folders do not: look for those regardless.
+	if resolveErr != nil {
+		if _, err := fmt.Fprintf(writer, "MCP entries skipped: %v\n", resolveErr); err != nil {
+			return err
+		}
+		if plan.removals, err = skills.Removals(false, []agent.Agent{agent.ClaudeCode, agent.Codex}); err != nil {
+			return err
+		}
 	}
 	folders := existingFolders(factory, system)
 	binary, err := locateBinary(system.executable)
@@ -112,6 +117,11 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 		return err
 	}
 
+	// The binary goes first: a failing brew or npm then leaves the rest in place for a retry.
+	finalStep, err := removeBinary(cmd.Context(), system, binary)
+	if err != nil {
+		return err
+	}
 	if err := plan.execute(cmd, factory, mcp, skills); err != nil {
 		return err
 	}
@@ -130,10 +140,6 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 		if _, err := fmt.Fprintf(writer, "Removed %s\n", folder); err != nil {
 			return err
 		}
-	}
-	finalStep, err := removeBinary(cmd.Context(), system, binary)
-	if err != nil {
-		return err
 	}
 	if _, err := fmt.Fprintf(writer, "frbit uninstalled.\n\n%s\n", disconnectHint); err != nil {
 		return err
@@ -190,15 +196,18 @@ func printBinary(writer io.Writer, binary binaryRemoval) error {
 
 // removeBinary returns the step left to the person when the binary cannot remove itself.
 func removeBinary(ctx context.Context, system uninstallSystem, binary binaryRemoval) (string, error) {
+	// Windows keeps a running executable locked, also for brew or npm.
+	if system.goos == "windows" {
+		if binary.command != nil {
+			return fmt.Sprintf("Run %s to finish.", strings.Join(binary.command, " ")), nil
+		}
+		return fmt.Sprintf("Delete %s to finish.", binary.path), nil
+	}
 	if binary.command != nil {
 		if output, err := system.runner.Run(ctx, binary.command[0], binary.command[1:]...); err != nil {
 			return "", fmt.Errorf("%s: %w: %s", strings.Join(binary.command, " "), err, strings.TrimSpace(output))
 		}
 		return "", nil
-	}
-	// Windows keeps a running executable locked.
-	if system.goos == "windows" {
-		return fmt.Sprintf("Delete %s to finish.", binary.path), nil
 	}
 	if err := os.Remove(binary.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("remove %s: %w", binary.path, err)

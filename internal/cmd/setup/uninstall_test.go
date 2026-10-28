@@ -141,3 +141,11 @@ func TestUninstallAbortsWithoutConfirmation(t *testing.T) {
 		t.Fatalf("output = %q", output)
 	}
 }
+
+func TestUninstallLeavesNpmToWindowsUsers(t *testing.T) {
+	fixture := newUninstallFixture(t, "node_modules/@fortrabbit/cli-win32-x64/bin/frbit.exe")
+	output := fixture.run(t, "", &fakeMCPService{}, fakeSkillsService{}, "windows", "--yes")
+	if !strings.Contains(output, "Run npm uninstall --global @fortrabbit/cli to finish.") || len(fixture.runner.calls) != 0 {
+		t.Fatalf("output = %q, calls = %#v", output, fixture.runner.calls)
+	}
+}

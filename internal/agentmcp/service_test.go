@@ -185,3 +185,10 @@ func TestClaudePluginIDKeepsTheMarketplace(t *testing.T) {
 		t.Fatalf("id = %q", id)
 	}
 }
+
+func TestClaudePluginIDFindsADisabledPlugin(t *testing.T) {
+	runner := &fakeRunner{responses: map[string]fakeResponse{"claude plugin list --json": {output: `[{"id":"fortrabbit@fortrabbit","enabled":false}]`}}}
+	if id := testService(runner).ClaudePluginID(context.Background()); id != "fortrabbit@fortrabbit" {
+		t.Fatalf("id = %q", id)
+	}
+}

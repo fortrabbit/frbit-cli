@@ -128,15 +128,21 @@ func (s *Service) WithoutClaudePlugin(ctx context.Context, agents []agent.Agent)
 }
 
 func (s *Service) claudePluginEnabled(ctx context.Context) bool {
-	return s.ClaudePluginID(ctx) != ""
+	_, enabled := s.claudePlugin(ctx)
+	return enabled
 }
 
-// ClaudePluginID returns the enabled fortrabbit plugin as name@marketplace, or "" without one.
-// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
+// ClaudePluginID returns the installed fortrabbit plugin as name@marketplace, enabled or not.
 func (s *Service) ClaudePluginID(ctx context.Context) string {
+	id, _ := s.claudePlugin(ctx)
+	return id
+}
+
+// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
+func (s *Service) claudePlugin(ctx context.Context) (string, bool) {
 	output, err := s.runner.Run(ctx, "claude", "plugin", "list", "--json")
 	if err != nil {
-		return ""
+		return "", false
 	}
 	if start := strings.Index(output, "["); start > 0 {
 		output = output[start:]
@@ -146,19 +152,18 @@ func (s *Service) ClaudePluginID(ctx context.Context) string {
 		Enabled bool   `json:"enabled"`
 	}
 	if json.Unmarshal([]byte(output), &plugins) != nil {
-		return ""
+		return "", false
 	}
 	for _, plugin := range plugins {
 		name, _, _ := strings.Cut(plugin.ID, "@")
-		if plugin.Enabled && name == ClaudePluginName {
-			return plugin.ID
+		if name == ClaudePluginName {
+			return plugin.ID, plugin.Enabled
 		}
 	}
-	return ""
+	return "", false
 }
 
-// RemoveClaudePlugin uninstalls the plugin, and the fortrabbit marketplace it came from.
-// Another marketplace, such as the official one, carries other plugins and stays.
+// RemoveClaudePlugin uninstalls the plugin; only the fortrabbit marketplace goes with it.
 func (s *Service) RemoveClaudePlugin(ctx context.Context, pluginID string) error {
 	if output, err := s.runner.Run(ctx, "claude", "plugin", "uninstall", pluginID); err != nil {
 		return fmt.Errorf("uninstall the Claude Code plugin %s: %w: %s", pluginID, err, strings.TrimSpace(output))
