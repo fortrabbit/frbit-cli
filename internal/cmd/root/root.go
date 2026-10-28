@@ -45,6 +45,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		apps.NewCmdApps(factory),
 		mcp.NewCmdMCP(factory, nil),
 		setup.NewCmdSetup(factory, nil, nil),
+		setup.NewCmdUninstall(factory),
 		skills.NewCmdSkills(factory, nil),
 		environments.NewCmdEnvironments(factory),
 		resource.NewCmdGroup(factory, deploymentSpec()),

@@ -127,11 +127,16 @@ func (s *Service) WithoutClaudePlugin(ctx context.Context, agents []agent.Agent)
 	}), true
 }
 
-// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
 func (s *Service) claudePluginEnabled(ctx context.Context) bool {
+	return s.ClaudePluginID(ctx) != ""
+}
+
+// ClaudePluginID returns the enabled fortrabbit plugin as name@marketplace, or "" without one.
+// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
+func (s *Service) ClaudePluginID(ctx context.Context) string {
 	output, err := s.runner.Run(ctx, "claude", "plugin", "list", "--json")
 	if err != nil {
-		return false
+		return ""
 	}
 	if start := strings.Index(output, "["); start > 0 {
 		output = output[start:]
@@ -141,15 +146,29 @@ func (s *Service) claudePluginEnabled(ctx context.Context) bool {
 		Enabled bool   `json:"enabled"`
 	}
 	if json.Unmarshal([]byte(output), &plugins) != nil {
-		return false
+		return ""
 	}
 	for _, plugin := range plugins {
 		name, _, _ := strings.Cut(plugin.ID, "@")
 		if plugin.Enabled && name == ClaudePluginName {
-			return true
+			return plugin.ID
 		}
 	}
-	return false
+	return ""
+}
+
+// RemoveClaudePlugin uninstalls the plugin, and the fortrabbit marketplace it came from.
+// Another marketplace, such as the official one, carries other plugins and stays.
+func (s *Service) RemoveClaudePlugin(ctx context.Context, pluginID string) error {
+	if output, err := s.runner.Run(ctx, "claude", "plugin", "uninstall", pluginID); err != nil {
+		return fmt.Errorf("uninstall the Claude Code plugin %s: %w: %s", pluginID, err, strings.TrimSpace(output))
+	}
+	if _, marketplace, _ := strings.Cut(pluginID, "@"); marketplace == ClaudePluginName {
+		if output, err := s.runner.Run(ctx, "claude", "plugin", "marketplace", "remove", marketplace); err != nil {
+			return fmt.Errorf("remove the Claude Code marketplace %s: %w: %s", marketplace, err, strings.TrimSpace(output))
+		}
+	}
+	return nil
 }
 
 func (s *Service) Inspect(ctx context.Context, agents []agent.Agent) ([]Registration, error) {

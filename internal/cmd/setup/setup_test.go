@@ -18,11 +18,12 @@ import (
 )
 
 type fakeMCPService struct {
-	preflighted  []agent.Agent
-	installed    []agent.Agent
-	registered   []agent.Agent
-	removed      []agent.Agent
-	claudePlugin bool
+	preflighted   []agent.Agent
+	installed     []agent.Agent
+	registered    []agent.Agent
+	removed       []agent.Agent
+	removedPlugin string
+	claudePlugin  bool
 }
 
 func (s *fakeMCPService) ResolveAgents(requested []agent.Agent) ([]agent.Agent, error) {
@@ -66,6 +67,17 @@ func (s *fakeMCPService) Inspect(_ context.Context, agents []agent.Agent) ([]age
 func (s *fakeMCPService) Remove(_ context.Context, agents []agent.Agent) ([]agentmcp.Result, error) {
 	s.removed = append([]agent.Agent(nil), agents...)
 	return nil, nil
+}
+
+func (s *fakeMCPService) ClaudePluginID(context.Context) string {
+	if s.claudePlugin {
+		return "fortrabbit@fortrabbit"
+	}
+	return ""
+}
+func (s *fakeMCPService) RemoveClaudePlugin(_ context.Context, pluginID string) error {
+	s.removedPlugin = pluginID
+	return nil
 }
 
 type fakeSkillsService struct {
@@ -239,7 +251,7 @@ func TestAgentRemoveUndoesTheSetup(t *testing.T) {
 	mcp := &fakeMCPService{registered: []agent.Agent{agent.ClaudeCode, agent.Codex}}
 	skills := fakeSkillsService{installed: []agent.Agent{agent.Codex}, removed: &removed}
 	output := runRemove(t, storedCredentials{deleted: &deleted}, "", mcp, skills, "--yes")
-	for _, expected := range []string{"MCP server in /config/codex", "skill at /skills/codex", "Agent setup removed.", disconnectHint, binaryHint} {
+	for _, expected := range []string{"MCP server in /config/codex", "skill at /skills/codex", "Agent setup removed.", disconnectHint, uninstallHint} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output %q does not contain %q", output, expected)
 		}

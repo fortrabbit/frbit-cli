@@ -163,3 +163,25 @@ func TestPreflightReportsMissingAgentCLI(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestRemoveClaudePlugin(t *testing.T) {
+	for id, want := range map[string][]string{
+		"fortrabbit@fortrabbit":              {"claude plugin uninstall fortrabbit@fortrabbit", "claude plugin marketplace remove fortrabbit"},
+		"fortrabbit@claude-plugins-official": {"claude plugin uninstall fortrabbit@claude-plugins-official"},
+	} {
+		runner := &fakeRunner{}
+		if err := testService(runner).RemoveClaudePlugin(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(runner.calls, want) {
+			t.Fatalf("%s: calls = %#v, want %#v", id, runner.calls, want)
+		}
+	}
+}
+
+func TestClaudePluginIDKeepsTheMarketplace(t *testing.T) {
+	runner := &fakeRunner{responses: map[string]fakeResponse{"claude plugin list --json": {output: `[{"id":"fortrabbit@claude-plugins-official","enabled":true}]`}}}
+	if id := testService(runner).ClaudePluginID(context.Background()); id != "fortrabbit@claude-plugins-official" {
+		t.Fatalf("id = %q", id)
+	}
+}
