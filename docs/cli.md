@@ -88,9 +88,9 @@ printf '%s' "$FRBIT_TOKEN" | frbit auth login --token-stdin
 
 ## Uninstall
 
-Sign out while the binary is still in place. `frbit auth logout` revokes a browser sign-in and removes the stored credential for the selected profile; repeat it with `--profile` for every profile in use. An agent setup is undone with `frbit mcp remove` and `frbit skills remove`.
+`frbit uninstall` removes everything fortrabbit put on the machine for coding agents: the MCP server and the skill in Claude Code and Codex, the Claude Code plugin, the sign-in of the selected profile, the config and cache folders, and the binary. It lists everything and asks once; `--yes` skips the question. A Homebrew or npm install is removed with `brew uninstall frbit` or `npm uninstall --global @fortrabbit/cli`. On Windows, delete the binary yourself afterwards: a running executable cannot delete itself. Repeat `frbit auth logout --profile <name>` for other profiles before.
 
-Then remove the CLI with the counterpart of the install method:
+By hand, with the counterpart of the install method:
 
 ```sh
 rm "$(command -v frbit)"                # install script or release archive
@@ -366,6 +366,15 @@ the skills, including project-scoped skills or GitHub Copilot skills, use the
 When Claude Code has the fortrabbit plugin enabled, `setup agent` and
 `mcp install` skip Claude Code: the plugin brings its own skill and MCP server.
 
+Undo the setup with `--remove`. It lists the MCP entries, skills and the CLI
+sign-in it will remove and asks before it does; `--yes` skips the question. The
+binary and the plugin stay; `frbit uninstall` removes them as well:
+
+```sh
+frbit setup agent --remove
+frbit setup agent --remove --agent codex --yes
+```
+
 ## MCP server
 
 Manage the MCP registration independently when you do not want to change the
@@ -475,7 +484,8 @@ frbit --profile work auth logout
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. |
-| `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`. |
+| `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |
+| `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
 | `frbit mcp list` | List the fortrabbit MCP status, URL, and agent configuration paths. |
 | `frbit mcp remove` | List and remove the named fortrabbit MCP entry after confirmation. Accepts `--yes`. |

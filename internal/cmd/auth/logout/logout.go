@@ -43,6 +43,11 @@ func NewCmdLogout(factory *app.Factory, runF func(*Options) error) *cobra.Comman
 	}
 }
 
+// Run signs the selected profile out the same way frbit auth logout does.
+func Run(factory *app.Factory, command *cobra.Command) error {
+	return run(&Options{Factory: factory, Command: command})
+}
+
 func run(options *Options) error {
 	command := options.Command
 	profile, err := cmdutil.Profile(command)

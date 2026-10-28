@@ -89,19 +89,18 @@ just test
 
 ## Uninstall
 
-Sign out first, then remove the binary with the counterpart of the install
-method:
+One command removes the agent setup, the Claude Code plugin, the sign-in, the
+config and cache folders and the binary. It lists everything and asks first:
 
 ```sh
-frbit auth logout                       # repeat with --profile per profile
-rm "$(command -v frbit)"                # install script or release archive
-brew uninstall frbit                    # Homebrew
-npm uninstall --global @fortrabbit/cli  # npm
+frbit uninstall
 ```
 
-`frbit mcp remove` and `frbit skills remove` undo `frbit setup agent`. The
-[uninstall guide](https://docs.fortrabbit.com/platform/automation/cli#uninstall)
-covers the config and cache files that stay behind.
+A Homebrew or npm install is removed through `brew` or `npm`. On Windows the
+running binary cannot delete itself; the command names the file to delete.
+Other profiles than the selected one: `frbit auth logout --profile <name>`
+first. To keep the CLI and only undo `frbit setup agent`, run
+`frbit setup agent --remove`.
 
 ## Development
 

@@ -127,11 +127,22 @@ func (s *Service) WithoutClaudePlugin(ctx context.Context, agents []agent.Agent)
 	}), true
 }
 
-// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
 func (s *Service) claudePluginEnabled(ctx context.Context) bool {
+	_, enabled := s.claudePlugin(ctx)
+	return enabled
+}
+
+// ClaudePluginID returns the installed fortrabbit plugin as name@marketplace, enabled or not.
+func (s *Service) ClaudePluginID(ctx context.Context) string {
+	id, _ := s.claudePlugin(ctx)
+	return id
+}
+
+// A Claude Code without plugin support, or output that does not parse, counts as no plugin.
+func (s *Service) claudePlugin(ctx context.Context) (string, bool) {
 	output, err := s.runner.Run(ctx, "claude", "plugin", "list", "--json")
 	if err != nil {
-		return false
+		return "", false
 	}
 	if start := strings.Index(output, "["); start > 0 {
 		output = output[start:]
@@ -141,15 +152,28 @@ func (s *Service) claudePluginEnabled(ctx context.Context) bool {
 		Enabled bool   `json:"enabled"`
 	}
 	if json.Unmarshal([]byte(output), &plugins) != nil {
-		return false
+		return "", false
 	}
 	for _, plugin := range plugins {
 		name, _, _ := strings.Cut(plugin.ID, "@")
-		if plugin.Enabled && name == ClaudePluginName {
-			return true
+		if name == ClaudePluginName {
+			return plugin.ID, plugin.Enabled
 		}
 	}
-	return false
+	return "", false
+}
+
+// RemoveClaudePlugin uninstalls the plugin; only the fortrabbit marketplace goes with it.
+func (s *Service) RemoveClaudePlugin(ctx context.Context, pluginID string) error {
+	if output, err := s.runner.Run(ctx, "claude", "plugin", "uninstall", pluginID); err != nil {
+		return fmt.Errorf("uninstall the Claude Code plugin %s: %w: %s", pluginID, err, strings.TrimSpace(output))
+	}
+	if _, marketplace, _ := strings.Cut(pluginID, "@"); marketplace == ClaudePluginName {
+		if output, err := s.runner.Run(ctx, "claude", "plugin", "marketplace", "remove", marketplace); err != nil {
+			return fmt.Errorf("remove the Claude Code marketplace %s: %w: %s", marketplace, err, strings.TrimSpace(output))
+		}
+	}
+	return nil
 }
 
 func (s *Service) Inspect(ctx context.Context, agents []agent.Agent) ([]Registration, error) {

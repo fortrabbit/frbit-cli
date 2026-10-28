@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/agentmcp"
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/auth/logout"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/spf13/cobra"
 )
 
@@ -17,13 +20,19 @@ type mcpService interface {
 	ResolveAgents([]agent.Agent) ([]agent.Agent, error)
 	Preflight([]agent.Agent) error
 	Install(context.Context, []agent.Agent) ([]agentmcp.Result, error)
+	Inspect(context.Context, []agent.Agent) ([]agentmcp.Registration, error)
+	Remove(context.Context, []agent.Agent) ([]agentmcp.Result, error)
 	WithoutClaudePlugin(context.Context, []agent.Agent) ([]agent.Agent, bool)
+	ClaudePluginID(context.Context) string
+	RemoveClaudePlugin(context.Context, string) error
 }
 
 type skillsService interface {
 	InstallTargets(bool, []agentskills.Agent) ([]agentskills.Target, error)
 	LatestRelease(context.Context) (agentskills.Release, error)
 	InstallRelease(context.Context, agentskills.Release, []agentskills.Target) ([]agentskills.Installation, error)
+	Removals(bool, []agentskills.Agent) ([]agentskills.Removal, error)
+	Remove([]agentskills.Removal) error
 }
 
 func NewCmdSetup(factory *app.Factory, mcp mcpService, skills skillsService) *cobra.Command {
@@ -50,10 +59,14 @@ func NewCmdSetup(factory *app.Factory, mcp mcpService, skills skillsService) *co
 
 func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *cobra.Command {
 	var agentValues []string
+	var remove, yes bool
 	command := &cobra.Command{
 		Use:   "agent",
 		Short: "Register MCP and install skills for coding agents",
-		Args:  cobra.NoArgs,
+		Long: `Register the fortrabbit MCP server and install the fortrabbit skill for Claude Code and Codex.
+
+With --remove, undo both and sign the CLI out. The frbit binary stays in place.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			requested, err := agentmcp.ParseAgents(agentValues)
 			if err != nil {
@@ -62,6 +75,9 @@ func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *co
 			agents, err := mcp.ResolveAgents(requested)
 			if err != nil {
 				return err
+			}
+			if remove {
+				return removeAgentSetup(cmd, factory, mcp, skills, agents, yes)
 			}
 			// Validate every native agent CLI before writing either integration.
 			if err := mcp.Preflight(agents); err != nil {
@@ -103,6 +119,8 @@ func newCmdAgent(factory *app.Factory, mcp mcpService, skills skillsService) *co
 		},
 	}
 	command.Flags().StringArrayVar(&agentValues, "agent", nil, "Target agent (claude-code or codex); repeat to target more than one")
+	command.Flags().BoolVar(&remove, "remove", false, "Remove the MCP server and the skill, and sign the CLI out")
+	command.Flags().BoolVarP(&yes, "yes", "y", false, "Remove without prompting for confirmation")
 	return command
 }
 
@@ -159,4 +177,149 @@ func printSummary(
 		return err
 	}
 	return cmdutil.PrintOAuthHints(writer, agents)
+}
+
+const (
+	claudePluginRemoveNotice = "Claude Code: the fortrabbit plugin brings the skill and the MCP server; frbit uninstall removes it too."
+	disconnectHint           = "Revoke the MCP grants in the dashboard: https://dash.fortrabbit.com/you/ai-agents"
+	uninstallHint            = "Remove the frbit CLI as well: frbit uninstall"
+)
+
+// removalPlan is what frbit setup agent put on this machine, found before anything is removed.
+type removalPlan struct {
+	registrations []agentmcp.Registration
+	registered    []agent.Agent
+	removals      []agentskills.Removal
+	profile       string
+	signedIn      bool
+}
+
+func planRemoval(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skills skillsService, agents []agent.Agent) (removalPlan, error) {
+	plan := removalPlan{}
+	// An empty agent list means all agents to the skills service, so skip both lookups.
+	if len(agents) > 0 {
+		var err error
+		if plan.registrations, err = mcp.Inspect(cmd.Context(), agents); err != nil {
+			return plan, err
+		}
+		if plan.removals, err = skills.Removals(false, agents); err != nil {
+			return plan, err
+		}
+	}
+	for _, registration := range plan.registrations {
+		if registration.Installed {
+			plan.registered = append(plan.registered, registration.Agent)
+		}
+	}
+	profile, err := cmdutil.Profile(cmd)
+	if err != nil {
+		return plan, err
+	}
+	plan.profile = profile
+	_, credentialErr := factory.CredentialStore.Get(profile)
+	if credentialErr != nil && !errors.Is(credentialErr, credentials.ErrNotFound) {
+		return plan, credentialErr
+	}
+	plan.signedIn = credentialErr == nil
+	return plan, nil
+}
+
+func (p removalPlan) empty() bool {
+	return len(p.registered) == 0 && len(p.removals) == 0 && !p.signedIn
+}
+
+func (p removalPlan) print(writer io.Writer) error {
+	for _, registration := range p.registrations {
+		if !registration.Installed {
+			continue
+		}
+		if _, err := fmt.Fprintf(writer, "  %-14s MCP server in %s\n", registration.Agent.Label()+":", registration.ConfigPath); err != nil {
+			return err
+		}
+	}
+	for _, removal := range p.removals {
+		if _, err := fmt.Fprintf(writer, "  %-14s skill at %s\n", removal.Agent.Label()+":", removal.Path); err != nil {
+			return err
+		}
+	}
+	if p.signedIn {
+		if _, err := fmt.Fprintf(writer, "  %-14s sign-in of profile %q\n", "frbit CLI:", p.profile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p removalPlan) execute(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skills skillsService) error {
+	writer := cmd.OutOrStdout()
+	if len(p.registered) > 0 {
+		results, err := mcp.Remove(cmd.Context(), p.registered)
+		if err != nil {
+			return err
+		}
+		for _, result := range results {
+			if _, err := fmt.Fprintf(writer, "Removed the MCP server from %s\n", result.Agent.Label()); err != nil {
+				return err
+			}
+		}
+	}
+	if err := skills.Remove(p.removals); err != nil {
+		return err
+	}
+	for _, removal := range p.removals {
+		if _, err := fmt.Fprintf(writer, "Removed %s\n", removal.Path); err != nil {
+			return err
+		}
+	}
+	if p.signedIn {
+		return logout.Run(factory, cmd)
+	}
+	return nil
+}
+
+func confirmRemoval(factory *app.Factory, writer io.Writer, yes bool) (bool, error) {
+	if yes {
+		return true, nil
+	}
+	confirmed, err := cmdutil.Confirm(factory.IOStreams.In, writer, "Continue? [y/N] ")
+	if err != nil || confirmed {
+		return confirmed, err
+	}
+	_, err = fmt.Fprintln(writer, "Aborted.")
+	return false, err
+}
+
+func removeAgentSetup(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skills skillsService, agents []agent.Agent, yes bool) error {
+	writer := cmd.OutOrStdout()
+	if err := mcp.Preflight(agents); err != nil {
+		return err
+	}
+	agents, pluginEnabled := mcp.WithoutClaudePlugin(cmd.Context(), agents)
+	if pluginEnabled {
+		if _, err := fmt.Fprintln(writer, claudePluginRemoveNotice); err != nil {
+			return err
+		}
+	}
+	plan, err := planRemoval(cmd, factory, mcp, skills, agents)
+	if err != nil {
+		return err
+	}
+	if plan.empty() {
+		_, err := fmt.Fprintln(writer, "Nothing to remove: no fortrabbit MCP server, skill or sign-in found.")
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "This removes:"); err != nil {
+		return err
+	}
+	if err := plan.print(writer); err != nil {
+		return err
+	}
+	if confirmed, err := confirmRemoval(factory, writer, yes); err != nil || !confirmed {
+		return err
+	}
+	if err := plan.execute(cmd, factory, mcp, skills); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(writer, "Agent setup removed.\n\n%s\n%s\n", disconnectHint, uninstallHint)
+	return err
 }
