@@ -89,17 +89,19 @@ just test
 
 ## Uninstall
 
-Sign out first, then remove the binary with the counterpart of the install
-method:
+Undo the agent setup and sign out first, then remove the binary with the
+counterpart of the install method:
 
 ```sh
+frbit setup agent --remove              # MCP server, skill and sign-in
 frbit auth logout                       # repeat with --profile per profile
 rm "$(command -v frbit)"                # install script or release archive
 brew uninstall frbit                    # Homebrew
 npm uninstall --global @fortrabbit/cli  # npm
 ```
 
-`frbit mcp remove` and `frbit skills remove` undo `frbit setup agent`. The
+`frbit setup agent --remove` undoes `frbit setup agent`; `frbit mcp remove` and
+`frbit skills remove` undo one half each. The
 [uninstall guide](https://docs.fortrabbit.com/platform/automation/cli#uninstall)
 covers the config and cache files that stay behind.
 

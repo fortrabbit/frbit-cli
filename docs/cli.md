@@ -366,6 +366,15 @@ the skills, including project-scoped skills or GitHub Copilot skills, use the
 When Claude Code has the fortrabbit plugin enabled, `setup agent` and
 `mcp install` skip Claude Code: the plugin brings its own skill and MCP server.
 
+Undo the setup with `--remove`. It lists the MCP entries, skills and the CLI
+sign-in it will remove and asks before it does; `--yes` skips the question. The
+binary stays in place, and the plugin is left to `claude plugin uninstall`:
+
+```sh
+frbit setup agent --remove
+frbit setup agent --remove --agent codex --yes
+```
+
 ## MCP server
 
 Manage the MCP registration independently when you do not want to change the
@@ -475,7 +484,7 @@ frbit --profile work auth logout
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. |
-| `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`. |
+| `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
 | `frbit mcp list` | List the fortrabbit MCP status, URL, and agent configuration paths. |
 | `frbit mcp remove` | List and remove the named fortrabbit MCP entry after confirmation. Accepts `--yes`. |
