@@ -122,6 +122,11 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 	if err != nil {
 		return err
 	}
+	if finalStep == "" {
+		if _, err := fmt.Fprintf(writer, "Removed %s\n", binary.path); err != nil {
+			return err
+		}
+	}
 	if err := plan.execute(cmd, factory, mcp, skills); err != nil {
 		return err
 	}

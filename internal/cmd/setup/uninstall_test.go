@@ -94,7 +94,7 @@ func TestUninstallRemovesEverything(t *testing.T) {
 	mcp := &fakeMCPService{claudePlugin: true, registered: []agent.Agent{agent.Codex}}
 	skills := fakeSkillsService{installed: []agent.Agent{agent.Codex}, removed: &removed}
 	output := fixture.run(t, "", mcp, skills, "darwin", "--yes")
-	for _, expected := range []string{"plugin fortrabbit@fortrabbit", "binary at " + fixture.binary, "frbit uninstalled.", disconnectHint} {
+	for _, expected := range []string{"plugin fortrabbit@fortrabbit", "binary at " + fixture.binary, "Removed " + fixture.binary + "\n", "frbit uninstalled.", disconnectHint} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output %q does not contain %q", output, expected)
 		}
