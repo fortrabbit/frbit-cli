@@ -22,6 +22,12 @@ type Field struct {
 	Key    string
 }
 
+// QueryFilter is a list flag sent as a query parameter of the same name.
+type QueryFilter struct {
+	Name  string
+	Usage string
+}
+
 type DeleteSpec struct {
 	Warning string
 }
@@ -34,6 +40,7 @@ type Spec struct {
 	Fields         []Field
 	SupportsPage   bool
 	SupportsFilter bool
+	QueryFilters   []QueryFilter
 	Logs           bool
 	Delete         *DeleteSpec
 }
@@ -58,6 +65,7 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	var page int
 	var publicIDs []string
 	var printJSON bool
+	filterValues := make(map[string]*string, len(spec.QueryFilters))
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List " + spec.Use + " available to the authenticated person",
@@ -74,7 +82,14 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if printJSON {
 				listResources = client.ListResources
 			}
-			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs)
+			filters := make(map[string]string, len(filterValues))
+			for name, value := range filterValues {
+				if cmd.Flags().Changed(name) && *value == "" {
+					return fmt.Errorf("--%s must not be empty", name)
+				}
+				filters[name] = *value
+			}
+			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
 			if err != nil {
 				return err
 			}
@@ -90,6 +105,9 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	}
 	if spec.SupportsFilter {
 		command.Flags().StringSliceVar(&publicIDs, "id", nil, "Filter by public ID (repeatable)")
+	}
+	for _, filter := range spec.QueryFilters {
+		filterValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command

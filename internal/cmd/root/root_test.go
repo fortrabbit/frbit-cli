@@ -161,6 +161,46 @@ func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestDeploymentsListSendsPageAndEnvironmentFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/deployments" {
+			t.Fatalf("path = %q", request.URL.Path)
+		}
+		if got := request.URL.Query().Get("environment"); got != "en-abc123" {
+			t.Fatalf("environment = %q", got)
+		}
+		if got := request.URL.Query().Get("page"); got != "2" {
+			t.Fatalf("page = %q", got)
+		}
+		_, _ = writer.Write([]byte(`{"member":[{"publicId":"dp-abc123","environment":"en-abc123","createdAt":"2026-10-30T10:00:00+00:00"}],"totalItems":31}`))
+	}))
+	defer server.Close()
+
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"--host", server.URL, "deployments", "list", "--environment", "en-abc123", "--page", "2"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"CREATED", "dp-abc123", "Total: 31 deployments"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("output %q does not contain %q", output.String(), expected)
+		}
+	}
+}
+
+func TestDeploymentsListRejectsAnEmptyEnvironment(t *testing.T) {
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", "http://127.0.0.1:1", "deployments", "list", "--environment", ""})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "--environment must not be empty") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDomainsListRendersEnvironmentRelationship(t *testing.T) {
 	output := executeResourceList(t, "/v1/domains", `[{"publicId":"do-abc123","name":"example.test","type":"apex","environment":"en-abc123","isMain":true}]`, "domains")
 	assertTableColumns(t, output, "ID", "NAME", "TYPE", "ENVIRONMENT", "MAIN", "UPDATED")

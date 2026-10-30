@@ -206,7 +206,7 @@ func TestListResourcesSendsFilterAndDecodesHydraCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/environments", 3, []string{"en-abc123", "en-def456"})
+	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/environments", 3, []string{"en-abc123", "en-def456"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestListResourcesUsesMemberCollectionTotal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/apps", 1, nil)
+	response, err := client.ListResourcesWithTotal(context.Background(), "/v1/apps", 1, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

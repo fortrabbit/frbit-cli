@@ -58,23 +58,28 @@ func (c Client) PostAction(ctx context.Context, path string) (ResourceResponse, 
 	return decodeResourceResponse(body)
 }
 
-func (c Client) ListResources(ctx context.Context, path string, page int, publicIDs []string) (ResourcesResponse, error) {
-	return c.listResources(ctx, path, page, publicIDs, false)
+func (c Client) ListResources(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string) (ResourcesResponse, error) {
+	return c.listResources(ctx, path, page, publicIDs, filters, false)
 }
 
 // ListResourcesWithTotal requests collection metadata so TotalItems covers all
 // matching pages, rather than only the resources in the current response.
-func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page int, publicIDs []string) (ResourcesResponse, error) {
-	return c.listResources(ctx, path, page, publicIDs, true)
+func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string) (ResourcesResponse, error) {
+	return c.listResources(ctx, path, page, publicIDs, filters, true)
 }
 
-func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, includeTotal bool) (ResourcesResponse, error) {
+func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string, includeTotal bool) (ResourcesResponse, error) {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
 	}
 	for _, publicID := range publicIDs {
 		query.Add("publicId[]", publicID)
+	}
+	for name, value := range filters {
+		if value != "" {
+			query.Set(name, value)
+		}
 	}
 
 	var body []byte
