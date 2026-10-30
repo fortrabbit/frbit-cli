@@ -267,10 +267,11 @@ The `apps create`, `apps update`, `environments create`, `environments update`, 
 
 ## Deployments
 
-Inspect deployments and retrieve the log entries for one deployment:
+Inspect deployments and retrieve the log entries for one deployment. The list shows the newest 30 first; `--environment` narrows it to one environment:
 
 ```sh
 frbit deployments list
+frbit deployments list --environment en-a1b2c3 --page 2
 frbit deployments get dp-a1b2c3
 frbit deployments logs dp-a1b2c3
 ```
@@ -479,7 +480,7 @@ frbit --profile work auth logout
 | `frbit environments variables update <id>` | Set or delete custom environment variables. |
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page` and `--environment`. |
 | `frbit domains list` / `get <id>` / `delete <id>` | List, get, or delete domains. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. |

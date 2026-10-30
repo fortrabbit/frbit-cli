@@ -81,8 +81,9 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 
 func deploymentSpec() resource.Spec {
 	return resource.Spec{
-		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments", Logs: true,
-		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "COMMITTED", Key: "committedAt"}},
+		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments, newest first", Logs: true, SupportsPage: true,
+		QueryFilters: []resource.QueryFilter{{Name: "environment", Usage: "Filter by environment public ID, e.g. en-a1b2c3"}},
+		Fields:       []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "CREATED", Key: "createdAt"}},
 	}
 }
 
