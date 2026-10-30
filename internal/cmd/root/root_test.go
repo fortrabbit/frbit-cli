@@ -191,6 +191,16 @@ func TestDeploymentsListSendsPageAndEnvironmentFilter(t *testing.T) {
 	}
 }
 
+func TestDeploymentsListRejectsAnEmptyEnvironment(t *testing.T) {
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", "http://127.0.0.1:1", "deployments", "list", "--environment", ""})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "--environment must not be empty") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDomainsListRendersEnvironmentRelationship(t *testing.T) {
 	output := executeResourceList(t, "/v1/domains", `[{"publicId":"do-abc123","name":"example.test","type":"apex","environment":"en-abc123","isMain":true}]`, "domains")
 	assertTableColumns(t, output, "ID", "NAME", "TYPE", "ENVIRONMENT", "MAIN", "UPDATED")

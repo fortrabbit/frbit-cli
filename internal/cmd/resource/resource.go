@@ -84,6 +84,9 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			}
 			filters := make(map[string]string, len(filterValues))
 			for name, value := range filterValues {
+				if cmd.Flags().Changed(name) && *value == "" {
+					return fmt.Errorf("--%s must not be empty", name)
+				}
 				filters[name] = *value
 			}
 			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
