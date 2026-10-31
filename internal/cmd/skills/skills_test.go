@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -157,6 +158,56 @@ func TestInstallReadsSkillsFromThePluginFolder(t *testing.T) {
 	assertFileContents(t, filepath.Join(skill, "references", "deploy.md"), "deploy\n")
 	assertFileContents(t, filepath.Join(skill, ".version"), "2.7.0\n")
 	assertMissing(t, filepath.Join(project, ".claude", "skills", "skills"))
+}
+
+func TestInstallPrefersThePluginFolderOverRootSkills(t *testing.T) {
+	project := t.TempDir()
+	files := map[string]string{
+		"skills/fortrabbit/SKILL.md":                    "# root copy\n",
+		"skills/rootonly/SKILL.md":                      "# root only\n",
+		"plugins/fortrabbit/skills/fortrabbit/SKILL.md": "# plugin copy\n",
+	}
+	transport := &fixtureTransport{version: "2.7.0", archive: skillsArchive(t, "2.7.0", files)}
+	service := fixtureService(t.TempDir(), project, transport)
+	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+	executeSkills(t, factory, service, "install", "--project", "--agent", "claude-code")
+
+	assertFileContents(t, filepath.Join(project, ".claude", "skills", "fortrabbit", "SKILL.md"), "# plugin copy\n")
+	assertMissing(t, filepath.Join(project, ".claude", "skills", "rootonly"))
+}
+
+func TestInstallRejectsAnEntryDeclaringAHugeSize(t *testing.T) {
+	buffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, header := range []*tar.Header{
+		{Name: "agent-skills-fixture/VERSION", Mode: 0o644, Size: 6, Typeflag: tar.TypeReg},
+		{Name: "agent-skills-fixture/skills/fortrabbit/SKILL.md", Mode: 0o644, Size: math.MaxInt64 - 5, Typeflag: tar.TypeReg},
+	} {
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Size == 6 {
+			if _, err := tarWriter.Write([]byte("2.7.0\n")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	transport := &fixtureTransport{version: "2.7.0", archive: buffer.Bytes()}
+	service := fixtureService(t.TempDir(), t.TempDir(), transport)
+	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+	command := NewCmdSkills(factory, service)
+	command.SetArgs([]string{"install", "--project", "--agent", "claude-code"})
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "expands beyond") {
+		t.Fatalf("install error = %v, want the expanded size cap", err)
+	}
 }
 
 func TestListAndRemoveFindLegacyCopilotInstructions(t *testing.T) {
