@@ -123,7 +123,8 @@ func (s *Service) fetchPayload(ctx context.Context, release Release) (payload, e
 		if !ok || !wantedArchivePath(name) {
 			continue
 		}
-		if header.Size < 0 || expanded+header.Size > maxExpandedSize {
+		// Compared without adding, so a huge declared size cannot overflow past the cap.
+		if header.Size < 0 || header.Size > maxExpandedSize-expanded {
 			return payload{}, fmt.Errorf("skills archive expands beyond %d bytes", maxExpandedSize)
 		}
 		contents, err := io.ReadAll(io.LimitReader(reader, header.Size+1))
