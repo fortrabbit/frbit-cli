@@ -102,6 +102,7 @@ func (s *Service) fetchPayload(ctx context.Context, release Release) (payload, e
 	defer gzipReader.Close()
 
 	result := payload{skills: make(map[string]map[string]archiveFile)}
+	pluginSkills := make(map[string]map[string]archiveFile)
 	reader := tar.NewReader(gzipReader)
 	var expanded int64
 	for {
@@ -138,16 +139,14 @@ func (s *Service) fetchPayload(ctx context.Context, release Release) (payload, e
 		switch {
 		case name == "VERSION":
 			result.version = strings.TrimSpace(string(contents))
-		case strings.HasPrefix(name, "skills/"):
-			parts := strings.SplitN(strings.TrimPrefix(name, "skills/"), "/", 2)
-			if len(parts) != 2 || !validSkillName(parts[0]) || parts[1] == "" {
-				continue
-			}
-			if result.skills[parts[0]] == nil {
-				result.skills[parts[0]] = make(map[string]archiveFile)
-			}
-			result.skills[parts[0]][parts[1]] = file
+		case strings.HasPrefix(name, pluginSkillsPrefix):
+			addSkillFile(pluginSkills, strings.TrimPrefix(name, pluginSkillsPrefix), file)
+		case strings.HasPrefix(name, rootSkillsPrefix):
+			addSkillFile(result.skills, strings.TrimPrefix(name, rootSkillsPrefix), file)
 		}
+	}
+	if len(pluginSkills) > 0 {
+		result.skills = pluginSkills
 	}
 
 	if limited.N <= 0 {
@@ -199,8 +198,25 @@ func stripArchiveRoot(name string) (string, bool) {
 	return clean, true
 }
 
+// Releases from 2.7.0 keep the skills in the plugin folder; earlier ones at the archive root.
+const (
+	pluginSkillsPrefix = "plugins/fortrabbit/skills/"
+	rootSkillsPrefix   = "skills/"
+)
+
 func wantedArchivePath(name string) bool {
-	return name == "VERSION" || strings.HasPrefix(name, "skills/")
+	return name == "VERSION" || strings.HasPrefix(name, rootSkillsPrefix) || strings.HasPrefix(name, pluginSkillsPrefix)
+}
+
+func addSkillFile(skills map[string]map[string]archiveFile, path string, file archiveFile) {
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || !validSkillName(parts[0]) || parts[1] == "" {
+		return
+	}
+	if skills[parts[0]] == nil {
+		skills[parts[0]] = make(map[string]archiveFile)
+	}
+	skills[parts[0]][parts[1]] = file
 }
 
 // validSkillName deliberately uses a platform-independent allowlist. Archive

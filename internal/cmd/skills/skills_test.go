@@ -139,6 +139,26 @@ func TestInstallMergedReleaseRemovesLegacyFiles(t *testing.T) {
 	assertFileContents(t, filepath.Join(project, ".github", "instructions", "other.instructions.md"), "# other\n")
 }
 
+func TestInstallReadsSkillsFromThePluginFolder(t *testing.T) {
+	project := t.TempDir()
+	files := map[string]string{
+		"plugins/fortrabbit/skills/fortrabbit/SKILL.md":             "# fortrabbit plugin\n",
+		"plugins/fortrabbit/skills/fortrabbit/references/deploy.md": "deploy\n",
+		"plugins/fortrabbit/.claude-plugin/plugin.json":             "{}\n",
+		".github/scripts/check-manifests.sh":                        "#!/bin/sh\n",
+	}
+	transport := &fixtureTransport{version: "2.7.0", archive: skillsArchive(t, "2.7.0", files)}
+	service := fixtureService(t.TempDir(), project, transport)
+	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("")}}
+	executeSkills(t, factory, service, "install", "--project", "--agent", "claude-code")
+
+	skill := filepath.Join(project, ".claude", "skills", "fortrabbit")
+	assertFileContents(t, filepath.Join(skill, "SKILL.md"), "# fortrabbit plugin\n")
+	assertFileContents(t, filepath.Join(skill, "references", "deploy.md"), "deploy\n")
+	assertFileContents(t, filepath.Join(skill, ".version"), "2.7.0\n")
+	assertMissing(t, filepath.Join(project, ".claude", "skills", "skills"))
+}
+
 func TestListAndRemoveFindLegacyCopilotInstructions(t *testing.T) {
 	project := t.TempDir()
 	instructions := filepath.Join(project, ".github", "instructions", "fortrabbit.instructions.md")
