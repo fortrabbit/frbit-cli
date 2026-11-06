@@ -186,7 +186,7 @@ frbit apps create \
 
 Use `--team` or `--payment-method` to select an accessible team or payment method. For the complete nested API payload, pass a JSON object with `--file`, or use `--file -` to read it from standard input.
 
-Pass `--cloud-domain acme-shop` to set the initial environment's cloud-domain label without its root. When omitted, the API derives the label from the app name and creates no cloud domain when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the app without one.
+The API gives the initial environment a cloud domain with a label derived from the app name, and creates none when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the app without one, or set `initialEnvironment.cloudDomain` with `--file` to choose the label.
 
 Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
 
@@ -238,7 +238,7 @@ frbit environments create \
 
 Pass `--deploy` to start the initial deployment as part of creation. It requires `--branch` so the environment has a Git source. Without `--deploy`, creating an environment does not start a deployment.
 
-Pass `--cloud-domain acme-shop-staging` to set the cloud-domain label without its root. When omitted, the API derives the label from the app's cloud-domain label, or the app name when the app has none, plus the environment name, for example `acme-shop-staging`. It creates no cloud domain when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the environment without one.
+The API gives the environment a cloud domain with a label derived from the app's cloud-domain label, or the app name when the app has none, plus the environment name, for example `acme-shop-staging`. It creates none when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the environment without one, or set `cloudDomain` with `--file` to choose the label.
 
 Update the environment name or replace its deployment configuration:
 
