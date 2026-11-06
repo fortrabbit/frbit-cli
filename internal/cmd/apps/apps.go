@@ -41,6 +41,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var softwarePreset string
 	var softwareVersion string
 	var cloudDomain string
+	var noCloudDomain bool
 	var components []string
 	var autoscaling bool
 	var repository string
@@ -57,7 +58,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Create an app and its initial environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwarePreset, softwareVersion, cloudDomain, components, autoscaling, repository, branch, directory, buildCommands, postDeployCommands, deploy, paymentMethodID)
+			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwarePreset, softwareVersion, cloudDomain, noCloudDomain, components, autoscaling, repository, branch, directory, buildCommands, postDeployCommands, deploy, paymentMethodID)
 			if err != nil {
 				return err
 			}
@@ -83,6 +84,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug")
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().StringVar(&cloudDomain, "cloud-domain", "", "Cloud domain label without the root")
+	command.Flags().BoolVar(&noCloudDomain, "no-cloud-domain", false, "Create the initial environment without a cloud domain")
+	command.MarkFlagsMutuallyExclusive("cloud-domain", "no-cloud-domain")
 	command.Flags().StringArrayVar(&components, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
 	command.Flags().BoolVar(&autoscaling, "autoscaling", true, "Enable autoscaling for the initial environment")
 	command.Flags().StringVar(&repository, "repository", "", "Connected Git repository in OWNER/REPOSITORY form")
@@ -96,8 +99,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwarePreset string, softwareVersion string, cloudDomain string, componentValues []string, autoscaling bool, repository string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
-	inputFlags := []string{"name", "region", "team", "software", "software-version", "cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "build-command", "post-deploy-command", "deploy", "payment-method"}
+func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwarePreset string, softwareVersion string, cloudDomain string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
+	inputFlags := []string{"name", "region", "team", "software", "software-version", "cloud-domain", "no-cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "build-command", "post-deploy-command", "deploy", "payment-method"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -134,7 +137,7 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 	if deploymentChanged && (repository == "" || branch == "") {
 		return nil, fmt.Errorf("--repository and --branch are required when configuring deployment")
 	}
-	initialChanged := softwareVersion != "" || cloudDomain != "" || len(components) > 0 || command.Flags().Changed("autoscaling") || deploymentChanged
+	initialChanged := softwareVersion != "" || cloudDomain != "" || noCloudDomain || len(components) > 0 || command.Flags().Changed("autoscaling") || deploymentChanged
 	if initialChanged {
 		initial := map[string]any{}
 		if softwareVersion != "" {
@@ -142,6 +145,9 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 		}
 		if cloudDomain != "" {
 			initial["cloudDomain"] = cloudDomain
+		}
+		if noCloudDomain {
+			initial["cloudDomain"] = nil
 		}
 		if len(components) > 0 {
 			initial["components"] = components
