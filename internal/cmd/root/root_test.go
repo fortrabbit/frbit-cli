@@ -840,3 +840,43 @@ func TestAuthStatusJSONReportsErrors(t *testing.T) {
 		t.Fatalf("output = %q (%v)", output.String(), decodeErr)
 	}
 }
+
+func TestCreateCommandsLeaveCloudDomainToTheAPIUnlessOptedOut(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		args     []string
+		optedOut bool
+	}{
+		{name: "environment derives", args: []string{"environments", "create", "--app", "ap-abc123", "--name", "staging"}},
+		{name: "environment opts out", args: []string{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--no-cloud-domain"}, optedOut: true},
+		{name: "app derives", args: []string{"apps", "create", "--name", "store", "--region", "eu-w1a", "--component", "php=sm"}},
+		{name: "app opts out", args: []string{"apps", "create", "--name", "store", "--region", "eu-w1a", "--no-cloud-domain"}, optedOut: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				fields := body
+				if initial, ok := body["initialEnvironment"].(map[string]any); ok {
+					fields = initial
+				}
+				cloudDomain, sent := fields["cloudDomain"]
+				if sent != test.optedOut || cloudDomain != nil {
+					t.Fatalf("cloudDomain sent = %v with value %#v, want sent = %v with null", sent, cloudDomain, test.optedOut)
+				}
+				writer.WriteHeader(http.StatusCreated)
+				_, _ = writer.Write([]byte(`{"publicId":"en-abc123","name":"staging"}`))
+			}))
+			defer server.Close()
+
+			t.Setenv("FRBIT_TOKEN", "test-token")
+			command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+			command.SetArgs(append([]string{"--host", server.URL}, test.args...))
+			if err := command.Execute(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
