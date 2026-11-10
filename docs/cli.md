@@ -372,6 +372,7 @@ frbit environments components update en-a1b2c3 --component php=md --component da
 
 ```sh
 frbit environments metrics en-a1b2c3
+frbit environments metrics php-requests       # the environment of the checkout
 frbit environments metrics en-a1b2c3 php-requests --range 7d
 frbit environments metrics en-a1b2c3 web-storage --range 30d --step hour
 ```
@@ -381,7 +382,8 @@ Without a slug, `metrics` prints one row per booked component (storage, database
 ### Logs
 
 ```sh
-frbit environments logs en-a1b2c3
+frbit environments logs                       # the environment of the checkout
+frbit environments logs production            # a label from .fortrabbit/environments.yml
 frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
 frbit environments logs en-a1b2c3 --source php --follow
 ```
@@ -395,6 +397,7 @@ Inspect deployments and retrieve the log entries for one deployment. The list sh
 ```sh
 frbit deployments list
 frbit deployments list --environment en-a1b2c3 --page 2
+frbit deployments list -e production
 frbit deployments get dp-a1b2c3
 frbit deployments logs dp-a1b2c3
 frbit deployments logs dp-a1b2c3 --follow
@@ -409,7 +412,7 @@ frbit domains list
 frbit domains list --page 2 --id do-a1b2c3
 frbit domains get do-a1b2c3
 frbit domains create en-a1b2c3 www.example.com --main
-frbit domains create en-a1b2c3 acme-shop --cloud
+frbit domains create production acme-shop --cloud
 frbit domains dns do-a1b2c3 --refresh
 ```
 
@@ -422,6 +425,7 @@ With `--cloud`, `name` is a label such as `acme-shop`, not a full hostname; the 
 ## Jobs
 
 ```sh
+frbit jobs list
 frbit jobs list en-a1b2c3
 frbit jobs get jo-a1b2c3
 frbit jobs create en-a1b2c3 --name queue --type worker --command "php artisan queue:work"
@@ -431,7 +435,7 @@ frbit jobs update jo-a1b2c3 --inactive
 frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 ```
 
-`jobs list <environment>` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page; `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
+`jobs list [environment]` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page; `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
 
 `create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. For a worker, `--interval`, `--expression` and `--max-runtime` are ignored with a warning on stderr and not sent; so is `--expression` with an interval other than `custom`. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
 
@@ -444,7 +448,7 @@ frbit mysql get en-a1b2c3
 frbit mysql rotate-password en-a1b2c3 --confirm en-a1b2c3
 ```
 
-`mysql get <environment>` prints host, port, user and database; it never prints a password (`--json` prints the raw API body). `rotate-password` starts a password rotation; the app breaks until it reads the new password (redeploy or restart). It needs the environment ID typed on a terminal or `--confirm <id>` without one. The new password is never printed: the app reads it from its environment variables.
+`mysql get [environment]` prints host, port, user and database; it never prints a password (`--json` prints the raw API body). `rotate-password` starts a password rotation; the app breaks until it reads the new password (redeploy or restart). It needs the environment ID typed on a terminal or `--confirm <id>` without one. The new password is never printed: the app reads it from its environment variables.
 
 ## Database pull
 
@@ -565,6 +569,25 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 `download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. The file is written with mode 0600 because a backup holds database dumps. An existing target file is not overwritten unless you pass `--force`. `--output -` may leave partial output on stdout when the transfer fails. The link expires; run the command again for a fresh one.
 
+## Choosing the environment
+
+Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`) or a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)).
+
+- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`, `deployments list -e`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file, else a list to pick from on a terminal. `deployments list` never asks: without an environment it lists all deployments.
+- Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`add` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one they fail with `name the environment: frbit <command> <env-id|label>`, and add `(the checkout resolves to en-a1b2c3 via …)` when the checkout points to one.
+- `db push` and `files pull|push` keep using the checkout, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path.
+- `--confirm` and the typed confirmation always compare with the resolved `en-` ID, never the label.
+
+When the environment comes from a label or the checkout, one line on stderr says which; `--json` output on stdout stays clean:
+
+```text
+→ en-a1b2c3 (production, from .fortrabbit/environments.yml)
+→ en-a1b2c3 (from FORTRABBIT_ENVIRONMENT)
+→ en-a1b2c3 (from the repository acme/site, branch main)
+```
+
+`environments metrics` with one argument reads it as the environment when it is an ID or a label in the file, else as the metric slug: `frbit environments metrics php-requests` shows that metric for the environment of the checkout.
+
 ## Link a local project
 
 ```sh
@@ -574,7 +597,7 @@ frbit link en-a1b2c3
 frbit link en-d4e5f6 --label staging
 ```
 
-`frbit db pull|push` and `frbit files pull|push` work on the environment of the current checkout. They find it in this order: the environment argument (an ID, or a label from `.fortrabbit/environments.yml`), `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the server lookup, the only entry in the file, else a list to pick from on a terminal.
+Commands find the environment of the current checkout as described in [Choosing the environment](#choosing-the-environment).
 
 The server lookup matches the GitHub `origin` remote to the repository connected to an app, and the current branch to the environment that deploys it. On such a connected repository `frbit link` confirms the match and writes nothing.
 
@@ -764,27 +787,27 @@ frbit --profile work auth logout
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
 | `frbit apps update <id>` | Update an app: name, payment method, software preset, technical contacts, deployment comments, repository connection. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
-| `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
+| `frbit environments list` / `get [environment]` | List or get environments. Environment arguments everywhere: see [Choosing the environment](#choosing-the-environment). `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
-| `frbit environments update <id>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
-| `frbit environments php-settings get <id>` / `update <id>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
-| `frbit environments basic-auth get <id>` / `update <id>` | Read or change basic auth; the password only via `--password-stdin`. |
-| `frbit environments firewall-rules list <env>` / `add <env>` / `delete <id>` | Manage opened ports; `add` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
-| `frbit environments components get <id>` / `update <id>` | Read or change component sizes (`--component SLUG=SIZE`); update shows prices and needs `--yes` without a terminal. |
+| `frbit environments update <environment>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
+| `frbit environments php-settings get [environment]` / `update <environment>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
+| `frbit environments basic-auth get [environment]` / `update <environment>` | Read or change basic auth; the password only via `--password-stdin`. |
+| `frbit environments firewall-rules list [environment]` / `add <environment>` / `delete <id>` | Manage opened ports; `add` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit environments components get [environment]` / `update <environment>` | Read or change component sizes (`--component SLUG=SIZE`); update shows prices and needs `--yes` without a terminal. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
-| `frbit environments variables get <id>` | Get custom and platform-injected environment variables. |
-| `frbit environments variables update <id>` | Set or delete custom environment variables. |
-| `frbit environments restart <id>` | Request an environment restart. |
-| `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
-| `frbit environments logs <id>` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
-| `frbit environments metrics <environment> [slug]` | Show the usage summary, or the history of one metric with `--range` and `--step`. Accepts `--json`. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
+| `frbit environments variables get [environment]` | Get custom and platform-injected environment variables. |
+| `frbit environments variables update <environment>` | Set or delete custom environment variables. |
+| `frbit environments restart <environment>` | Request an environment restart. |
+| `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
+| `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
+| `frbit environments metrics [environment] [slug]` | Show the usage summary, or the history of one metric with `--range` and `--step`. Accepts `--json`. |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (default: the environment of the checkout, if any). |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
-| `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
-| `frbit backups list <environment>` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |
+| `frbit jobs list [environment]` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit backups list [environment]` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |
 | `frbit backups download <backup>` | Download the files or the database of a backup through a signed link. Accepts `--type files\|database`, `--output` (file, folder, or `-` for stdout), `--force`. |
 | `frbit backups restore <backup>` | Restore a backup, overwriting the live data of its environment; needs `--confirm <backup>` without a terminal. |
-| `frbit mysql get <environment>` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
+| `frbit mysql get [environment]` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--environment`/`-e`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.env` and `.env.*` alone. |
