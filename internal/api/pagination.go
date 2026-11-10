@@ -131,8 +131,7 @@ func LinkRel(header, wanted string) string {
 	}
 }
 
-// TransientDelay reports whether err is worth retrying (429, 503, a timeout, a refused or reset connection, a response cut short) and how long to wait first.
-// TLS, DNS-not-found and redirect-policy failures do not heal by waiting, so they are permanent.
+// TransientDelay reports whether err can heal by waiting (429, 503, timeout, refused or reset connection, cut-short response) and how long to wait.
 func TransientDelay(err error, fallback time.Duration) (time.Duration, bool) {
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) {
