@@ -71,7 +71,7 @@ func TestBackupsRestoreNonInteractiveWithEnvironmentID(t *testing.T) {
 func TestBackupsRestoreRefusesBackupIDAsConfirm(t *testing.T) {
 	var calls []string
 	_, _, err := runRestore(t, restoreAPI(t, restoreBackup, &calls), false, "", "--confirm", "ba-abc123")
-	if err == nil || !strings.Contains(err.Error(), "--confirm takes the environment ID; pass --confirm en-abc123") || posted(calls) {
+	if err == nil || !strings.Contains(err.Error(), "--confirm must exactly match en-abc123") || posted(calls) {
 		t.Fatalf("err %v, calls %v", err, calls)
 	}
 }

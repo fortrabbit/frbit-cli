@@ -149,9 +149,6 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			if environment == "" {
 				return fmt.Errorf("the API names no environment for backup %s; nothing was restored", id)
 			}
-			if confirmation != "" && confirmation != environment && strings.HasPrefix(confirmation, "ba-") {
-				return fmt.Errorf("--confirm takes the environment ID; pass --confirm %s", environment)
-			}
 			if err := cmdutil.CheckDestructive(factory, "restore", environment, confirmation); err != nil {
 				return err
 			}
