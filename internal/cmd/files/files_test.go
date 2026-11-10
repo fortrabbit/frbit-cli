@@ -191,9 +191,10 @@ func TestFilesRsyncArgsOldRsync(t *testing.T) {
 func TestFilesRejectsParentPath(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]string{
-		"..": ".. is not allowed", "../x": ".. is not allowed", "a/../../b": ".. is not allowed", "a/..": ".. is not allowed", `a\..\b`: ".. is not allowed",
+		"..": ".. is not allowed", "../x": ".. is not allowed", "a/../../b": ".. is not allowed", "a/..": ".. is not allowed", `a\..\b`: "backslash",
 		"/etc": "not a relative path", "~": "not a relative path", "~/x": "not a relative path",
 		"a;id": "characters other than", "$(id)": "characters other than", "a b": "characters other than",
+		`.\./x`: "backslash", `web\uploads`: "backslash",
 	}
 	for path, want := range cases {
 		for _, command := range []string{"pull", "push"} {

@@ -97,10 +97,17 @@ The environment is an ID or a label from .fortrabbit/environments.yml passed wit
 
 // cleanPath returns path relative to /data/www/ and the current folder, "." for all of it.
 func cleanPath(raw string) (string, error) {
-	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) || strings.HasPrefix(raw, "~") || (len(raw) > 1 && raw[1] == ':') {
+	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "~") || (len(raw) > 1 && raw[1] == ':') {
 		return "", fmt.Errorf("%s is not a relative path; give a path relative to %s and the current folder", raw, remoteRoot)
 	}
-	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '/' || r == '\\' }) {
+	// A remote shell may read a backslash as an escape, which would let .\. become .. after the checks.
+	if strings.Contains(raw, `\`) {
+		return "", fmt.Errorf("%s contains a backslash; separate folders with /", raw)
+	}
+	for _, part := range strings.Split(raw, "/") {
+		if part == "" {
+			continue
+		}
 		if part == ".." {
 			return "", fmt.Errorf("%s leaves %s; .. is not allowed", raw, remoteRoot)
 		}
