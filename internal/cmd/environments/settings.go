@@ -88,7 +88,7 @@ func phpSettingsPayload(setValues, extensionValues []string) (map[string]any, er
 		settings := make(map[string]any, len(assignments))
 		for key, value := range assignments {
 			// The catalog lists integers (60) and strings (128M); send numbers as numbers.
-			if number, err := strconv.Atoi(value); err == nil {
+			if number, err := strconv.Atoi(value); err == nil && strconv.Itoa(number) == value {
 				settings[key] = number
 			} else {
 				settings[key] = value
@@ -265,6 +265,19 @@ func parsePortRange(value string) (int, any, error) {
 		}
 		end = number
 	}
+	last := start
+	if end != nil {
+		last = end.(int)
+	}
+	if start < 1 || last > 65535 {
+		return 0, nil, fmt.Errorf("--port must be within 1-65535, got %q", value)
+	}
+	if last < start {
+		return 0, nil, fmt.Errorf("--port range %q ends before it starts", value)
+	}
+	if last-start+1 > 1000 {
+		return 0, nil, fmt.Errorf("--port range %q opens %d ports; at most 1000 are allowed", value, last-start+1)
+	}
 	return start, end, nil
 }
 
@@ -406,15 +419,19 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := client.ListResources(cmd.Context(), "/v1/catalog/component-plans", 0, nil, nil)
+			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/components")
 			if err != nil {
 				return err
 			}
-			summary, err := componentPriceSummary(plans.Resources, components)
+			plans, err := client.ListResources(cmd.Context(), "/v1/catalog/component-plans", 0, nil, map[string]string{"currency": currentCurrency(current.Resource)})
 			if err != nil {
 				return err
 			}
-			confirmed, err := cmdutil.AskBilled(cmd, factory, summary, yes)
+			summary, err := componentChangeSummary(current.Resource, plans.Resources, components)
+			if err != nil {
+				return err
+			}
+			confirmed, err := cmdutil.AskBilledWith(cmd, factory, summary, "Change component plans? [y/N] ", yes)
 			if err != nil {
 				return err
 			}
@@ -442,18 +459,47 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-// componentPriceSummary prices the requested plans from the catalog; an unknown slug or size is an error.
-func componentPriceSummary(plans []api.Resource, components map[string]string) (string, error) {
+func currentCurrency(current api.Resource) string {
+	items, _ := current["components"].([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		if currency, _ := item["currency"].(string); currency != "" {
+			return currency
+		}
+	}
+	return "EUR"
+}
+
+// componentChangeSummary shows old and new price per named component and the signed monthly delta; an unknown slug or size is an error.
+// The catalog is queried without a region, so new prices are the lowest regional ones.
+func componentChangeSummary(current api.Resource, plans []api.Resource, components map[string]string) (string, error) {
+	type booked struct {
+		size  string
+		cents float64
+	}
+	bookedPlans := map[string]booked{}
+	items, _ := current["components"].([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		slug, _ := item["slug"].(string)
+		size, _ := item["size"].(string)
+		cents, _ := item["priceInCents"].(float64)
+		bookedPlans[slug] = booked{size, cents}
+	}
 	slugs := make([]string, 0, len(components))
 	for slug := range components {
 		slugs = append(slugs, slug)
 	}
 	sort.Strings(slugs)
+	currency := currentCurrency(current)
 	var lines []string
-	var total float64
-	currency := ""
+	var delta float64
 	for _, slug := range slugs {
 		size := components[slug]
+		old, isBooked := bookedPlans[slug]
+		if !isBooked {
+			return "", fmt.Errorf("environment has no component %s", slug)
+		}
 		found := false
 		for _, plan := range plans {
 			if plan["slug"] != slug {
@@ -467,17 +513,13 @@ func componentPriceSummary(plans []api.Resource, components map[string]string) (
 				}
 				found = true
 				cents, _ := entry["priceInCents"].(float64)
-				entryCurrency, _ := entry["currency"].(string)
-				if entryCurrency != "" {
-					currency = entryCurrency
-				}
-				total += cents
-				lines = append(lines, fmt.Sprintf("  %s %s: %.2f %s/month", slug, size, cents/100, entryCurrency))
+				delta += cents - old.cents
+				lines = append(lines, fmt.Sprintf("%s: %s (%.2f %s) -> %s (%.2f %s, lowest regional price)", slug, old.size, old.cents/100, currency, size, cents/100, currency))
 			}
 		}
 		if !found {
 			return "", fmt.Errorf("component %s has no size %q in the catalog; see 'frbit plans list'", slug, size)
 		}
 	}
-	return fmt.Sprintf("New component plans:\n%s\nTotal of these plans: %.2f %s/month", strings.Join(lines, "\n"), total/100, currency), nil
+	return fmt.Sprintf("%s\nMonthly change: %+.2f %s", strings.Join(lines, "\n"), delta/100, currency), nil
 }

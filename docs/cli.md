@@ -349,9 +349,9 @@ frbit environments components update en-a1b2c3 --component php=md --component da
 
 - Directives and extensions you do not name stay unchanged. Numeric `--set` values are sent as numbers.
 - The basic auth password is read as one line from stdin and is never a flag or part of any output. Pipe it in; a password typed on a terminal is echoed. Omit `--password-stdin` to keep the current password.
-- `--port N` opens one port, `--port N-M` a range of at most 1000 ports.
+- `--port N` opens one port, `--port N-M` a range of at most 1000 ports, within 1-65535.
 - `firewall-rules delete` needs the exact rule ID: typed on a terminal, or `--confirm <id>` without one.
-- `components update` looks up each size in the catalog first (an unknown size is an error before any request), prints the monthly price per new plan and their total to stderr, and asks `[y/N]`, also for a downsize. Without a terminal it fails with `billed change needs --yes`. The change is applied asynchronously (202).
+- `components update` looks up each size in the catalog first (an unknown size is an error before any request), prints `slug: old (price) -> new (price)` per changed component and the signed `Monthly change` to stderr (new prices are the lowest regional ones), and asks `Change component plans? [y/N]`, also for a downsize. Without a terminal it fails with `billed change needs --yes`. The change is applied asynchronously (202).
 
 ## Deployments
 

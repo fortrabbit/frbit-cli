@@ -96,8 +96,16 @@ func TestBasicAuthPasswordOnlyFromStdin(t *testing.T) {
 		t.Fatalf("password printed: %q", out)
 	}
 
-	if _, _, err := run(t, "", func(request, http.ResponseWriter) {}, "basic-auth", "update", "en-a1b2c3", "--password-stdin"); err == nil {
-		t.Fatal("empty stdin must fail")
+	_, seen, err = run(t, "", func(request, http.ResponseWriter) {}, "basic-auth", "update", "en-a1b2c3", "--password-stdin")
+	if err == nil || !strings.Contains(err.Error(), "empty password") || len(seen) != 0 {
+		t.Fatalf("empty stdin: err = %v, requests = %d", err, len(seen))
+	}
+
+	out, _, err = run(t, "s3cret\n", func(r request, w http.ResponseWriter) {
+		echo(w, 200, `{"enabled":true,"username":"preview"}`)
+	}, "basic-auth", "update", "en-a1b2c3", "--password-stdin", "--json")
+	if err != nil || strings.Contains(out, "s3cret") {
+		t.Fatalf("json output = %q, err = %v", out, err)
 	}
 }
 
@@ -119,8 +127,11 @@ func TestFirewallRulePortRange(t *testing.T) {
 			t.Fatalf("%s: body = %v", port, body)
 		}
 	}
-	if _, _, err := run(t, "", func(request, http.ResponseWriter) {}, "firewall-rules", "add", "en-a1b2c3", "--description", "x", "--port", "web"); err == nil {
-		t.Fatal("bad port must fail")
+	for _, bad := range []string{"web", "9000-8000", "0", "70000", "65535-65540", "1000-2000"} {
+		_, seen, err := run(t, "", func(request, http.ResponseWriter) {}, "firewall-rules", "add", "en-a1b2c3", "--description", "x", "--port", bad)
+		if err == nil || len(seen) != 0 {
+			t.Fatalf("port %q: err = %v, requests = %d", bad, err, len(seen))
+		}
 	}
 }
 
@@ -137,7 +148,13 @@ func TestFirewallRuleDeleteNeedsConfirm(t *testing.T) {
 
 const catalog = `[{"slug":"php","optional":false,"sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"md","priceInCents":2400,"currency":"EUR"}]},{"slug":"database","optional":true,"sizes":[{"size":"off","priceInCents":null,"currency":"EUR"},{"size":"sm","priceInCents":800,"currency":"EUR"}]}]`
 
+const current = `{"components":[{"slug":"php","size":"sm","priceInCents":1200,"currency":"EUR"},{"slug":"database","size":"sm","priceInCents":800,"currency":"EUR"}]}`
+
 func componentsHandler(r request, w http.ResponseWriter) {
+	if r.method == "GET" && r.path == "/v1/environments/en-a1b2c3/components" {
+		echo(w, 200, current)
+		return
+	}
 	if r.path == "/v1/catalog/component-plans" {
 		echo(w, 200, catalog)
 		return
@@ -165,6 +182,22 @@ func TestComponentsUpdateWithoutTTYRequiresYes(t *testing.T) {
 		t.Fatalf("last = %+v", last)
 	}
 
+	_, seen, err = run(t, "", func(r request, w http.ResponseWriter) {
+		if r.path == "/v1/catalog/component-plans" {
+			echo(w, 500, `{"title":"boom"}`)
+			return
+		}
+		componentsHandler(r, w)
+	}, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes")
+	if err == nil {
+		t.Fatal("catalog failure must fail")
+	}
+	for _, r := range seen {
+		if r.method == "PATCH" {
+			t.Fatal("PATCH sent after catalog failure")
+		}
+	}
+
 	_, seen, err = run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=xl", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "no size") {
 		t.Fatalf("err = %v", err)
@@ -176,16 +209,27 @@ func TestComponentsUpdateWithoutTTYRequiresYes(t *testing.T) {
 	}
 }
 
-func TestComponentPriceSummaryTotals(t *testing.T) {
-	var plans []map[string]any
+func TestComponentChangeSummaryShowsDelta(t *testing.T) {
+	var plans []api.Resource
 	_ = json.Unmarshal([]byte(catalog), &plans)
-	resources := make([]api.Resource, 0, len(plans))
-	for _, plan := range plans {
-		resources = append(resources, plan)
+	var currentResource api.Resource
+	_ = json.Unmarshal([]byte(current), &currentResource)
+	summary, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "md", "database": "off"})
+	for _, want := range []string{"php: sm (12.00 EUR) -> md (24.00 EUR, lowest regional price)", "database: sm (8.00 EUR) -> off (0.00 EUR", "Monthly change: +4.00 EUR"} {
+		if err != nil || !strings.Contains(summary, want) {
+			t.Fatalf("summary = %q, err = %v, want %q", summary, err, want)
+		}
 	}
-	summary, err := componentPriceSummary(resources, map[string]string{"php": "md", "database": "sm"})
-	if err != nil || !strings.Contains(summary, "32.00 EUR/month") {
-		t.Fatalf("summary = %q, err = %v", summary, err)
+	if strings.Contains(summary, "Total") {
+		t.Fatalf("summary = %q", summary)
+	}
+}
+
+func TestPhpSettingsNumericCoercionIsExact(t *testing.T) {
+	payload, err := phpSettingsPayload([]string{"a=007", "b=60", "c=+5"}, nil)
+	settings, _ := payload["settings"].(map[string]any)
+	if err != nil || settings["a"] != "007" || settings["b"] != 60 || settings["c"] != "+5" {
+		t.Fatalf("settings = %v, err = %v", settings, err)
 	}
 }
 

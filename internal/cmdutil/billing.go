@@ -39,6 +39,11 @@ func ConfirmBilled(cmd *cobra.Command, f *app.Factory, client *api.Client, path 
 
 // AskBilled prints summary and gets consent: --yes, a y/N answer on a terminal, else an error.
 func AskBilled(cmd *cobra.Command, f *app.Factory, summary string, yes bool) (bool, error) {
+	return AskBilledWith(cmd, f, summary, "Create and start billing? [y/N] ", yes)
+}
+
+// AskBilledWith is AskBilled with a custom y/N prompt.
+func AskBilledWith(cmd *cobra.Command, f *app.Factory, summary, prompt string, yes bool) (bool, error) {
 	out := cmd.ErrOrStderr()
 	if _, err := fmt.Fprintln(out, summary); err != nil {
 		return false, err
@@ -49,7 +54,7 @@ func AskBilled(cmd *cobra.Command, f *app.Factory, summary string, yes bool) (bo
 	if !f.IOStreams.IsTTY {
 		return false, fmt.Errorf("billed change needs --yes")
 	}
-	return Confirm(f.IOStreams.In, out, "Create and start billing? [y/N] ")
+	return Confirm(f.IOStreams.In, out, prompt)
 }
 
 func dryRunBody(payload any) (map[string]any, error) {
