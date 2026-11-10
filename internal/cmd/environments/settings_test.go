@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/fortrabbit/frbit-cli/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,24 +13,9 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
-	"github.com/fortrabbit/frbit-cli/internal/config"
-	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
 )
-
-type configStore struct{}
-
-func (configStore) Load() (config.Config, error) { return config.Config{}, nil }
-func (configStore) Save(config.Config) error     { return nil }
-
-type credentialStore struct{}
-
-func (credentialStore) Get(string) (credentials.Credential, error) {
-	return credentials.Credential{}, credentials.ErrNotFound
-}
-func (credentialStore) Set(string, credentials.Credential) error { return nil }
-func (credentialStore) Delete(string) error                      { return nil }
 
 type request struct {
 	method, path, query string
@@ -75,8 +61,8 @@ func runStreamsWith(t *testing.T, ctx context.Context, tty bool, stdin string, h
 	output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := &app.Factory{
 		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: stderr, IsTTY: tty},
-		ConfigStore:     configStore{},
-		CredentialStore: credentialStore{},
+		ConfigStore:     testutil.ConfigStore{},
+		CredentialStore: testutil.CredentialStore{},
 		HTTPClient:      &http.Client{},
 		Version:         "test",
 	}

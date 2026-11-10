@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/fortrabbit/frbit-cli/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,25 +18,10 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
-	"github.com/fortrabbit/frbit-cli/internal/config"
-	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/spf13/cobra"
 )
-
-type configStore struct{}
-
-func (configStore) Load() (config.Config, error) { return config.Config{}, nil }
-func (configStore) Save(config.Config) error     { return nil }
-
-type credentialStore struct{}
-
-func (credentialStore) Get(string) (credentials.Credential, error) {
-	return credentials.Credential{}, credentials.ErrNotFound
-}
-func (credentialStore) Set(string, credentials.Credential) error { return nil }
-func (credentialStore) Delete(string) error                      { return nil }
 
 type exitError int
 
@@ -108,8 +94,8 @@ func execute(t *testing.T, dir string, in invocation) (string, string, error) {
 	}
 	factory := &app.Factory{
 		IOStreams:       iostreams.IOStreams{In: stdin, Out: stdout, ErrOut: stderr, IsTTY: in.tty},
-		ConfigStore:     configStore{},
-		CredentialStore: credentialStore{},
+		ConfigStore:     testutil.ConfigStore{},
+		CredentialStore: testutil.CredentialStore{},
 		HTTPClient:      &http.Client{},
 		Version:         "test",
 	}
