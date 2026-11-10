@@ -174,7 +174,7 @@ func newCmdRemove(factory *app.Factory, service *agentskills.Service) *cobra.Com
 				}
 			}
 			if !yes {
-				confirmed, err := cmdutil.Confirm(factory.IOStreams.In, cmd.OutOrStdout(), "Continue? [y/N] ")
+				confirmed, err := cmdutil.ConfirmContext(cmd.Context(), factory.IOStreams.In, cmd.OutOrStdout(), "Continue? [y/N] ")
 				if err != nil {
 					return err
 				}

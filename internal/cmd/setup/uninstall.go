@@ -113,7 +113,7 @@ func runUninstall(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skil
 	if err := printBinary(writer, binary); err != nil {
 		return err
 	}
-	if confirmed, err := confirmRemoval(factory, writer, yes); err != nil || !confirmed {
+	if confirmed, err := confirmRemoval(cmd.Context(), factory, writer, yes); err != nil || !confirmed {
 		return err
 	}
 

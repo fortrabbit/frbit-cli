@@ -277,11 +277,11 @@ func (p removalPlan) execute(cmd *cobra.Command, factory *app.Factory, mcp mcpSe
 	return nil
 }
 
-func confirmRemoval(factory *app.Factory, writer io.Writer, yes bool) (bool, error) {
+func confirmRemoval(ctx context.Context, factory *app.Factory, writer io.Writer, yes bool) (bool, error) {
 	if yes {
 		return true, nil
 	}
-	confirmed, err := cmdutil.Confirm(factory.IOStreams.In, writer, "Continue? [y/N] ")
+	confirmed, err := cmdutil.ConfirmContext(ctx, factory.IOStreams.In, writer, "Continue? [y/N] ")
 	if err != nil || confirmed {
 		return confirmed, err
 	}
@@ -314,7 +314,7 @@ func removeAgentSetup(cmd *cobra.Command, factory *app.Factory, mcp mcpService, 
 	if err := plan.print(writer); err != nil {
 		return err
 	}
-	if confirmed, err := confirmRemoval(factory, writer, yes); err != nil || !confirmed {
+	if confirmed, err := confirmRemoval(cmd.Context(), factory, writer, yes); err != nil || !confirmed {
 		return err
 	}
 	if err := plan.execute(cmd, factory, mcp, skills); err != nil {
