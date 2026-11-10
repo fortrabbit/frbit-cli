@@ -273,13 +273,17 @@ func TestDbPushDamagedUploadImportsNothing(t *testing.T) {
 func TestDbPushSSHKeyRejected(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "dump.sql", []byte(dump))
-	fake := &pushRunner{fail: map[string]error{"mysqldump": exitError(255)}}
-	_, _, err := push(t, dir, fake, invocation{args: []string{"dump.sql", "en-abc123", "--confirm", "en-abc123"}})
+	// The connection may also have dropped mid-dump, so the cleanup is tried over a new connection and fails quietly.
+	fake := &pushRunner{fail: map[string]error{"mysqldump": exitError(255), wantBackupCleanup: exitError(255)}}
+	_, stderr, err := push(t, dir, fake, invocation{args: []string{"dump.sql", "en-abc123", "--confirm", "en-abc123"}})
 	if err == nil || !strings.Contains(err.Error(), "https://dash.fortrabbit.com/new/ssh-key") {
 		t.Fatalf("key rejected: %v", err)
 	}
-	if len(fake.calls) != 1 {
-		t.Fatalf("ran %q", fake.remotes())
+	if got := fake.remotes(); !slices.Equal(got, []string{wantBackup, wantBackupCleanup}) {
+		t.Fatalf("ran %q", got)
+	}
+	if strings.Contains(stderr, "Could not remove") {
+		t.Fatalf("stderr %q", stderr)
 	}
 }
 

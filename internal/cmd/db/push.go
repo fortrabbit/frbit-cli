@@ -228,13 +228,17 @@ func (p pusher) cleanup(ctx context.Context) {
 	p.remove(ctx, importFile)
 }
 
-// remove deletes a fixed remote path, also after Ctrl-C.
+// remove deletes a fixed remote path, also after Ctrl-C, and says when it could not.
 func (p pusher) remove(ctx context.Context, path string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	if err := p.run(ctx, "rm -f "+path, nil); err != nil {
+	if err := p.removeErr(ctx, path); err != nil {
 		_, _ = fmt.Fprintf(p.stderr, "Could not remove %s on %s: %v\n", path, p.id, err)
 	}
+}
+
+func (p pusher) removeErr(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	return p.run(ctx, "rm -f "+path, nil)
 }
 
 func (p pusher) push(ctx context.Context, in *input) error {
@@ -242,7 +246,10 @@ func (p pusher) push(ctx context.Context, in *input) error {
 	// The dump only gets the backup name once complete, so a killed run never leaves a truncated file that looks like a backup.
 	backup := fmt.Sprintf(`set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > %[1]s.part && mv %[1]s.part %[1]s || { status=$?; rm -f %[1]s.part; exit $status; }`, p.backup)
 	if err := p.run(ctx, backup, nil); err != nil {
-		if sshexec.ExitCode(err) != 255 {
+		// The dump may have started before the connection dropped; a cleanup that cannot connect either stays quiet.
+		if sshexec.ExitCode(err) == 255 {
+			_ = p.removeErr(ctx, p.backup+".part")
+		} else {
 			p.remove(ctx, p.backup+".part")
 		}
 		if ctx.Err() != nil {
