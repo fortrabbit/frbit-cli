@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,7 +24,7 @@ type Runner interface {
 	Run(ctx context.Context, name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error
 }
 
-// System runs the program on this machine and kills it when ctx ends.
+// System runs the program on this machine; when ctx ends it interrupts it and kills it after a grace period.
 type System struct{}
 
 func (System) Run(ctx context.Context, name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -30,6 +32,13 @@ func (System) Run(ctx context.Context, name string, args []string, stdin io.Read
 	command.Stdin = stdin
 	command.Stdout = stdout
 	command.Stderr = stderr
+	// An interrupt lets rsync remove its partial temp files and pass the stop on to its ssh.
+	command.Cancel = func() error {
+		if runtime.GOOS == "windows" {
+			return command.Process.Kill()
+		}
+		return command.Process.Signal(os.Interrupt)
+	}
 	command.WaitDelay = 5 * time.Second
 	return command.Run()
 }

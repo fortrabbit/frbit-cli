@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 )
@@ -141,4 +144,41 @@ func TestRunUnknownHostKeyNamesTheFix(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), KeyURL) || strings.Contains(err.Error(), "ssh-keyscan") {
 		t.Fatalf("rejected key: %v", err)
 	}
+}
+
+func TestSystemRunInterruptsBeforeKilling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGINT on Windows")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	out := &lockedBuffer{}
+	done := make(chan error, 1)
+	go func() {
+		done <- System{}.Run(ctx, "sh", []string{"-c", `trap 'echo interrupted; exit 3' INT; echo ready; while :; do sleep 0.05; done`}, nil, out, io.Discard)
+	}()
+	for i := 0; i < 100 && !strings.Contains(out.String(), "ready"); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if !strings.Contains(out.String(), "interrupted") {
+		t.Fatalf("output %q", out.String())
+	}
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
