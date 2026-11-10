@@ -156,7 +156,12 @@ esac
 if [ "$setup_agent" -eq 1 ]; then
   # agent_args holds only validated names, so word splitting is safe here.
   # shellcheck disable=SC2086
-  "$install_dir/frbit" setup agent $agent_args
+  # Piped installs (curl | sh) have no stdin; give the agent the terminal when one can be opened.
+  if [ -r /dev/tty ] && ( : </dev/tty ) 2>/dev/null; then
+    "$install_dir/frbit" setup agent $agent_args </dev/tty
+  else
+    "$install_dir/frbit" setup agent $agent_args
+  fi
 else
   printf 'For shell completion, run: frbit completion install <bash|fish|powershell|zsh>\n'
 fi

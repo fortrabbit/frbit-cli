@@ -140,6 +140,7 @@ func TestAppsReturnsRetryAfterForRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
 	_, err = client.Apps(context.Background(), 1)
 	var httpError *HTTPError
 	if !errors.As(err, &httpError) {
@@ -323,5 +324,256 @@ func TestResourceWritesUseExpectedMethodsAndContentTypes(t *testing.T) {
 	}
 	if err := client.DeleteResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
 		t.Fatalf("delete resource: %v", err)
+	}
+}
+
+func TestCreateSendsSameIdempotencyKeyOnRetry(t *testing.T) {
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		keys = append(keys, request.Header.Get("Idempotency-Key"))
+		if len(keys) == 1 {
+			writer.Header().Set("Retry-After", "3")
+			writer.WriteHeader(http.StatusTooManyRequests)
+			_, _ = writer.Write([]byte(`{"title":"Too Many Requests","status":429,"detail":"try again"}`))
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waited []time.Duration
+	client.sleep = func(ctx context.Context, wait time.Duration) error {
+		waited = append(waited, wait)
+		return nil
+	}
+	response, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{"name": "Store"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Resource["publicId"] != "ap-abc123" {
+		t.Fatalf("resource = %#v", response.Resource)
+	}
+	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("idempotency keys = %#v, want the same non-empty key twice", keys)
+	}
+	if len(waited) != 1 || waited[0] != 3*time.Second {
+		t.Fatalf("waited = %v, want one wait of 3s", waited)
+	}
+}
+
+func TestCreateDoesNotRetry(t *testing.T) {
+	for name, respond := range map[string]func(http.ResponseWriter){
+		"5xx": func(writer http.ResponseWriter) { writer.WriteHeader(http.StatusBadGateway) },
+		"429 with a long Retry-After": func(writer http.ResponseWriter) {
+			writer.Header().Set("Retry-After", "3600")
+			writer.WriteHeader(http.StatusTooManyRequests)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls++
+				respond(writer)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.sleep = func(context.Context, time.Duration) error { return nil }
+			if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err == nil {
+				t.Fatal("expected an error")
+			}
+			if calls != 1 {
+				t.Fatalf("calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
+func TestGetWaitsOutOneRateLimit(t *testing.T) {
+	cases := map[string]struct {
+		retryAfter string
+		wantCalls  int
+		wantWait   time.Duration
+	}{
+		"short Retry-After": {retryAfter: "13", wantCalls: 2, wantWait: 13 * time.Second},
+		"long Retry-After":  {retryAfter: "3600", wantCalls: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls++
+				if calls == 1 {
+					writer.Header().Set("Retry-After", tc.retryAfter)
+					writer.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				_, _ = writer.Write([]byte(`{"publicId":"en-abc123"}`))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stderr strings.Builder
+			client.Warnings = &stderr
+			var waited time.Duration
+			client.sleep = func(_ context.Context, wait time.Duration) error { waited = wait; return nil }
+			_, _ = client.GetResource(context.Background(), "/v1/environments/en-abc123")
+			if calls != tc.wantCalls || waited != tc.wantWait {
+				t.Fatalf("calls = %d, waited %s", calls, waited)
+			}
+			if tc.wantCalls == 2 && stderr.String() != "rate limited by the API; retrying in 13s\n" {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestPostWithoutKeyIsNotRetriedOnRateLimit(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.Header().Set("Retry-After", "1")
+		writer.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.UpdateResource(context.Background(), "/v1/environments/en-abc123", map[string]any{}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestCreateRetriesOnlyOnce(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestCreateWithoutIdempotencyKeySendsNoKeyAndDoesNotRetry(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if key := request.Header.Get("Idempotency-Key"); key != "" {
+			t.Fatalf("idempotency key = %q, want none", key)
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.DryRunCreate(context.Background(), "/v1/apps", map[string]any{}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestIdempotencyKeyIsRandomHex(t *testing.T) {
+	first, err := newIdempotencyKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ := newIdempotencyKey()
+	if len(first) != 32 || first == second || strings.Trim(first, "0123456789abcdef") != "" {
+		t.Fatalf("keys = %q, %q", first, second)
+	}
+}
+
+func TestWarningHeadersGoToStderr(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Add("Warning", `299 - "gitRepository filter is deprecated"`)
+		writer.Header().Set("Deprecation", "@1767225600")
+		writer.Header().Set("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := &bytes.Buffer{}
+	client.Warnings = stderr
+	if _, err := client.GetResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
+		t.Fatal(err)
+	}
+	want := "warning: 299 - \"gitRepository filter is deprecated\"\nwarning: this API route is deprecated; update frbit\nwarning: this API route stops working on Wed, 01 Jul 2026 00:00:00 GMT\n"
+	if stderr.String() != want {
+		t.Fatalf("warnings = %q, want %q", stderr.String(), want)
+	}
+}
+
+type rotatingTestToken struct{ refreshed bool }
+
+func (s *rotatingTestToken) Token(context.Context) (string, error) { return "old", nil }
+
+func (s *rotatingTestToken) Refresh(context.Context, string) (string, error) {
+	s.refreshed = true
+	return "new", nil
+}
+
+func TestCreateReusesIdempotencyKeyAfterTokenRefresh(t *testing.T) {
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		keys = append(keys, request.Header.Get("Idempotency-Key"))
+		if request.Header.Get("Authorization") != "Bearer new" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	tokens := &rotatingTestToken{}
+	client, err := NewClientWithTokens(server.URL, tokens, server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if !tokens.refreshed || len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("refreshed = %v, keys = %#v", tokens.refreshed, keys)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"io"
 	"net"
 	"net/http"
@@ -31,6 +32,10 @@ type Client struct {
 	tokens    TokenSource
 	http      *http.Client
 	userAgent string
+	// Warnings receives the API's Warning, Deprecation and Sunset headers; nil discards them.
+	Warnings io.Writer
+	warned   *sync.Map
+	sleep    func(ctx context.Context, wait time.Duration) error
 }
 
 // TokenSource supplies the bearer token and, for OAuth, replaces one the API rejected.
@@ -126,6 +131,7 @@ type HTTPError struct {
 	Status     int
 	Message    string
 	RetryAfter time.Duration
+	Problem    *Problem
 }
 
 func (e *HTTPError) Error() string {
@@ -150,7 +156,17 @@ func NewClientWithTokens(host string, tokens TokenSource, httpClient *http.Clien
 	}
 	httpClient = clientForOrigin(httpClient, baseURL)
 
-	return &Client{baseURL: baseURL, tokens: tokens, http: httpClient, userAgent: userAgent}, nil
+	return &Client{baseURL: baseURL, tokens: tokens, http: httpClient, userAgent: userAgent, warned: &sync.Map{}, sleep: sleepContext}, nil
+}
+
+// Host returns the API base URL.
+func (c *Client) Host() string {
+	return c.baseURL.String()
+}
+
+// Secure reports whether the API is reached over https.
+func (c *Client) Secure() bool {
+	return c.baseURL.Scheme == "https"
 }
 
 func parseBaseURL(host string) (*url.URL, error) {
@@ -269,10 +285,6 @@ func (c Client) get(ctx context.Context, path string, query url.Values) ([]byte,
 	return c.request(ctx, http.MethodGet, path, query, nil, "")
 }
 
-func (c Client) getCollection(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	return c.requestWithAccept(ctx, http.MethodGet, path, query, nil, "", "application/ld+json")
-}
-
 func (c Client) post(ctx context.Context, path string, payload any) ([]byte, error) {
 	body, err := marshalPayload(payload)
 	if err != nil {
@@ -287,6 +299,14 @@ func (c Client) patch(ctx context.Context, path string, payload any) ([]byte, er
 		return nil, err
 	}
 	return c.request(ctx, http.MethodPatch, path, nil, body, "application/merge-patch+json")
+}
+
+func (c Client) put(ctx context.Context, path string, payload any) ([]byte, error) {
+	body, err := marshalPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return c.request(ctx, http.MethodPut, path, nil, body, "application/json")
 }
 
 func (c Client) delete(ctx context.Context, path string) ([]byte, error) {
@@ -309,53 +329,122 @@ func (c Client) request(ctx context.Context, method string, path string, query u
 }
 
 func (c Client) requestWithAccept(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string) ([]byte, error) {
+	response, err := c.doRetry(ctx, call{method: method, path: path, query: query, body: body, contentType: contentType, accept: accept})
+	return response.body, err
+}
+
+type call struct {
+	method         string
+	path           string
+	query          url.Values
+	body           []byte
+	contentType    string
+	accept         string
+	idempotencyKey string
+}
+
+type rawResponse struct {
+	body   []byte
+	header http.Header
+}
+
+// do sends the call and repeats it once with a refreshed token after a 401.
+func (c Client) do(ctx context.Context, request call) (rawResponse, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
-		return nil, err
+		return rawResponse{}, err
 	}
-	responseBody, err := c.send(ctx, method, path, query, body, contentType, accept, token)
+	response, err := c.send(ctx, request, token)
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusUnauthorized {
-		return responseBody, err
+		return response, err
 	}
 	refreshed, refreshErr := c.tokens.Refresh(ctx, token)
 	if errors.Is(refreshErr, errNoRefresh) {
-		return nil, err
+		return rawResponse{}, err
 	}
 	if refreshErr != nil {
-		return nil, refreshErr
+		return rawResponse{}, refreshErr
 	}
-	return c.send(ctx, method, path, query, body, contentType, accept, refreshed)
+	return c.send(ctx, request, refreshed)
 }
 
-func (c Client) send(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string, token string) ([]byte, error) {
-	endpoint := c.baseURL.ResolveReference(&url.URL{Path: path, RawQuery: query.Encode()})
-	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+func (c Client) send(ctx context.Context, call call, token string) (rawResponse, error) {
+	if err := checkPath(call.path); err != nil {
+		return rawResponse{}, err
 	}
-	request.Header.Set("Accept", accept)
+	endpoint := c.baseURL.ResolveReference(&url.URL{Path: call.path, RawQuery: call.query.Encode()})
+	request, err := http.NewRequestWithContext(ctx, call.method, endpoint.String(), bytes.NewReader(call.body))
+	if err != nil {
+		return rawResponse{}, fmt.Errorf("create request: %w", err)
+	}
+	request.Header.Set("Accept", call.accept)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("User-Agent", c.userAgent)
-	if contentType != "" {
-		request.Header.Set("Content-Type", contentType)
+	if call.contentType != "" {
+		request.Header.Set("Content-Type", call.contentType)
+	}
+	if call.idempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", call.idempotencyKey)
 	}
 
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("perform request: %w", err)
+		return rawResponse{}, fmt.Errorf("perform request: %w", err)
 	}
 	defer response.Body.Close()
+	c.writeWarnings(response.Header)
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 10<<20))
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return rawResponse{}, fmt.Errorf("read response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, newHTTPError(response, responseBody)
+		return rawResponse{}, newHTTPError(response, responseBody)
 	}
 
-	return responseBody, nil
+	return rawResponse{body: responseBody, header: response.Header}, nil
+}
+
+// checkPath refuses a "." or ".." segment, also an escaped one: the URL resolver would turn domains/../apps/x into apps/x.
+func checkPath(path string) error {
+	decoded, err := url.PathUnescape(path)
+	if err != nil {
+		return fmt.Errorf("invalid request path %q", path)
+	}
+	for _, segment := range strings.Split(decoded, "/") {
+		if segment == "." || segment == ".." {
+			return fmt.Errorf("invalid ID in request path %q", decoded)
+		}
+	}
+	return nil
+}
+
+// writeWarnings prints each distinct warning header value once per client.
+func (c Client) writeWarnings(header http.Header) {
+	if c.Warnings == nil {
+		return
+	}
+	for _, name := range []string{"Warning", "Deprecation", "Sunset"} {
+		for _, value := range header.Values(name) {
+			if value = strings.TrimSpace(value); value == "" {
+				continue
+			}
+			message := value
+			switch name {
+			case "Deprecation":
+				message = "this API route is deprecated; update frbit"
+			case "Sunset":
+				message = "this API route stops working on " + value
+			}
+			if c.warned != nil {
+				if _, seen := c.warned.LoadOrStore(message, true); seen {
+					continue
+				}
+			}
+			_, _ = fmt.Fprintf(c.Warnings, "warning: %s\n", iostreams.StripControl(message))
+		}
+	}
 }
 
 func newHTTPError(response *http.Response, body []byte) *HTTPError {
@@ -366,29 +455,38 @@ func newHTTPError(response *http.Response, body []byte) *HTTPError {
 		HydraDescription string         `json:"hydra:description"`
 		Message          string         `json:"message"`
 		Errors           map[string]any `json:"errors"`
-		Violations       []struct {
-			PropertyPath string `json:"propertyPath"`
-			Message      string `json:"message"`
-		} `json:"violations"`
+		Violations       []Violation    `json:"violations"`
 	}
 	_ = json.Unmarshal(body, &payload)
 
-	message := firstNonEmpty(payload.Error, payload.Detail, payload.Description, payload.HydraDescription, payload.Message)
+	problem := parseProblem(response.Header.Get("Content-Type"), body)
+	message := ""
+	if problem != nil {
+		message = problem.message()
+	}
+	if message == "" {
+		message = firstNonEmpty(payload.Error, payload.Detail, payload.Description, payload.HydraDescription, payload.Message)
+	}
 	if message == "" {
 		message = validationMessage(payload.Errors, payload.Violations)
 	}
-	retryAfter := time.Duration(0)
-	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
-		retryAfter = time.Duration(seconds) * time.Second
-	}
+	retryAfter := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
 
-	return &HTTPError{Status: response.StatusCode, Message: message, RetryAfter: retryAfter}
+	return &HTTPError{Status: response.StatusCode, Message: message, RetryAfter: retryAfter, Problem: problem}
 }
 
-func validationMessage(errors map[string]any, violations []struct {
-	PropertyPath string `json:"propertyPath"`
-	Message      string `json:"message"`
-}) string {
+// parseRetryAfter reads Retry-After as seconds or as an HTTP date; 0 means none.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil && date.After(now) {
+		return date.Sub(now)
+	}
+	return 0
+}
+
+func validationMessage(errors map[string]any, violations []Violation) string {
 	parts := make([]string, 0, len(errors)+len(violations))
 	keys := make([]string, 0, len(errors))
 	for key := range errors {

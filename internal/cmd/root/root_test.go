@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -371,9 +376,11 @@ func TestDeleteCommandsUseExpectedEndpoints(t *testing.T) {
 			}))
 			defer server.Close()
 
-			output := &bytes.Buffer{}
+			output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			t.Setenv("FRBIT_TOKEN", "test-token")
-			command := NewCmdRoot(testFactory(output))
+			factory := testFactory(output)
+			factory.IOStreams.ErrOut = stderr
+			command := NewCmdRoot(factory)
 			command.SetArgs([]string{"--host", server.URL, test.resource, "delete", test.publicID, "--confirm", test.publicID})
 			if err := command.Execute(); err != nil {
 				t.Fatal(err)
@@ -381,10 +388,13 @@ func TestDeleteCommandsUseExpectedEndpoints(t *testing.T) {
 			if requests != 2 {
 				t.Fatalf("requests = %d, want GET followed by DELETE", requests)
 			}
-			for _, expected := range []string{test.name, test.publicID, test.warning, "This cannot be undone.", "Deleted"} {
-				if !strings.Contains(output.String(), expected) {
-					t.Fatalf("output %q does not contain %q", output.String(), expected)
+			for _, expected := range []string{test.name, test.publicID, test.warning, "This cannot be undone."} {
+				if !strings.Contains(stderr.String(), expected) {
+					t.Fatalf("stderr %q does not contain %q", stderr.String(), expected)
 				}
+			}
+			if !strings.Contains(output.String(), "Deleted") || strings.Contains(output.String(), "This cannot be undone.") {
+				t.Fatalf("output %q", output.String())
 			}
 		})
 	}
@@ -401,18 +411,19 @@ func TestDeleteAbortsWhenInteractiveConfirmationDoesNotMatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := &bytes.Buffer{}
+	output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := testFactory(output)
+	factory.IOStreams.ErrOut = stderr
 	factory.IOStreams.In = strings.NewReader("ap-wrong1\n")
 	factory.IOStreams.IsTTY = true
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	command := NewCmdRoot(factory)
 	command.SetArgs([]string{"--host", server.URL, "apps", "delete", "ap-abc123"})
-	if err := command.Execute(); err != nil {
+	if err := command.Execute(); !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
-	if requests != 1 || !strings.Contains(output.String(), "Type ap-abc123 to confirm:") || !strings.Contains(output.String(), "Aborted.") {
-		t.Fatalf("requests = %d, output = %q", requests, output.String())
+	if requests != 1 || output.Len() != 0 || !strings.Contains(stderr.String(), "Type ap-abc123 to confirm:") || !strings.Contains(stderr.String(), "Aborted.") {
+		t.Fatalf("requests = %d, output = %q, stderr = %q", requests, output.String(), stderr.String())
 	}
 }
 
@@ -438,7 +449,7 @@ func TestDeleteRequiresConfirmationInNonInteractiveUse(t *testing.T) {
 
 func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		var body map[string]any
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -491,7 +502,7 @@ func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 
 func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		switch requests {
 		case 1:
@@ -574,7 +585,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 
 func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
 	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwarePresetName":"general-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		body := &bytes.Buffer{}
 		_, _ = body.ReadFrom(request.Body)
 		if body.String() != payload {
@@ -853,7 +864,7 @@ func TestCreateCommandsLeaveCloudDomainToTheAPIUnlessOptedOut(t *testing.T) {
 		{name: "app opts out", args: []string{"apps", "create", "--name", "store", "--region", "eu-w1a", "--no-cloud-domain"}, optedOut: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 				var body map[string]any
 				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 					t.Fatal(err)
@@ -878,5 +889,366 @@ func TestCreateCommandsLeaveCloudDomainToTheAPIUnlessOptedOut(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+type dryRunCall struct {
+	method, path, idempotencyKey string
+	dryRun                       bool
+}
+
+func billingServer(t *testing.T, pricing string, calls *[]dryRunCall) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		dryRun, _ := body["dryRun"].(bool)
+		*calls = append(*calls, dryRunCall{request.Method, request.URL.Path, request.Header.Get("Idempotency-Key"), dryRun})
+		if dryRun {
+			_, _ = writer.Write([]byte(pricing))
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"store"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+const billedPricing = `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":true,"trialEndsAt":null,"components":[{"slug":"php","size":"sm","priceInCents":1200},{"slug":"storage","size":"xs","priceInCents":1200}]}}`
+
+func runAppsCreate(t *testing.T, server *httptest.Server, tty bool, input string, extra ...string) (*bytes.Buffer, error) {
+	t.Helper()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	errOut := &bytes.Buffer{}
+	factory.IOStreams.ErrOut = errOut
+	factory.IOStreams.IsTTY = tty
+	factory.IOStreams.In = strings.NewReader(input)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs(append([]string{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a"}, extra...))
+	err := command.Execute()
+	return errOut, err
+}
+
+func TestAppsCreateShowsPriceAndAsks(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	errOut, err := runAppsCreate(t, server, true, "y\n", "--payment-method", "pm-abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Monthly price: 24.00 EUR", "pm-abc123", "Create and start billing? [y/N]"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr = %q, missing %q", errOut.String(), want)
+		}
+	}
+	if len(calls) != 2 || !calls[0].dryRun || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+
+	calls = nil
+	if _, err := runAppsCreate(t, server, true, "n\n"); !errors.Is(err, cmdutil.ErrAborted) {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || !calls[0].dryRun {
+		t.Fatalf("declined: calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateWithoutTTYRequiresYes(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	_, err := runAppsCreate(t, server, false, "")
+	if err == nil || !strings.Contains(err.Error(), "billed change needs --yes") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(calls) != 1 || !calls[0].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+
+	calls = nil
+	if _, err := runAppsCreate(t, server, false, "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateTrialSkipsQuestion(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, `{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`, &calls)
+	if _, err := runAppsCreate(t, server, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestDryRunSendsNoIdempotencyKey(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	if _, err := runAppsCreate(t, server, false, "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if calls[0].idempotencyKey != "" {
+		t.Fatalf("dry run sent Idempotency-Key %q", calls[0].idempotencyKey)
+	}
+	if calls[1].idempotencyKey == "" {
+		t.Fatal("real create sent no Idempotency-Key")
+	}
+}
+
+// answerDryRun serves create dry runs with a trial price and passes everything else to next.
+func answerDryRun(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		raw, _ := io.ReadAll(request.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if dryRun, _ := body["dryRun"].(bool); dryRun {
+			_, _ = writer.Write([]byte(`{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":null,"components":[]}}`))
+			return
+		}
+		request.Body = io.NopCloser(bytes.NewReader(raw))
+		next(writer, request)
+	}
+}
+
+func TestAppsCreateRefusesWithoutPrice(t *testing.T) {
+	for name, pricing := range map[string]string{
+		"empty":       `{}`,
+		"non-numeric": `{"pricing":{"monthlyPriceInCents":"24","currency":"EUR","billed":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []dryRunCall
+			server := billingServer(t, pricing, &calls)
+			_, err := runAppsCreate(t, server, false, "", "--yes")
+			if err == nil || !strings.Contains(err.Error(), "dry run returned no price; refusing to create") {
+				t.Fatalf("err = %v", err)
+			}
+			if len(calls) != 1 || !calls[0].dryRun {
+				t.Fatalf("calls = %#v", calls)
+			}
+		})
+	}
+}
+
+func TestAppsCreateUnbilledPriceDependsOnTrial(t *testing.T) {
+	var calls []dryRunCall
+	trial := billingServer(t, `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`, &calls)
+	if _, err := runAppsCreate(t, trial, false, ""); err != nil {
+		t.Fatalf("trial: %v", err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("trial calls = %#v", calls)
+	}
+
+	calls = nil
+	noTrial := billingServer(t, `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":null,"components":[]}}`, &calls)
+	_, err := runAppsCreate(t, noTrial, false, "")
+	if err == nil || !strings.Contains(err.Error(), "billed change needs --yes") {
+		t.Fatalf("no trial: err = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("no trial calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateJSONKeepsStdoutForTheResponse(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	output := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.ErrOut = errOut
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs([]string{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a", "--yes", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(output.String()); got != `{"publicId":"ap-abc123","name":"store"}` {
+		t.Fatalf("stdout = %q", got)
+	}
+	if !strings.Contains(errOut.String(), "Monthly price: 24.00 EUR") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func runEnvironmentsUpdate(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPatch || request.URL.Path != "/v1/environments/en-abc123" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = writer.Write([]byte(`{"publicId":"en-abc123","rootPath":"public","deployment":{"strategy":"replace","trigger":"push","cachedDirectories":["vendor"],"managedByDeployFile":false}}`))
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs(append([]string{"--host", server.URL, "environments", "update", "en-abc123"}, args...))
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"rootPath", "public", "deployment.strategy", "replace", "deployment.cachedDirectories", "vendor"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q: %q", want, output.String())
+		}
+	}
+	return got
+}
+
+func TestEnvironmentsUpdateSendsRootPath(t *testing.T) {
+	got := runEnvironmentsUpdate(t, "--root-path", "public")
+	if got["rootPath"] != "public" || len(got) != 1 {
+		t.Fatalf("payload = %#v", got)
+	}
+	got = runEnvironmentsUpdate(t, "--root-path", "")
+	if v, ok := got["rootPath"]; !ok || v != "" {
+		t.Fatalf("empty root path payload = %#v", got)
+	}
+}
+
+func TestEnvironmentsUpdateDeploymentFlags(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		key  string
+		want any
+	}{
+		"strategy":                 {[]string{"--strategy", "merge"}, "strategy", "merge"},
+		"exclude-pattern":          {[]string{"--exclude-pattern", "/storage", "--exclude-pattern", "/node_modules"}, "excludePatterns", []any{"/storage", "/node_modules"}},
+		"clear-exclude-patterns":   {[]string{"--clear-exclude-patterns"}, "excludePatterns", nil},
+		"replace-pattern":          {[]string{"--replace-pattern", "/vendor"}, "replacePatterns", []any{"/vendor"}},
+		"clear-replace-patterns":   {[]string{"--clear-replace-patterns"}, "replacePatterns", nil},
+		"cached-directory":         {[]string{"--cached-directory", "vendor"}, "cachedDirectories", []any{"vendor"}},
+		"clear-cached-directories": {[]string{"--clear-cached-directories"}, "cachedDirectories", nil},
+		"trigger":                  {[]string{"--trigger", "manual"}, "trigger", "manual"},
+		"permission":               {[]string{"--permission", "connectedDevelopers"}, "permission", "connectedDevelopers"},
+		"node-version":             {[]string{"--node-version", "24"}, "nodeVersion", "24"},
+		"deploy-hook":              {[]string{"--deploy-hook"}, "deployHook", true},
+		"deploy-hook-off":          {[]string{"--deploy-hook=false"}, "deployHook", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := runEnvironmentsUpdate(t, tc.args...)
+			deployment, _ := got["deployment"].(map[string]any)
+			value, present := deployment[tc.key]
+			if !present || len(deployment) != 1 || len(got) != 1 || !reflect.DeepEqual(value, tc.want) {
+				t.Fatalf("payload = %#v, want deployment.%s = %#v", got, tc.key, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnvironmentsUpdateRejectsConflictingListFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--exclude-pattern", "/a", "--clear-exclude-patterns"},
+	} {
+		output := &bytes.Buffer{}
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs(append([]string{"--host", "http://127.0.0.1:1", "environments", "update", "en-abc123"}, args...))
+		if err := command.Execute(); err == nil {
+			t.Fatalf("%v: want error", args)
+		}
+	}
+}
+
+func TestAppsCreatePutsRootPathInInitialEnvironment(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+	if _, err := runAppsCreate(t, server, false, "", "--root-path", "public", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	initial, _ := got["initialEnvironment"].(map[string]any)
+	if initial["rootPath"] != "public" {
+		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func TestEnvironmentsCreateSendsRootPath(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"en-abc123"}`))
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", server.URL, "environments", "create", "--app", "ap-abc123", "--name", "staging", "--root-path", "public", "--yes"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got["rootPath"] != "public" {
+		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func runCreateDryRun(t *testing.T, server *httptest.Server, args ...string) (string, string, error) {
+	t.Helper()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	errOut := &bytes.Buffer{}
+	factory.IOStreams.ErrOut = errOut
+	factory.IOStreams.In = strings.NewReader(`{"name":"store","region":"eu-w1a"}`)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs(append([]string{"--host", server.URL}, args...))
+	err := command.Execute()
+	return output.String(), errOut.String(), err
+}
+
+const trialPricing = `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`
+
+func TestCreateDryRunCreatesNothing(t *testing.T) {
+	for _, args := range [][]string{
+		{"apps", "create", "--name", "store", "--region", "eu-w1a", "--dry-run"},
+		{"apps", "create", "--file", "-", "--dry-run"},
+		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--dry-run"},
+	} {
+		for name, pricing := range map[string]string{"billed": billedPricing, "trial": trialPricing} {
+			var calls []dryRunCall
+			server := billingServer(t, pricing, &calls)
+			stdout, _, err := runCreateDryRun(t, server, args...)
+			if err != nil {
+				t.Fatalf("%v %s: %v", args, name, err)
+			}
+			if len(calls) != 1 || !calls[0].dryRun || calls[0].method != http.MethodPost || calls[0].idempotencyKey != "" {
+				t.Fatalf("%v %s: calls = %#v", args, name, calls)
+			}
+			want := "Monthly price: 24.00 EUR\nPayment method: default payment method\nDry run: nothing was created.\n"
+			if name == "trial" {
+				want = "would be created as a trial at no cost until 2026-11-14T10:30:00+00:00; after the trial: 24.00 EUR/month.\nDry run: nothing was created.\n"
+			}
+			if !strings.HasSuffix(stdout, want) {
+				t.Fatalf("%v %s: stdout = %q", args, name, stdout)
+			}
+		}
+	}
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	stdout, _, err := runCreateDryRun(t, server, "apps", "create", "--name", "store", "--region", "eu-w1a", "--dry-run", "--json")
+	if err != nil || strings.TrimSpace(stdout) != billedPricing || len(calls) != 1 {
+		t.Fatalf("json: %q, %v, %#v", stdout, err, calls)
 	}
 }

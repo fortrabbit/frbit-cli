@@ -3,10 +3,13 @@ package setup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 
 	"github.com/fortrabbit/frbit-cli/internal/agent"
 	"github.com/fortrabbit/frbit-cli/internal/agentmcp"
@@ -145,7 +148,7 @@ func TestAgentSetupPrintsCombinedSummary(t *testing.T) {
 	root.SetOut(output)
 	root.SetErr(output)
 	root.SetArgs([]string{"setup", "agent", "--agent", "codex"})
-	if err := root.Execute(); err != nil {
+	if err := root.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -180,7 +183,7 @@ func runSetup(t *testing.T, mcp *fakeMCPService, args ...string) string {
 	root.SetOut(output)
 	root.SetErr(output)
 	root.SetArgs(append([]string{"setup", "agent"}, args...))
-	if err := root.Execute(); err != nil {
+	if err := root.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	return output.String()
@@ -239,7 +242,7 @@ func runRemove(t *testing.T, store credentials.Store, input string, mcp *fakeMCP
 	root.SetOut(output)
 	root.SetErr(output)
 	root.SetArgs(append([]string{"setup", "agent", "--remove"}, args...))
-	if err := root.Execute(); err != nil {
+	if err := root.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	return output.String()

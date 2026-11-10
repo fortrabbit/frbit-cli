@@ -57,9 +57,10 @@ then used up), timeout, or frbit_token_set.`
 func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command {
 	options := &Options{Factory: factory}
 	command := &cobra.Command{
-		Use:   "login",
-		Short: "Sign in to fortrabbit in the browser",
-		Long:  longHelp,
+		Annotations: map[string]string{cmdutil.OwnJSONErrors: "true"},
+		Use:         "login",
+		Short:       "Sign in to fortrabbit in the browser",
+		Long:        longHelp,
 		Example: `  frbit auth login
   frbit auth login --json
   frbit auth login --signup --name "Ada Lovelace"
@@ -82,6 +83,14 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 }
 
 func run(options *Options) error {
+	err := runLogin(options)
+	if err == nil {
+		cmdutil.SuggestClaudePlugin(options.Command.ErrOrStderr())
+	}
+	return err
+}
+
+func runLogin(options *Options) error {
 	if options.TokenStdin {
 		return runToken(options)
 	}

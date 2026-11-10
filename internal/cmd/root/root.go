@@ -2,19 +2,34 @@ package root
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/auth"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/backups"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/catalog"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/db"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/domains"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/environments"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/files"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/jobs"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/link"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/mcp"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/mysql"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
+	envlink "github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -49,14 +64,48 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		skills.NewCmdSkills(factory, nil),
 		environments.NewCmdEnvironments(factory),
 		resource.NewCmdGroup(factory, deploymentSpec()),
-		resource.NewCmdGroup(factory, domainSpec()),
+		domains.NewCmdDomains(factory),
+		jobs.NewCmdJobs(factory),
+		mysql.NewCmdMysql(factory),
+		db.NewCmdDb(factory),
+		files.NewCmdFiles(factory),
+		backups.NewCmdBackups(factory),
+		link.NewCmdLink(factory),
 		resource.NewCmdGroup(factory, personSpec()),
 		resource.NewCmdGroup(factory, teamSpec()),
 		resource.NewCmdGroup(factory, paymentMethodSpec()),
 		newCmdVersion(factory),
 	)
+	command.AddCommand(catalog.NewCommands(factory)...)
 
 	return command
+}
+
+// Execute runs the CLI with args and returns the process exit code.
+func Execute(factory *app.Factory, args []string) int {
+	command := NewCmdRoot(factory)
+	command.SetArgs(args)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// After the first signal restore the default behaviour so a second Ctrl-C kills the process.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	executed, err := command.ExecuteContextC(ctx)
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "interrupted")
+		return 130
+	}
+	if errors.Is(err, cmdutil.ErrAborted) {
+		return 1
+	}
+	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
+	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", iostreams.StripControl(err.Error()))
+	return 1
 }
 
 func notifyUpdate(command *cobra.Command, factory *app.Factory) {
@@ -79,19 +128,19 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 	)
 }
 
+// deploymentsEnvironment resolves -e as an ID or label; without it every deployment is listed, as scripts expect.
+func deploymentsEnvironment(cmd *cobra.Command, client *api.Client, value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	return envlink.ReadEnvironment(cmd, client, value)
+}
+
 func deploymentSpec() resource.Spec {
 	return resource.Spec{
 		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments, newest first", Logs: true, SupportsPage: true,
-		QueryFilters: []resource.QueryFilter{{Name: "environment", Usage: "Filter by environment public ID, e.g. en-a1b2c3"}},
+		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID or a label (default: all deployments)", Resolve: deploymentsEnvironment}},
 		Fields:       []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "CREATED", Key: "createdAt"}},
-	}
-}
-
-func domainSpec() resource.Spec {
-	return resource.Spec{
-		Use: "domains", Singular: "domain", Path: "/domains", Short: "List and inspect domains", SupportsPage: true, SupportsFilter: true,
-		Delete: &resource.DeleteSpec{Warning: "Deleting this domain disconnects it from its environment. The domain will no longer serve the environment."},
-		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "TYPE", Key: "type"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "MAIN", Key: "isMain"}, {Header: "UPDATED", Key: "updatedAt"}},
 	}
 }
 

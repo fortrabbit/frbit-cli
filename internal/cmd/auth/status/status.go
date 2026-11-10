@@ -22,10 +22,11 @@ type Options struct {
 func NewCmdStatus(factory *app.Factory, runF func(*Options) error) *cobra.Command {
 	options := &Options{Factory: factory}
 	command := &cobra.Command{
-		Use:   "status",
-		Short: "Validate the active public API credential",
-		Long:  "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.\n\nWith FRBIT_TOKEN set, a warning says the token is used instead of a stored sign-in; with --json it is the warning field.\n\nWith --json, the status is signed_in, signed_out (no credential, exit 0), or error.",
-		Args:  cobra.NoArgs,
+		Annotations: map[string]string{cmdutil.OwnJSONErrors: "true"},
+		Use:         "status",
+		Short:       "Validate the active public API credential",
+		Long:        "Validate the active credential and show the profile, API host, credential kind, its expiry, and the next setup step.\n\nWith FRBIT_TOKEN set, a warning says the token is used instead of a stored sign-in; with --json it is the warning field.\n\nWith --json, the status is signed_in, signed_out (no credential, exit 0), or error.",
+		Args:        cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.Command = cmd
 			if runF != nil {

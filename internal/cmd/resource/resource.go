@@ -3,29 +3,44 @@
 package resource
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"unicode"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
 )
 
 type Field struct {
 	Header string
 	Key    string
+	// Format renders the value in a table; nil uses the default rendering.
+	Format func(value any) string
 }
 
 // QueryFilter is a list flag sent as a query parameter of the same name.
 type QueryFilter struct {
+	Name      string
+	Shorthand string
+	Usage     string
+	// Resolve turns the flag value, possibly empty, into the value sent; "" sends nothing.
+	Resolve func(cmd *cobra.Command, client *api.Client, value string) (string, error)
+}
+
+// ClientFilter is a list flag applied after the fetch: it keeps resources whose Key field equals the flag value.
+type ClientFilter struct {
 	Name  string
 	Usage string
+	Key   string
 }
 
 type DeleteSpec struct {
@@ -41,6 +56,8 @@ type Spec struct {
 	SupportsPage   bool
 	SupportsFilter bool
 	QueryFilters   []QueryFilter
+	ClientFilters  []ClientFilter
+	NoGet          bool
 	Logs           bool
 	Delete         *DeleteSpec
 }
@@ -51,7 +68,10 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 		Short: spec.Short,
 		Args:  cobra.NoArgs,
 	}
-	command.AddCommand(newCmdList(factory, spec), newCmdGet(factory, spec))
+	command.AddCommand(NewCmdList(factory, spec))
+	if !spec.NoGet {
+		command.AddCommand(newCmdGet(factory, spec))
+	}
 	if spec.Logs {
 		command.AddCommand(newCmdLogs(factory, spec))
 	}
@@ -61,26 +81,35 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 	return command
 }
 
-func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
+func listShort(spec Spec) string {
+	return "List " + spec.Use + " available to the authenticated person"
+}
+
+// NewCmdList builds the list command of spec on its own, for groups that name it differently.
+func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	var page int
+	var limit int
+	var all bool
 	var publicIDs []string
 	var printJSON bool
 	filterValues := make(map[string]*string, len(spec.QueryFilters))
+	clientValues := make(map[string]*string, len(spec.ClientFilters))
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "List " + spec.Use + " available to the authenticated person",
+		Short: listShort(spec),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if spec.SupportsPage && page < 1 {
 				return fmt.Errorf("--page must be at least 1")
 			}
-			client, err := clientFor(cmd, factory)
-			if err != nil {
-				return err
+			if all && cmd.Flags().Changed("page") {
+				return fmt.Errorf("--all cannot be combined with --page")
 			}
-			listResources := client.ListResourcesWithTotal
-			if printJSON {
-				listResources = client.ListResources
+			if all && cmd.Flags().Changed("limit") {
+				return fmt.Errorf("--all cannot be combined with --limit")
+			}
+			if cmd.Flags().Changed("limit") && limit < 1 {
+				return fmt.Errorf("--limit must be at least 1")
 			}
 			filters := make(map[string]string, len(filterValues))
 			for name, value := range filterValues {
@@ -89,12 +118,66 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 				}
 				filters[name] = *value
 			}
-			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
+			clientFiltered := false
+			for _, filter := range spec.ClientFilters {
+				if cmd.Flags().Changed(filter.Name) && *clientValues[filter.Name] == "" {
+					return fmt.Errorf("--%s must not be empty", filter.Name)
+				}
+				if *clientValues[filter.Name] != "" {
+					clientFiltered = true
+				}
+			}
+			client, err := clientFor(cmd, factory)
 			if err != nil {
 				return err
 			}
+			for _, filter := range spec.QueryFilters {
+				if filter.Resolve == nil {
+					continue
+				}
+				if filters[filter.Name], err = filter.Resolve(cmd, client, filters[filter.Name]); err != nil {
+					return err
+				}
+			}
+			var response api.ResourcesResponse
+			if all || limit > 0 {
+				fetchLimit := limit
+				if clientFiltered {
+					fetchLimit = 0 // the limit applies to the filtered result
+				}
+				startPage := 0
+				if cmd.Flags().Changed("page") {
+					startPage = page
+				}
+				response, err = client.ListAll(cmd.Context(), "/v1"+spec.Path, api.ListQuery(startPage, publicIDs, filters), fetchLimit)
+			} else {
+				listResources := client.ListResourcesWithTotal
+				if printJSON {
+					listResources = client.ListResources
+				}
+				response, err = listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
+			}
+			if err != nil {
+				return err
+			}
+			filtered := clientFiltered
+			for _, filter := range spec.ClientFilters {
+				if value := *clientValues[filter.Name]; value != "" {
+					response = keepMatching(response, filter.Key, value)
+				}
+			}
+			if clientFiltered && limit > 0 && len(response.Resources) > limit {
+				response.Resources = response.Resources[:limit]
+				response.TotalItems = limit
+			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
+				raw := response.Raw
+				if filtered {
+					if raw, err = json.Marshal(response.Resources); err != nil {
+						return err
+					}
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
 				return err
 			}
 			return writeResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
@@ -103,14 +186,31 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	if spec.SupportsPage {
 		command.Flags().IntVar(&page, "page", 1, "Page number")
 	}
+	command.Flags().IntVar(&limit, "limit", 0, "Return at most N "+resourceLabel(spec.Use)+", following further pages as needed")
+	command.Flags().BoolVar(&all, "all", false, "Return every page")
 	if spec.SupportsFilter {
 		command.Flags().StringSliceVar(&publicIDs, "id", nil, "Filter by public ID (repeatable)")
 	}
 	for _, filter := range spec.QueryFilters {
-		filterValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
+		filterValues[filter.Name] = command.Flags().StringP(filter.Name, filter.Shorthand, "", filter.Usage)
+	}
+	for _, filter := range spec.ClientFilters {
+		clientValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
+}
+
+func keepMatching(response api.ResourcesResponse, key string, value string) api.ResourcesResponse {
+	kept := make([]api.Resource, 0, len(response.Resources))
+	for _, item := range response.Resources {
+		if resourceValue(item[key]) == value {
+			kept = append(kept, item)
+		}
+	}
+	response.Resources = kept
+	response.TotalItems = len(kept)
+	return response
 }
 
 func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
@@ -124,13 +224,12 @@ func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0])
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(args[0]))
 			if err != nil {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return WriteRaw(cmd, response.Raw)
 			}
 			return writeResource(cmd.OutOrStdout(), response.Resource)
 		},
@@ -139,8 +238,14 @@ func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 	return command
 }
 
+// LogsPollInterval is the wait between polls of logs --follow; tests replace it.
+var LogsPollInterval = 2 * time.Second
+
+// finalDeploymentStates end a deployment; anything else is still running.
+var finalDeploymentStates = map[string]bool{"succeeded": true, "failed": true, "canceled": true, "unknown": true}
+
 func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
-	var printJSON bool
+	var printJSON, follow bool
 	command := &cobra.Command{
 		Use:   "logs <public-id>",
 		Short: "Get deployment logs",
@@ -150,19 +255,74 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0]+"/logs")
+			if follow {
+				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), cmd.ErrOrStderr(), "/v1"+spec.Path+"/"+url.PathEscape(args[0]), printJSON)
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(args[0])+"/logs")
 			if err != nil {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return WriteRaw(cmd, response.Raw)
 			}
 			return writeLogs(cmd.OutOrStdout(), response.Resource)
 		},
 	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	command.Flags().BoolVar(&follow, "follow", false, "Keep polling and print new lines until the deployment reaches a final state")
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON (one object per line with --follow)")
 	return command
+}
+
+// followDeploymentLogs prints each log line once and stops when the deployment is final and its logs are complete.
+// Transient errors (429, 503, network) wait and retry.
+func followDeploymentLogs(ctx context.Context, client *api.Client, out, errOut io.Writer, path string, asJSON bool) error {
+	printed := 0
+	announced := false
+	for {
+		done, err := pollDeploymentLogs(ctx, client, out, path, &printed, asJSON)
+		wait := LogsPollInterval
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			delay, transient := api.TransientDelay(err, LogsPollInterval)
+			if !transient {
+				return err
+			}
+			wait = delay
+		} else if done {
+			return nil
+		} else if !announced && printed == 0 {
+			announced = true
+			_, _ = fmt.Fprintln(errOut, "waiting for logs…")
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(wait):
+		}
+	}
+}
+
+func pollDeploymentLogs(ctx context.Context, client *api.Client, out io.Writer, path string, printed *int, asJSON bool) (bool, error) {
+	deployment, err := client.GetResource(ctx, path)
+	if err != nil {
+		return false, err
+	}
+	response, err := client.GetResource(ctx, path+"/logs")
+	if err != nil {
+		return false, err
+	}
+	logs, _ := response.Resource["logs"].([]any)
+	// The API returns lines in chronological order and only appends, so a count marks what was printed.
+	if len(logs) > *printed {
+		if err := writeLogLines(out, logs[*printed:], asJSON); err != nil {
+			return false, err
+		}
+		*printed = len(logs)
+	}
+	ready, _ := response.Resource["ready"].(bool)
+	return ready && finalDeploymentStates[strings.ToLower(resourceValue(deployment.Resource["status"]))], nil
 }
 
 func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
@@ -173,49 +333,38 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			publicID := args[0]
-			if confirmation != "" && confirmation != publicID {
-				return fmt.Errorf("--confirm must exactly match %s", publicID)
-			}
-			if confirmation == "" && !factory.IOStreams.IsTTY {
-				return fmt.Errorf("deletion requires interactive confirmation; pass --confirm %s for intentional non-interactive use", publicID)
+			if err := cmdutil.CheckDestructive(factory, "deletion", publicID, confirmation); err != nil {
+				return err
 			}
 
 			client, err := clientFor(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID)
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(publicID))
 			if err != nil {
 				return err
 			}
-			if err := writeDeleteWarning(cmd.OutOrStdout(), spec, response.Resource, publicID); err != nil {
+			if err := writeDeleteWarning(cmd.ErrOrStderr(), spec, response.Resource, publicID); err != nil {
 				return err
 			}
 
-			if confirmation == "" {
-				confirmed, err := cmdutil.ConfirmExact(
-					factory.IOStreams.In,
-					cmd.OutOrStdout(),
-					fmt.Sprintf("Type %s to confirm: ", publicID),
-					publicID,
-				)
-				if err != nil {
-					return err
-				}
-				if !confirmed {
-					_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-					return err
-				}
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "deletion", publicID, confirmation, "")
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 
-			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID); err != nil {
+			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(publicID)); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s %s.\n", spec.Singular, publicID)
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm deletion by repeating the public ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the ID to delete")
 	return command
 }
 
@@ -225,6 +374,7 @@ func writeDeleteWarning(output io.Writer, spec Spec, resource api.Resource, publ
 		label = strings.ToUpper(label[:1]) + label[1:]
 	}
 	name, _ := resource["name"].(string)
+	name = iostreams.StripControl(name)
 	if name == "" {
 		if _, err := fmt.Fprintf(output, "%s: %s\n\n", label, publicID); err != nil {
 			return err
@@ -243,8 +393,47 @@ func articleFor(singular string) string {
 	return "a"
 }
 
+// AddPageFlags binds --limit and --all for ListPaged to a list command without --page.
+func AddPageFlags(command *cobra.Command, noun string, limit *int, all *bool) {
+	command.Flags().IntVar(limit, "limit", 0, "Return at most N "+noun+", following further pages as needed")
+	command.Flags().BoolVar(all, "all", false, "Return every page")
+}
+
+// ListPaged returns the first page of path, or with --all or --limit the resources of further pages too.
+func ListPaged(cmd *cobra.Command, client *api.Client, path string, limit int, all bool) (api.ResourcesResponse, error) {
+	if all && cmd.Flags().Changed("limit") {
+		return api.ResourcesResponse{}, fmt.Errorf("--all cannot be combined with --limit")
+	}
+	if cmd.Flags().Changed("limit") && limit < 1 {
+		return api.ResourcesResponse{}, fmt.Errorf("--limit must be at least 1")
+	}
+	if all || limit > 0 {
+		return client.ListAll(cmd.Context(), path, nil, limit)
+	}
+	return client.ListResources(cmd.Context(), path, 0, nil, nil)
+}
+
 func clientFor(command *cobra.Command, factory *app.Factory) (*api.Client, error) {
 	return cmdutil.APIClient(command, factory)
+}
+
+// WriteResources prints resources as the table of spec followed by the total line.
+func WriteResources(output io.Writer, resources []api.Resource, totalItems int, spec Spec) error {
+	return writeResources(output, resources, totalItems, spec)
+}
+
+// Write prints the API response with printJSON, else the resource as a table.
+func Write(cmd *cobra.Command, response api.ResourceResponse, printJSON bool) error {
+	if printJSON {
+		return WriteRaw(cmd, response.Raw)
+	}
+	return WriteResource(cmd.OutOrStdout(), response.Resource)
+}
+
+// WriteRaw prints an API response body on its own line.
+func WriteRaw(cmd *cobra.Command, raw []byte) error {
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
+	return err
 }
 
 func WriteResource(output io.Writer, value api.Resource) error {
@@ -257,7 +446,7 @@ func writeResources(output io.Writer, resources []api.Resource, totalItems int, 
 			return err
 		}
 	} else {
-		table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+		table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 		for index, field := range spec.Fields {
 			if index > 0 {
 				_, _ = fmt.Fprint(table, "\t")
@@ -274,7 +463,11 @@ func writeResources(output io.Writer, resources []api.Resource, totalItems int, 
 				if index > 0 {
 					_, _ = fmt.Fprint(table, "\t")
 				}
-				if _, err := fmt.Fprint(table, resourceValue(resource[field.Key])); err != nil {
+				value := resourceValue(resource[field.Key])
+				if field.Format != nil {
+					value = field.Format(resource[field.Key])
+				}
+				if _, err := fmt.Fprint(table, value); err != nil {
 					return err
 				}
 			}
@@ -306,11 +499,17 @@ func writeResource(output io.Writer, resource api.Resource) error {
 	}
 	sort.Strings(keys)
 
-	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(table, "FIELD\tVALUE"); err != nil {
 		return err
 	}
 	for _, key := range keys {
+		if nested, ok := resource[key].(map[string]any); ok && len(nested) > 0 {
+			if err := writeNested(table, key, nested); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := fmt.Fprintf(table, "%s\t%s\n", key, resourceValue(resource[key])); err != nil {
 			return err
 		}
@@ -318,31 +517,55 @@ func writeResource(output io.Writer, resource api.Resource) error {
 	return table.Flush()
 }
 
-func writeLogs(output io.Writer, resource api.Resource) error {
-	logs, ok := resource["logs"].([]any)
-	if !ok || len(logs) == 0 {
-		_, err := fmt.Fprintln(output, "No deployment logs found.")
-		return err
+// writeNested prints an object as one dotted row per field, e.g. deployment.trigger.
+func writeNested(table io.Writer, prefix string, nested map[string]any) error {
+	keys := make([]string, 0, len(nested))
+	for key := range nested {
+		keys = append(keys, key)
 	}
-	for _, value := range logs {
-		entry, ok := value.(map[string]any)
-		if !ok {
-			continue
-		}
-		if _, err := fmt.Fprintf(output, "%s\t%s\n", resourceValue(entry["time"]), stripControlCharacters(resourceValue(entry["log"]))); err != nil {
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, err := fmt.Fprintf(table, "%s.%s\t%s\n", prefix, key, resourceValue(nested[key])); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func stripControlCharacters(value string) string {
-	return strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
-			return -1
+func writeLogs(output io.Writer, resource api.Resource) error {
+	logs, ok := resource["logs"].([]any)
+	if !ok || len(logs) == 0 {
+		message := "No deployment logs found."
+		if ready, known := resource["ready"].(bool); known && !ready {
+			message = "Deployment logs are still being collected. Try again shortly or use --follow."
 		}
-		return character
-	}, value)
+		_, err := fmt.Fprintln(output, message)
+		return err
+	}
+	return writeLogLines(output, logs, false)
+}
+
+func writeLogLines(output io.Writer, logs []any, asJSON bool) error {
+	for _, value := range logs {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		if asJSON {
+			raw, err := json.Marshal(entry)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(output, "%s\n", raw); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(output, "%s\t%s\n", iostreams.StripControl(resourceValue(entry["time"])), iostreams.StripControl(resourceValue(entry["log"]))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resourceValue(value any) string {

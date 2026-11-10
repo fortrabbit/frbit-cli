@@ -3,11 +3,14 @@ package setup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 
 	"github.com/fortrabbit/frbit-cli/internal/agent"
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
@@ -82,7 +85,7 @@ func (f uninstallFixture) run(t *testing.T, input string, mcp *fakeMCPService, s
 	root.SetOut(output)
 	root.SetErr(output)
 	root.SetArgs(append([]string{"uninstall"}, args...))
-	if err := root.Execute(); err != nil {
+	if err := root.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	return output.String()

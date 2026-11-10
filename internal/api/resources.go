@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 )
@@ -17,6 +18,7 @@ type ResourcesResponse struct {
 	Resources  []Resource
 	TotalItems int
 	Raw        []byte
+	Header     http.Header // response headers of the single request; unset by ListAll
 }
 
 type ResourceResponse struct {
@@ -24,16 +26,54 @@ type ResourceResponse struct {
 	Raw      []byte
 }
 
+// CreateResource POSTs payload with a fresh Idempotency-Key, reused on the token-refresh retry and on one 429 retry.
 func (c Client) CreateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
-	body, err := c.post(ctx, path, payload)
+	return c.create(ctx, path, payload, true)
+}
+
+// DryRunCreate POSTs payload without an Idempotency-Key and without a retry, as dry runs need.
+func (c Client) DryRunCreate(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	return c.create(ctx, path, payload, false)
+}
+
+func (c Client) create(ctx context.Context, path string, payload any, keyed bool) (ResourceResponse, error) {
+	body, err := marshalPayload(payload)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	request := call{method: http.MethodPost, path: path, body: body, contentType: "application/json", accept: "application/json"}
+	if keyed {
+		if request.idempotencyKey, err = newIdempotencyKey(); err != nil {
+			return ResourceResponse{}, err
+		}
+	}
+	response, err := c.doRetry(ctx, request)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(response.body)
+}
+
+func (c Client) UpdateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	body, err := c.patch(ctx, path, payload)
 	if err != nil {
 		return ResourceResponse{}, err
 	}
 	return decodeResourceResponse(body)
 }
 
-func (c Client) UpdateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
-	body, err := c.patch(ctx, path, payload)
+// PutResource PUTs payload and decodes the answered resource.
+func (c Client) PutResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	body, err := c.put(ctx, path, payload)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
+// DeleteForResource DELETEs path and decodes the resource the API answers with.
+func (c Client) DeleteForResource(ctx context.Context, path string) (ResourceResponse, error) {
+	body, err := c.delete(ctx, path)
 	if err != nil {
 		return ResourceResponse{}, err
 	}
@@ -69,6 +109,26 @@ func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page in
 }
 
 func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string, includeTotal bool) (ResourcesResponse, error) {
+	query := ListQuery(page, publicIDs, filters)
+
+	accept := "application/json"
+	if includeTotal {
+		accept = "application/ld+json"
+	}
+	raw, err := c.doRetry(ctx, call{method: http.MethodGet, path: path, query: query, accept: accept})
+	body := raw.body
+	if err != nil {
+		return ResourcesResponse{}, err
+	}
+	resources, totalItems, err := decodeResources(body)
+	if err != nil {
+		return ResourcesResponse{}, err
+	}
+	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body, Header: raw.header}, nil
+}
+
+// ListQuery builds the query of a collection request; page 0 leaves the page to the API.
+func ListQuery(page int, publicIDs []string, filters map[string]string) url.Values {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
@@ -81,26 +141,20 @@ func (c Client) listResources(ctx context.Context, path string, page int, public
 			query.Set(name, value)
 		}
 	}
-
-	var body []byte
-	var err error
-	if includeTotal {
-		body, err = c.getCollection(ctx, path, query)
-	} else {
-		body, err = c.get(ctx, path, query)
-	}
-	if err != nil {
-		return ResourcesResponse{}, err
-	}
-	resources, totalItems, err := decodeResources(body)
-	if err != nil {
-		return ResourcesResponse{}, err
-	}
-	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body}, nil
+	return query
 }
 
 func (c Client) GetResource(ctx context.Context, path string) (ResourceResponse, error) {
 	body, err := c.get(ctx, path, nil)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
+// GetResourceWithQuery GETs path with query parameters and decodes the resource.
+func (c Client) GetResourceWithQuery(ctx context.Context, path string, query url.Values) (ResourceResponse, error) {
+	body, err := c.get(ctx, path, query)
 	if err != nil {
 		return ResourceResponse{}, err
 	}

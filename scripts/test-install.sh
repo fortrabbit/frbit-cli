@@ -63,6 +63,11 @@ install_fixture() {
 
 install_fixture --setup-agent | grep -qx 'frbit installer fixture setup agent' || { printf -- '--setup-agent did not run setup agent\n' >&2; exit 1; }
 install_fixture --agent codex --agent claude-code | grep -qx 'frbit installer fixture setup agent --agent codex --agent claude-code' || { printf -- '--agent was not forwarded\n' >&2; exit 1; }
+if command -v setsid >/dev/null 2>&1; then detach="setsid"; elif command -v perl >/dev/null 2>&1; then detach="perl -MPOSIX -e POSIX::setsid();exec(@ARGV)"; else detach=""; fi
+if [ -n "$detach" ]; then
+  # shellcheck disable=SC2086
+  $detach env FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 FRBIT_INSTALL_DIR="$test_dir/notty-bin" PATH="$test_dir:$PATH" sh "$root/install.sh" --setup-agent </dev/null 2>&1 | grep -qx 'frbit installer fixture setup agent' || { printf 'no-tty fallback did not run setup agent\n' >&2; exit 1; }
+fi
 if install_fixture --agent 'codex;id' >/dev/null 2>&1; then printf 'invalid agent name was accepted\n' >&2; exit 1; fi
 if install_fixture --unknown >/dev/null 2>&1; then printf 'unknown option was accepted\n' >&2; exit 1; fi
 
