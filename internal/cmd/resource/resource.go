@@ -28,6 +28,13 @@ type QueryFilter struct {
 	Usage string
 }
 
+// ClientFilter is a list flag applied after the fetch: it keeps resources whose Key field equals the flag value.
+type ClientFilter struct {
+	Name  string
+	Usage string
+	Key   string
+}
+
 type DeleteSpec struct {
 	Warning string
 }
@@ -41,6 +48,8 @@ type Spec struct {
 	SupportsPage   bool
 	SupportsFilter bool
 	QueryFilters   []QueryFilter
+	ClientFilters  []ClientFilter
+	NoGet          bool
 	Logs           bool
 	Delete         *DeleteSpec
 }
@@ -51,7 +60,10 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 		Short: spec.Short,
 		Args:  cobra.NoArgs,
 	}
-	command.AddCommand(newCmdList(factory, spec), newCmdGet(factory, spec))
+	command.AddCommand(NewCmdList(factory, spec))
+	if !spec.NoGet {
+		command.AddCommand(newCmdGet(factory, spec))
+	}
 	if spec.Logs {
 		command.AddCommand(newCmdLogs(factory, spec))
 	}
@@ -61,13 +73,15 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 	return command
 }
 
-func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
+// NewCmdList builds the list command of spec on its own, for groups that name it differently.
+func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	var page int
 	var limit int
 	var all bool
 	var publicIDs []string
 	var printJSON bool
 	filterValues := make(map[string]*string, len(spec.QueryFilters))
+	clientValues := make(map[string]*string, len(spec.ClientFilters))
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List " + spec.Use + " available to the authenticated person",
@@ -113,8 +127,21 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			filtered := false
+			for _, filter := range spec.ClientFilters {
+				if value := *clientValues[filter.Name]; value != "" {
+					response = keepMatching(response, filter.Key, value)
+					filtered = true
+				}
+			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
+				raw := response.Raw
+				if filtered {
+					if raw, err = json.Marshal(response.Resources); err != nil {
+						return err
+					}
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
 				return err
 			}
 			return writeResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
@@ -131,8 +158,23 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	for _, filter := range spec.QueryFilters {
 		filterValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
 	}
+	for _, filter := range spec.ClientFilters {
+		clientValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
+	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
+}
+
+func keepMatching(response api.ResourcesResponse, key string, value string) api.ResourcesResponse {
+	kept := make([]api.Resource, 0, len(response.Resources))
+	for _, item := range response.Resources {
+		if resourceValue(item[key]) == value {
+			kept = append(kept, item)
+		}
+	}
+	response.Resources = kept
+	response.TotalItems = len(kept)
+	return response
 }
 
 func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
@@ -267,6 +309,11 @@ func articleFor(singular string) string {
 
 func clientFor(command *cobra.Command, factory *app.Factory) (*api.Client, error) {
 	return cmdutil.APIClient(command, factory)
+}
+
+// WriteResources prints resources as the table of spec followed by the total line.
+func WriteResources(output io.Writer, resources []api.Resource, totalItems int, spec Spec) error {
+	return writeResources(output, resources, totalItems, spec)
 }
 
 func WriteResource(output io.Writer, value api.Resource) error {

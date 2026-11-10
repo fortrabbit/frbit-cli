@@ -325,6 +325,29 @@ frbit payment-methods list
 frbit payment-methods get pm-a1b2c3
 ```
 
+## Catalog
+
+Look up the values `apps create` needs instead of guessing them. These lists are not paginated; `--limit` and `--all` are accepted for consistency.
+
+```sh
+frbit regions list
+frbit plans list --component php --region eu-w1a --currency EUR
+frbit presets list
+frbit software list
+frbit php-versions list
+frbit php-extensions list
+frbit node-versions list
+```
+
+`plans list` accepts `--region` and `--currency` (`EUR` or `USD`) and filters client-side with `--component <slug>`. All catalog lists accept `--json`.
+
+## Git repositories
+
+```sh
+frbit git repositories
+frbit git branches acme/site
+```
+
 ## Deleting resources
 
 Apps, environments, domains, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
@@ -504,6 +527,11 @@ frbit --profile work auth logout
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
+| `frbit regions list` / `presets list` / `software list` | List regions, software presets, or software with versions. |
+| `frbit plans list` | List component plans with sizes and prices. Accepts `--region`, `--currency`, and `--component`. |
+| `frbit php-versions list` / `php-extensions list` / `node-versions list` | List the available PHP versions, PHP extensions, or Node.js versions. |
+| `frbit git repositories` | List repositories of the connected Git account. |
+| `frbit git branches <owner/repo>` | List the branches of a repository. |
 | `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |
 | `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |

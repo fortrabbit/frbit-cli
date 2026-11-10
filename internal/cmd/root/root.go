@@ -10,6 +10,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/auth"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/catalog"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/environments"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/mcp"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
@@ -56,6 +57,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		resource.NewCmdGroup(factory, paymentMethodSpec()),
 		newCmdVersion(factory),
 	)
+	command.AddCommand(catalog.NewCommands(factory)...)
 
 	return command
 }
