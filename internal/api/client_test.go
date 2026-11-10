@@ -475,7 +475,7 @@ func TestWarningHeadersGoToStderr(t *testing.T) {
 	if _, err := client.GetResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
 		t.Fatal(err)
 	}
-	want := "warning: 299 - \"gitRepository filter is deprecated\"\nwarning: @1767225600\nwarning: Wed, 01 Jul 2026 00:00:00 GMT\n"
+	want := "warning: 299 - \"gitRepository filter is deprecated\"\nwarning: this API route is deprecated; update frbit\nwarning: this API route stops working on Wed, 01 Jul 2026 00:00:00 GMT\n"
 	if stderr.String() != want {
 		t.Fatalf("warnings = %q, want %q", stderr.String(), want)
 	}

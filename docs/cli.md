@@ -158,7 +158,7 @@ frbit apps list --json | jq '(."hydra:member" // .member // .)[] | .name'
 
 When the API rejects a request made with `--json`, the CLI prints the API's problem document (`title`, `detail`, `violations`) to standard output and exits non-zero. Without `--json` the error goes to standard error, one line per rejected field.
 
-Deprecation notices from the API (`Warning`, `Deprecation` and `Sunset` headers) are printed to standard error as `warning: ...` lines, so they never mix with `--json` output.
+Deprecation notices from the API (`Warning`, `Deprecation` and `Sunset` headers) are printed to standard error as `warning: ...` lines, so they never mix with `--json` output: `Warning` as sent, `Deprecation` as `this API route is deprecated; update frbit`, `Sunset` as `this API route stops working on <date>`.
 
 Create commands send an `Idempotency-Key` header. When the API answers a create with 429 and asks to wait 10 seconds or less, the CLI retries it once with the same key. It never retries a create after a 5xx error, because the resource may already exist: check with a list command before running it again.
 

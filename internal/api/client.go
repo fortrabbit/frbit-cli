@@ -407,12 +407,19 @@ func (c Client) writeWarnings(header http.Header) {
 			if value = strings.TrimSpace(value); value == "" {
 				continue
 			}
+			message := value
+			switch name {
+			case "Deprecation":
+				message = "this API route is deprecated; update frbit"
+			case "Sunset":
+				message = "this API route stops working on " + value
+			}
 			if c.warned != nil {
-				if _, seen := c.warned.LoadOrStore(name+"\x00"+value, true); seen {
+				if _, seen := c.warned.LoadOrStore(message, true); seen {
 					continue
 				}
 			}
-			_, _ = fmt.Fprintf(c.Warnings, "warning: %s\n", value)
+			_, _ = fmt.Fprintf(c.Warnings, "warning: %s\n", message)
 		}
 	}
 }

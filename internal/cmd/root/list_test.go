@@ -128,13 +128,14 @@ func TestJSONErrorPrintsProblemDocument(t *testing.T) {
 
 func TestAPIWarningsGoToCommandStderr(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Deprecation", "@1767225600")
+		writer.Header().Set("Deprecation", "true")
+		writer.Header().Set("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
 		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
 	}))
 	defer server.Close()
 
 	stdout, stderr, code := runRoot(t, "--host", server.URL, "apps", "get", "ap-abc123", "--json")
-	if code != 0 || strings.Contains(stdout, "warning") || !strings.Contains(stderr, "warning: @1767225600") {
+	if code != 0 || strings.Contains(stdout, "warning") || !strings.Contains(stderr, "warning: this API route is deprecated; update frbit\nwarning: this API route stops working on Wed, 01 Jul 2026 00:00:00 GMT\n") {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 }
