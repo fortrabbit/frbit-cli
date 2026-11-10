@@ -31,8 +31,8 @@ func (credentialStore) Set(string, credentials.Credential) error { return nil }
 func (credentialStore) Delete(string) error                      { return nil }
 
 type request struct {
-	method, path string
-	body         map[string]any
+	method, path, query string
+	body                map[string]any
 }
 
 func run(t *testing.T, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, []request, error) {
@@ -43,7 +43,7 @@ func run(t *testing.T, stdin string, handler func(r request, w http.ResponseWrit
 		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
-		req := request{r.Method, r.URL.Path, body}
+		req := request{r.Method, r.URL.Path, r.URL.RawQuery, body}
 		seen = append(seen, req)
 		handler(req, w)
 	}))
@@ -155,6 +155,10 @@ func componentsHandler(r request, w http.ResponseWriter) {
 		echo(w, 200, current)
 		return
 	}
+	if r.path == "/v1/apps" {
+		echo(w, 200, `[{"publicId":"ap-1","region":"eu-w1a","environments":["en-zzz","en-a1b2c3"]}]`)
+		return
+	}
 	if r.path == "/v1/catalog/component-plans" {
 		echo(w, 200, catalog)
 		return
@@ -215,7 +219,7 @@ func TestComponentChangeSummaryShowsDelta(t *testing.T) {
 	var currentResource api.Resource
 	_ = json.Unmarshal([]byte(current), &currentResource)
 	summary, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "md", "database": "off"})
-	for _, want := range []string{"php: sm (12.00 EUR) -> md (24.00 EUR, lowest regional price)", "database: sm (8.00 EUR) -> off (0.00 EUR", "Monthly change: +4.00 EUR"} {
+	for _, want := range []string{"php: sm (12.00 EUR) -> md (24.00 EUR)", "database: sm (8.00 EUR) -> off (0.00 EUR", "Monthly change: +4.00 EUR"} {
 		if err != nil || !strings.Contains(summary, want) {
 			t.Fatalf("summary = %q, err = %v, want %q", summary, err, want)
 		}
@@ -258,5 +262,65 @@ func TestEnvironmentUpdateVersions(t *testing.T) {
 		"update", "en-a1b2c3", "--software-version", "11", "--php-version", "8.4")
 	if err != nil || seen[0].body["softwareVersion"] != "11" || seen[0].body["phpVersion"] != "8.4" {
 		t.Fatalf("err = %v, seen = %+v", err, seen)
+	}
+}
+
+func patched(seen []request) bool {
+	for _, r := range seen {
+		if r.method == "PATCH" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestComponentsUpdateSkipsUnchanged(t *testing.T) {
+	out, seen, err := run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm")
+	if err != nil || !strings.Contains(out, "No component plan changes.") || patched(seen) {
+		t.Fatalf("out = %q, err = %v, seen = %+v", out, err, seen)
+	}
+}
+
+func TestComponentsUpdateResolvesRegion(t *testing.T) {
+	var catalogQuery string
+	handler := func(r request, w http.ResponseWriter) {
+		if r.path == "/v1/catalog/component-plans" {
+			catalogQuery = r.query
+		}
+		componentsHandler(r, w)
+	}
+	if _, seen, err := run(t, "", handler, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes"); err != nil || !patched(seen) || !strings.Contains(catalogQuery, "region=eu-w1a") || !strings.Contains(catalogQuery, "currency=EUR") {
+		t.Fatalf("err = %v, query = %q", err, catalogQuery)
+	}
+
+	_, seen, err := run(t, "", handler, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes", "--region", "us-e1a")
+	if err != nil || !patched(seen) || !strings.Contains(catalogQuery, "region=us-e1a") {
+		t.Fatalf("override: err = %v, query = %q", err, catalogQuery)
+	}
+	for _, r := range seen {
+		if r.path == "/v1/apps" {
+			t.Fatal("--region must skip the app lookup")
+		}
+	}
+
+	_, seen, err = run(t, "", func(r request, w http.ResponseWriter) {
+		if r.path == "/v1/apps" {
+			echo(w, 200, `[{"publicId":"ap-1","region":"eu-w1a","environments":["en-other"]}]`)
+			return
+		}
+		componentsHandler(r, w)
+	}, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "pass --region") || patched(seen) {
+		t.Fatalf("no match: err = %v", err)
+	}
+}
+
+func TestComponentChangeSummaryRejectsCurrencyMismatch(t *testing.T) {
+	var plans []api.Resource
+	_ = json.Unmarshal([]byte(strings.ReplaceAll(catalog, "EUR", "USD")), &plans)
+	var currentResource api.Resource
+	_ = json.Unmarshal([]byte(current), &currentResource)
+	if _, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "md"}); err == nil || !strings.Contains(err.Error(), "USD") {
+		t.Fatalf("err = %v", err)
 	}
 }

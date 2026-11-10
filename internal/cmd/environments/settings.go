@@ -401,11 +401,12 @@ func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
 
 func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 	var componentValues []string
+	var region string
 	var yes, printJSON bool
 	command := &cobra.Command{
 		Use:   "update <public-id> --component SLUG=SIZE",
 		Short: "Change component sizes (billed)",
-		Long:  "Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows the monthly price of the new plans and asks first, also for a downsize.",
+		Long:  "Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows old -> new price per changed component and the monthly change, priced in the environment's region, and asks first, also for a downsize. Components already at the requested size are skipped; if nothing changes, nothing is sent.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			components, err := cmdutil.ParseAssignments(componentValues)
@@ -423,7 +424,20 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := client.ListResources(cmd.Context(), "/v1/catalog/component-plans", 0, nil, map[string]string{"currency": currentCurrency(current.Resource)})
+			components, err = changedComponents(current.Resource, components)
+			if err != nil {
+				return err
+			}
+			if len(components) == 0 {
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "No component plan changes.")
+				return err
+			}
+			if region == "" {
+				if region, err = environmentRegion(cmd, client, args[0]); err != nil {
+					return err
+				}
+			}
+			plans, err := client.ListResources(cmd.Context(), "/v1/catalog/component-plans", 0, nil, map[string]string{"currency": currentCurrency(current.Resource), "region": region})
 			if err != nil {
 				return err
 			}
@@ -454,9 +468,53 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 		},
 	}
 	command.Flags().StringArrayVar(&componentValues, "component", nil, "Component as SLUG=SIZE (repeatable)")
+	command.Flags().StringVar(&region, "region", "", "Region identifier to price the plans in (default: the region of the environment's app)")
 	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
+}
+
+// environmentRegion finds the app that lists the environment and returns its region.
+func environmentRegion(cmd *cobra.Command, client *api.Client, environmentID string) (string, error) {
+	apps, err := client.ListAll(cmd.Context(), "/v1/apps", nil, 0)
+	if err != nil {
+		return "", err
+	}
+	for _, appResource := range apps.Resources {
+		environments, _ := appResource["environments"].([]any)
+		for _, raw := range environments {
+			id, _ := raw.(string)
+			if id == environmentID || strings.HasSuffix(id, "/"+environmentID) {
+				if region, _ := appResource["region"].(string); region != "" {
+					return region, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("could not resolve the environment's region; pass --region")
+}
+
+// changedComponents keeps only the requested components whose size differs from the booked one.
+func changedComponents(current api.Resource, components map[string]string) (map[string]string, error) {
+	booked := map[string]string{}
+	items, _ := current["components"].([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		slug, _ := item["slug"].(string)
+		size, _ := item["size"].(string)
+		booked[slug] = size
+	}
+	changed := map[string]string{}
+	for slug, size := range components {
+		old, ok := booked[slug]
+		if !ok {
+			return nil, fmt.Errorf("environment has no component %s", slug)
+		}
+		if old != size {
+			changed[slug] = size
+		}
+	}
+	return changed, nil
 }
 
 func currentCurrency(current api.Resource) string {
@@ -471,7 +529,6 @@ func currentCurrency(current api.Resource) string {
 }
 
 // componentChangeSummary shows old and new price per named component and the signed monthly delta; an unknown slug or size is an error.
-// The catalog is queried without a region, so new prices are the lowest regional ones.
 func componentChangeSummary(current api.Resource, plans []api.Resource, components map[string]string) (string, error) {
 	type booked struct {
 		size  string
@@ -513,8 +570,11 @@ func componentChangeSummary(current api.Resource, plans []api.Resource, componen
 				}
 				found = true
 				cents, _ := entry["priceInCents"].(float64)
+				if entryCurrency, _ := entry["currency"].(string); entryCurrency != "" && entryCurrency != currency {
+					return "", fmt.Errorf("catalog prices %s in %s but the environment is billed in %s", slug, entryCurrency, currency)
+				}
 				delta += cents - old.cents
-				lines = append(lines, fmt.Sprintf("%s: %s (%.2f %s) -> %s (%.2f %s, lowest regional price)", slug, old.size, old.cents/100, currency, size, cents/100, currency))
+				lines = append(lines, fmt.Sprintf("%s: %s (%.2f %s) -> %s (%.2f %s)", slug, old.size, old.cents/100, currency, size, cents/100, currency))
 			}
 		}
 		if !found {
