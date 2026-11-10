@@ -248,6 +248,9 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					payload = fields
 				}
 			}
+			if cmd.Flags().Changed("confirm") && !disconnectRepository {
+				return fmt.Errorf("--confirm is only used with --disconnect-repository")
+			}
 			if disconnectRepository {
 				if err := cmdutil.CheckDestructive(factory, "disconnecting the repository", publicID, confirmation); err != nil {
 					return err
@@ -258,13 +261,13 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if disconnectRepository {
-				confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.OutOrStdout(), "disconnecting the repository", publicID, confirmation,
+				confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.ErrOrStderr(), "disconnecting the repository", publicID, confirmation,
 					"Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again.")
 				if err != nil {
 					return err
 				}
 				if !confirmed {
-					_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+					_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 					return err
 				}
 			}
@@ -276,12 +279,12 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			}
 			if repository != "" {
 				if response, err = client.PutResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository", map[string]any{"repository": repository}); err != nil {
-					return err
+					return partialFailure(payload != nil, "connecting", err)
 				}
 			}
 			if disconnectRepository {
 				if response, err = client.DeleteForResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository"); err != nil {
-					return err
+					return partialFailure(payload != nil, "disconnecting", err)
 				}
 			}
 			if printJSON {
@@ -303,4 +306,11 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&confirmation, "confirm", "", "App public ID to confirm --disconnect-repository without a prompt")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
+}
+
+func partialFailure(settingsApplied bool, verb string, err error) error {
+	if !settingsApplied {
+		return err
+	}
+	return fmt.Errorf("app settings updated, but %s the repository failed: %w", verb, err)
 }

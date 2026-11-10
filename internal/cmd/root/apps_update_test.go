@@ -31,6 +31,7 @@ func runAppsUpdate(t *testing.T, tty bool, input string, args ...string) ([]reco
 	factory.IOStreams.In = strings.NewReader(input)
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	command := NewCmdRoot(factory)
+	command.SetErr(output)
 	command.SetArgs(append([]string{"--host", server.URL, "apps", "update", "ap-abc123"}, args...))
 	err := command.Execute()
 	return recorded, output.String(), err
@@ -113,5 +114,53 @@ func TestAppsUpdateDisconnectRepositoryPromptsOnTTY(t *testing.T) {
 func TestAppsUpdateRejectsRepositoryWithDisconnect(t *testing.T) {
 	if _, _, err := runAppsUpdate(t, false, "", "--repository", "acme/shop", "--disconnect-repository", "--confirm", "ap-abc123"); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAppsUpdateReportsPartialFailure(t *testing.T) {
+	for _, test := range []struct {
+		flag, method, want string
+	}{
+		{"--repository=acme/shop", http.MethodPut, "app settings updated, but connecting the repository failed"},
+		{"--disconnect-repository", http.MethodDelete, "app settings updated, but disconnecting the repository failed"},
+	} {
+		var methods []string
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			methods = append(methods, request.Method)
+			if request.Method == test.method {
+				writer.Header().Set("Content-Type", "application/problem+json")
+				writer.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = writer.Write([]byte(`{"title":"Validation failed","status":422}`))
+				return
+			}
+			_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+		}))
+		output := &bytes.Buffer{}
+		factory := testFactory(output)
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		command := NewCmdRoot(factory)
+		command.SetArgs([]string{"--host", server.URL, "apps", "update", "ap-abc123", "--name", "shop", test.flag, "--confirm", "ap-abc123"})
+		if test.method == http.MethodPut {
+			command.SetArgs([]string{"--host", server.URL, "apps", "update", "ap-abc123", "--name", "shop", test.flag})
+		}
+		err := command.Execute()
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), test.want) || len(methods) != 2 || methods[0] != http.MethodPatch {
+			t.Fatalf("%s: err = %v, methods = %v", test.flag, err, methods)
+		}
+	}
+}
+
+func TestAppsUpdateWrongConfirmSendsNothing(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--disconnect-repository", "--confirm", "ap-wrong1")
+	if err == nil || len(requests) != 0 {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+}
+
+func TestAppsUpdateConfirmNeedsDisconnect(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--confirm", "ap-abc123")
+	if err == nil || !strings.Contains(err.Error(), "only used with --disconnect-repository") || len(requests) != 0 {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
 	}
 }
