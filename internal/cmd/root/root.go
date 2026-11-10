@@ -19,6 +19,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/environments"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/jobs"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/mcp"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/mysql"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
@@ -59,6 +60,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		resource.NewCmdGroup(factory, deploymentSpec()),
 		domains.NewCmdDomains(factory),
 		jobs.NewCmdJobs(factory),
+		mysql.NewCmdMysql(factory),
 		backups.NewCmdBackups(factory),
 		resource.NewCmdGroup(factory, personSpec()),
 		resource.NewCmdGroup(factory, teamSpec()),

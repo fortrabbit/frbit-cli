@@ -399,6 +399,15 @@ frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 
 `update <job>` takes the same flags plus `--active`, and sends only the flags you pass. `delete <job>` stops and removes the job; it needs the job ID typed on a terminal or `--confirm <id>` without one. `--json` prints the raw API body.
 
+## MySQL
+
+```sh
+frbit mysql get en-a1b2c3
+frbit mysql rotate-password en-a1b2c3 --confirm en-a1b2c3
+```
+
+`mysql get <environment>` prints host, port, user and database; it never prints a password (`--json` prints the raw API body). `rotate-password` starts a password rotation; the app breaks until it reads the new password (redeploy or restart). It needs the environment ID typed on a terminal or `--confirm <id>` without one. The new password is never printed: the app reads it from its environment variables.
+
 ## People
 
 ```sh
