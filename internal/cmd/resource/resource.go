@@ -106,17 +106,30 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 				}
 				filters[name] = *value
 			}
+			clientFiltered := false
+			for _, filter := range spec.ClientFilters {
+				if cmd.Flags().Changed(filter.Name) && *clientValues[filter.Name] == "" {
+					return fmt.Errorf("--%s must not be empty", filter.Name)
+				}
+				if *clientValues[filter.Name] != "" {
+					clientFiltered = true
+				}
+			}
 			client, err := clientFor(cmd, factory)
 			if err != nil {
 				return err
 			}
 			var response api.ResourcesResponse
 			if all || limit > 0 {
+				fetchLimit := limit
+				if clientFiltered {
+					fetchLimit = 0 // the limit applies to the filtered result
+				}
 				startPage := 0
 				if cmd.Flags().Changed("page") {
 					startPage = page
 				}
-				response, err = client.ListAll(cmd.Context(), "/v1"+spec.Path, api.ListQuery(startPage, publicIDs, filters), limit)
+				response, err = client.ListAll(cmd.Context(), "/v1"+spec.Path, api.ListQuery(startPage, publicIDs, filters), fetchLimit)
 			} else {
 				listResources := client.ListResourcesWithTotal
 				if printJSON {
@@ -127,12 +140,15 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			filtered := false
+			filtered := clientFiltered
 			for _, filter := range spec.ClientFilters {
 				if value := *clientValues[filter.Name]; value != "" {
 					response = keepMatching(response, filter.Key, value)
-					filtered = true
 				}
+			}
+			if clientFiltered && limit > 0 && len(response.Resources) > limit {
+				response.Resources = response.Resources[:limit]
+				response.TotalItems = limit
 			}
 			if printJSON {
 				raw := response.Raw

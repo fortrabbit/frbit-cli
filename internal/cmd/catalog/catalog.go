@@ -81,7 +81,7 @@ func newCmdBranches(factory *app.Factory) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			owner, repo, ok := strings.Cut(args[0], "/")
-			if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+			if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") || owner == "." || owner == ".." || repo == "." || repo == ".." {
 				return fmt.Errorf("repository must be owner/repo, got %q", args[0])
 			}
 			client, err := cmdutil.APIClient(cmd, factory)

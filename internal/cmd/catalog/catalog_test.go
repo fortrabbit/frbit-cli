@@ -115,3 +115,43 @@ func TestCatalogCommandsListTheirEndpoints(t *testing.T) {
 		}
 	}
 }
+
+const twoPlans = `[{"slug":"php","optional":false,"sizes":[]},{"slug":"storage","optional":false,"sizes":[]}]`
+
+func TestPlansComponentFilterAppliesBeforeLimit(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(twoPlans)) }
+	out, err := run(t, handler, "plans", "list", "--component", "storage", "--limit", "1")
+	if err != nil || !strings.Contains(out, "storage") || strings.Contains(out, "No plans") {
+		t.Fatalf("table = %q, err = %v", out, err)
+	}
+	out, err = run(t, handler, "plans", "list", "--component", "storage", "--limit", "1", "--json")
+	if err != nil || strings.TrimSpace(out) != `[{"optional":false,"sizes":[],"slug":"storage"}]` {
+		t.Fatalf("json = %q, err = %v", out, err)
+	}
+}
+
+func TestPlansRejectsEmptyComponent(t *testing.T) {
+	_, err := run(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected request") }, "plans", "list", "--component", "")
+	if err == nil || !strings.Contains(err.Error(), "--component must not be empty") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGitBranchesRejectsDotSegments(t *testing.T) {
+	for _, arg := range []string{"../x", "acme/..", "./x", "acme/."} {
+		_, err := run(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected request") }, "git", "branches", arg)
+		if err == nil {
+			t.Errorf("%s accepted", arg)
+		}
+	}
+}
+
+func TestNoGetGroupsHaveNoGetSubcommand(t *testing.T) {
+	for _, command := range NewCommands(&app.Factory{}) {
+		for _, sub := range command.Commands() {
+			if sub.Name() == "get" {
+				t.Errorf("%s has a get subcommand", command.Name())
+			}
+		}
+	}
+}
