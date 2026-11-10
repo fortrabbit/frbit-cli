@@ -128,43 +128,63 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 
 func newCmdRestore(factory *app.Factory) *cobra.Command {
 	var confirmation string
+	var printJSON bool
 	command := &cobra.Command{
 		Use:   "restore <backup>",
 		Short: "Restore a backup, overwriting the live data of its environment",
+		Long:  "Restore a backup, overwriting the live data of its environment. It shows the environment and the date of the backup and asks you to type the environment ID; without a terminal, pass --confirm <environment-id>.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			if err := cmdutil.CheckDestructive(factory, "restore", id, confirmation); err != nil {
-				return err
-			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
+			// The environment ID to confirm comes from the backup, so it is read before the check.
 			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id))
 			if err != nil {
 				return err
 			}
 			environment, _ := response.Resource["environment"].(string)
+			if environment == "" {
+				return fmt.Errorf("the API names no environment for backup %s; nothing was restored", id)
+			}
+			if confirmation != "" && confirmation != environment && strings.HasPrefix(confirmation, "ba-") {
+				return fmt.Errorf("--confirm takes the environment ID; pass --confirm %s", environment)
+			}
+			if err := cmdutil.CheckDestructive(factory, "restore", environment, confirmation); err != nil {
+				return err
+			}
+			env, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(environment))
+			if err != nil {
+				return err
+			}
+			name, _ := env.Resource["name"].(string)
+			created, _ := response.Resource["createdAt"].(string)
 			stderr := cmd.ErrOrStderr()
-			_, _ = fmt.Fprintf(stderr, "Backup: %s (environment %s)\n\n", id, environment)
-			warning := "Restoring overwrites the live data of the environment: its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
-			_, _ = fmt.Fprintln(stderr, warning)
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "restore", id, confirmation, "")
+			_, _ = fmt.Fprintf(stderr, "Backup:      %s, created %s\nEnvironment: %s (%s)\n\n", id, created, name, environment)
+			warning := "Restoring overwrites the live data of " + environment + ": its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "restore", environment, confirmation, warning)
 			if err != nil {
 				return err
 			}
 			if !confirmed {
 				return cmdutil.Aborted(stderr)
 			}
-			if _, err := client.CreateResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id)+"/restore", map[string]any{}); err != nil {
+			restored, err := client.CreateResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id)+"/restore", map[string]any{})
+			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restore of %s requested.\n", id)
+			if printJSON {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", restored.Raw)
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restore of %s to %s requested.\n", id, environment)
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm the restore by repeating the backup ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm the restore by repeating the environment ID (en-…) of the backup")
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response of the restore request as JSON")
 	return command
 }
 

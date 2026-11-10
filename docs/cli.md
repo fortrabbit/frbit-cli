@@ -563,13 +563,13 @@ frbit git branches acme/site
 frbit backups list en-a1b2c3
 frbit backups create en-a1b2c3
 frbit backups get ba-a1b2c3
-frbit backups restore ba-a1b2c3 --confirm ba-a1b2c3
+frbit backups restore ba-a1b2c3 --confirm en-a1b2c3
 frbit backups download ba-a1b2c3 --type database --output ./backups/
 ```
 
 `create` requests a manual backup; it appears in `list` once completed. `list` and `get` take `--json`; `list` also takes `--limit` and `--all`.
 
-`restore` overwrites the live database and files of the environment with the backup and cannot be undone. It asks you to type the backup ID, or takes `--confirm <backup>` without a TTY; a missing or wrong value fails before any request.
+`restore` overwrites the live database and files of the environment with the backup and cannot be undone. It reads the backup first and shows its environment (name and ID) and creation date; a backup without an environment fails there. It asks you to type the environment ID, or takes `--confirm <environment-id>` without a terminal; a missing or wrong value fails before the restore request, and a backup ID passed to `--confirm` is refused with the environment ID to use. `--json` prints the API response of the restore request.
 
 `download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. The file is written with mode 0600 because a backup holds database dumps. An existing target file is not overwritten unless you pass `--force`. `--output -` may leave partial output on stdout when the transfer fails. The link expires; run the command again for a fresh one.
 
@@ -824,7 +824,7 @@ frbit --profile work auth logout
 | `frbit jobs list [environment]` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit backups list [environment]` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |
 | `frbit backups download <backup>` | Download the files or the database of a backup through a signed link. Accepts `--type files\|database`, `--output` (file, folder, or `-` for stdout), `--force`. |
-| `frbit backups restore <backup>` | Restore a backup, overwriting the live data of its environment; needs `--confirm <backup>` without a terminal. |
+| `frbit backups restore <backup>` | Restore a backup, overwriting the live data of its environment; needs `--confirm <environment-id>` without a terminal. Accepts `--json`. |
 | `frbit mysql get [environment]` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
