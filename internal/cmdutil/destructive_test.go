@@ -16,7 +16,7 @@ func destructiveFactory(input string, tty bool) *app.Factory {
 func TestConfirmDestructiveAcceptsMatchingConfirm(t *testing.T) {
 	out := &bytes.Buffer{}
 	ok, err := ConfirmDestructive(destructiveFactory("", false), out, "deletion", "ap-abc123", "ap-abc123", "gone")
-	if err != nil || !ok || out.Len() != 0 {
+	if err != nil || !ok || out.String() != "WARNING: gone\n\n" {
 		t.Fatalf("ok = %t, err = %v, out = %q", ok, err, out.String())
 	}
 }

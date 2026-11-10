@@ -29,13 +29,13 @@ func ConfirmDestructiveContext(ctx context.Context, f *app.Factory, out io.Write
 	if err := CheckDestructive(f, action, publicID, confirmation); err != nil {
 		return false, err
 	}
-	if confirmation != "" {
-		return true, nil
-	}
 	if warning != "" {
 		if _, err := fmt.Fprintf(out, "WARNING: %s\n\n", warning); err != nil {
 			return false, err
 		}
+	}
+	if confirmation != "" {
+		return true, nil
 	}
 	return ConfirmExactContext(ctx, f.IOStreams.In, out, fmt.Sprintf("Type %s to confirm: ", publicID), publicID)
 }

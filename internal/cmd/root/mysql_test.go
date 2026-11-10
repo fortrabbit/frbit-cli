@@ -9,7 +9,7 @@ import (
 )
 
 func TestMysqlGetHidesPassword(t *testing.T) {
-	body := `{"host":"db.eu-w1a.frbit.app","port":3306,"user":"en-abc123","database":"en-abc123","password":"s3cret"}`
+	body := `{"host":"db.eu-w1a.frbit.app","port":3306,"user":"en-abc123","database":"en-abc123","password":"x","dsn":"mysql://u:s3cret@h"}`
 	output, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/environments/en-abc123/mysql" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
@@ -19,7 +19,7 @@ func TestMysqlGetHidesPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "db.eu-w1a.frbit.app") || !strings.Contains(output, "3306") || strings.Contains(output, "s3cret") || strings.Contains(output, "password") {
+	if !strings.Contains(output, "db.eu-w1a.frbit.app") || !strings.Contains(output, "3306") || strings.Contains(output, "s3cret") || strings.Contains(output, "password") || strings.Contains(output, "dsn") || strings.Contains(output, "mysql://") {
 		t.Fatalf("output:\n%s", output)
 	}
 	raw, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }, "mysql", "get", "en-abc123", "--json")

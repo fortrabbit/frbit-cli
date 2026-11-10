@@ -49,7 +49,21 @@ func TestMetricsSummaryTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"COMPONENT", "storage", "256.0 MB", "512.0 MB", "50.0%", "12840", "php-requests, web-storage"} {
+	for _, want := range []string{"COMPONENT", "storage", "256.0 MB", "512.0 MB", "50.0%", "12840", "Last 24 hours", "HTTP 504                    -", "71.4%", "(this month)", "traffic", "php-requests, web-storage"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestMetricsHistoryOutput(t *testing.T) {
+	output, _, err := run(t, "", func(r request, w http.ResponseWriter) {
+		echo(w, 200, `{"slug":"php-requests","unit":"requests","from":"a","to":"b","step":"day","totals":[{"label":"total","value":4210}],"series":{"total":[["2026-11-01T00:00:00+00:00",120],["2026-11-02T00:00:00+00:00",null]]}}`)
+	}, "metrics", "en-abc123", "php-requests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"php-requests (requests)", "total  4210", "TIME", "2026-11-01T00:00:00+00:00  120", "2026-11-02T00:00:00+00:00  -"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("missing %q in:\n%s", want, output)
 		}

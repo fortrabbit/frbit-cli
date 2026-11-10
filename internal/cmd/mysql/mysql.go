@@ -2,8 +2,6 @@ package mysql
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -40,16 +38,12 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 				_, err = fmt.Fprintf(out, "%s\n", response.Raw)
 				return err
 			}
-			keys := make([]string, 0, len(response.Resource))
-			for key := range response.Resource {
-				if strings.Contains(strings.ToLower(key), "password") || strings.HasPrefix(key, "@") {
-					continue
+			keys := make([]string, 0, 5)
+			for _, key := range []string{"host", "port", "user", "database", "version"} {
+				if _, ok := response.Resource[key]; ok {
+					keys = append(keys, key)
 				}
-				keys = append(keys, key)
 			}
-			sort.Slice(keys, func(i, j int) bool {
-				return fieldRank(keys[i]) < fieldRank(keys[j]) || fieldRank(keys[i]) == fieldRank(keys[j]) && keys[i] < keys[j]
-			})
 			table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 			for _, key := range keys {
 				value := response.Resource[key]
@@ -65,15 +59,6 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
-}
-
-func fieldRank(key string) int {
-	for index, name := range []string{"host", "port", "user", "database", "version"} {
-		if key == name {
-			return index
-		}
-	}
-	return 99
 }
 
 func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
