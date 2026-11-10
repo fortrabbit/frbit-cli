@@ -58,12 +58,13 @@ func (f *pushRunner) remotes() []string {
 }
 
 const (
-	wantBackup  = `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > /data/home/frbit-backup-20261110093005.sql.gz || { status=$?; rm -f /data/home/frbit-backup-20261110093005.sql.gz; exit $status; }`
-	wantUpload  = `rm -f /data/home/fortrabbit-import-*.sql.gz; cat > /data/home/frbit-import.sql.gz`
-	wantTest    = `gzip -t /data/home/frbit-import.sql.gz`
-	wantImport  = `set -o pipefail; gunzip -c /data/home/frbit-import.sql.gz | mysql "$FORTRABBIT_DB_NAME"`
-	wantCleanup = `rm -f /data/home/frbit-import.sql.gz`
-	wantRestore = `ssh en-abc123@ssh.us-e1a.frbit.app 'set -o pipefail; gunzip -c /data/home/frbit-backup-20261110093005.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`
+	wantBackup        = `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > /data/home/frbit-backup-20261110093005.sql.gz.part && mv /data/home/frbit-backup-20261110093005.sql.gz.part /data/home/frbit-backup-20261110093005.sql.gz || { status=$?; rm -f /data/home/frbit-backup-20261110093005.sql.gz.part; exit $status; }`
+	wantBackupCleanup = `rm -f /data/home/frbit-backup-20261110093005.sql.gz.part`
+	wantUpload        = `rm -f /data/home/fortrabbit-import-*.sql.gz; cat > /data/home/frbit-import.sql.gz`
+	wantTest          = `gzip -t /data/home/frbit-import.sql.gz`
+	wantImport        = `set -o pipefail; gunzip -c /data/home/frbit-import.sql.gz | mysql "$FORTRABBIT_DB_NAME"`
+	wantCleanup       = `rm -f /data/home/frbit-import.sql.gz`
+	wantRestore       = `ssh en-abc123@ssh.us-e1a.frbit.app 'set -o pipefail; gunzip -c /data/home/frbit-backup-20261110093005.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`
 )
 
 func push(t *testing.T, dir string, fake *pushRunner, in invocation) (string, string, error) {
@@ -211,7 +212,26 @@ func TestDbPushFailedBackupLeavesDatabase(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "backup") || !strings.Contains(err.Error(), "not changed") {
 		t.Fatalf("backup failure: %v", err)
 	}
-	if got := fake.remotes(); !slices.Equal(got, []string{wantBackup}) {
+	if got := fake.remotes(); !slices.Equal(got, []string{wantBackup, wantBackupCleanup}) {
+		t.Fatalf("ran %q", got)
+	}
+}
+
+func TestDbPushCtrlCDuringBackupRemovesPartialBackup(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "dump.sql", []byte(dump))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fake := &pushRunner{fail: map[string]error{"mysqldump": errors.New("signal: killed")}, onCall: func(remote string) {
+		if strings.Contains(remote, "mysqldump") {
+			cancel()
+		}
+	}}
+	_, _, err := push(t, dir, fake, invocation{ctx: ctx, args: []string{"dump.sql", "en-abc123", "--confirm", "en-abc123"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Ctrl-C: %v", err)
+	}
+	if got := fake.remotes(); !slices.Equal(got, []string{wantBackup, wantBackupCleanup}) {
 		t.Fatalf("ran %q", got)
 	}
 }

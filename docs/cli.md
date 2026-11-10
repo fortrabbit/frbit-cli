@@ -461,7 +461,7 @@ It needs the environment ID typed on a terminal, or `--confirm <id>` without one
 
 Each step is its own SSH call with your own SSH key:
 
-1. Backup: `mysqldump` of the current database to `/data/home/frbit-backup-<UTC time>.sql.gz` on the environment. When it fails, the database is not touched.
+1. Backup: `mysqldump` of the current database to `/data/home/frbit-backup-<UTC time>.sql.gz` on the environment, written as `.part` and renamed when complete. When it fails or is cancelled, the partial file is removed and the database is not touched.
 2. Upload to `/data/home/frbit-import.sql.gz` (leftover uploads of the agent skill's `db-up.sh` are removed first).
 3. `gzip -t` of the upload. A damaged upload imports nothing.
 4. Import: `gunzip -c | mysql "$FORTRABBIT_DB_NAME"`.

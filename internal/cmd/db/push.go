@@ -225,17 +225,26 @@ func stepError(err error, step string) error {
 
 // cleanup removes the uploaded file even after Ctrl-C; an import still running on the environment keeps reading its open copy.
 func (p pusher) cleanup(ctx context.Context) {
+	p.remove(ctx, importFile)
+}
+
+// remove deletes a fixed remote path, also after Ctrl-C.
+func (p pusher) remove(ctx context.Context, path string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
-	if err := p.run(ctx, "rm -f "+importFile, nil); err != nil {
-		_, _ = fmt.Fprintf(p.stderr, "Could not remove %s on %s: %v\n", importFile, p.id, err)
+	if err := p.run(ctx, "rm -f "+path, nil); err != nil {
+		_, _ = fmt.Fprintf(p.stderr, "Could not remove %s on %s: %v\n", path, p.id, err)
 	}
 }
 
 func (p pusher) push(ctx context.Context, in *input) error {
 	_, _ = fmt.Fprintf(p.stderr, "Backing up the database of %s to %s\n", p.id, p.backup)
-	backup := fmt.Sprintf(`set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > %[1]s || { status=$?; rm -f %[1]s; exit $status; }`, p.backup)
+	// The dump only gets the backup name once complete, so a killed run never leaves a truncated file that looks like a backup.
+	backup := fmt.Sprintf(`set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > %[1]s.part && mv %[1]s.part %[1]s || { status=$?; rm -f %[1]s.part; exit $status; }`, p.backup)
 	if err := p.run(ctx, backup, nil); err != nil {
+		if sshexec.ExitCode(err) != 255 {
+			p.remove(ctx, p.backup+".part")
+		}
 		if ctx.Err() != nil {
 			_, _ = fmt.Fprintf(p.stderr, "Cancelled during the backup; the database of %s was not changed.\n", p.id)
 			return err
