@@ -364,21 +364,12 @@ func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, opts
 
 	deployment := map[string]any{}
 	if command.Flags().Changed("strategy") {
-		if opts.strategy != "merge" && opts.strategy != "replace" {
-			return nil, fmt.Errorf("--strategy must be merge or replace")
-		}
 		deployment["strategy"] = opts.strategy
 	}
 	if command.Flags().Changed("trigger") {
-		if opts.trigger != "push" && opts.trigger != "manual" && opts.trigger != "hook" {
-			return nil, fmt.Errorf("--trigger must be push, manual, or hook")
-		}
 		deployment["trigger"] = opts.trigger
 	}
 	if command.Flags().Changed("permission") {
-		if opts.permission != "connectedDevelopers" && opts.permission != "repositoryAccess" {
-			return nil, fmt.Errorf("--permission must be connectedDevelopers or repositoryAccess")
-		}
 		deployment["permission"] = opts.permission
 	}
 	if command.Flags().Changed("node-version") {

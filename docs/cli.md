@@ -418,7 +418,7 @@ frbit domains dns do-a1b2c3 --refresh
 
 `domains create <environment> <name>` adds a domain you own (`name` is a hostname) and prints the DNS record to set at your DNS provider, the record found in DNS now, and the verification state. A bare apex such as `example.com` also creates `www.example.com`. `--main` makes it the environment's main domain.
 
-With `--cloud`, `name` is a label such as `acme-shop`, not a full hostname; the API appends the cloud domain root. The CLI checks `GET /v1/domains/cloud/availability` first and fails with the reason (`invalid`, `reserved`, `taken`) before creating anything. Cloud domains need no DNS record. An environment can have one cloud domain.
+With `--cloud`, `name` is a label such as `acme-shop`, not a full hostname; the API appends the cloud domain root. Cloud domains need no DNS record. An environment can have one cloud domain.
 
 `domains dns <id>` shows the expected and actual record. `--refresh` makes the API check DNS again first. Cloud and default frbit.app domains have no DNS record and answer 404. Domains are not billed. `--json` prints the raw API body (for `create`, the created domain only).
 
@@ -437,7 +437,7 @@ frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 
 `jobs list [environment]` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page; `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
 
-`create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. For a worker, `--interval`, `--expression` and `--max-runtime` are ignored with a warning on stderr and not sent; so is `--expression` with an interval other than `custom`. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
+`create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`. The CLI sends the flags as typed; the API checks the values and names each rejected field. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
 
 `update <job>` takes the same flags plus `--active`, and sends only the flags you pass. `delete <job>` stops and removes the job; it needs the job ID typed on a terminal or `--confirm <id>` without one. `--json` prints the raw API body.
 

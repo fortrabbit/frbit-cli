@@ -4,9 +4,7 @@ package jobs
 import (
 	"fmt"
 	"net/url"
-	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -14,14 +12,6 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
-)
-
-var (
-	jobTypes     = []string{"worker", "cron"}
-	intervals    = []string{"minute", "hour", "day", "custom"}
-	signals      = []string{"TERM", "INT"}
-	exitTimeouts = []int{1, 5, 10, 30}
-	maxRuntimes  = []int{300, 1800, 3600, 10800, 21600}
 )
 
 var spec = resource.Spec{
@@ -133,48 +123,21 @@ func (j *jobFlags) bind(command *cobra.Command, update bool) {
 	}
 }
 
-// payload collects the flags that were set, validated against the enums of the API.
-func (j *jobFlags) payload(cmd *cobra.Command) (map[string]any, error) {
+// payload collects the flags that were set; the API validates the values.
+func (j *jobFlags) payload(cmd *cobra.Command) map[string]any {
 	flags := cmd.Flags()
 	body := map[string]any{}
-	for _, field := range []struct {
-		flag, key string
-		value     string
-		allowed   []string
+	for flag, field := range map[string]struct {
+		key   string
+		value any
 	}{
-		{"type", "type", j.jobType, jobTypes},
-		{"interval", "interval", j.interval, intervals},
-		{"exit-signal", "exitSignal", j.exitSignal, signals},
-		{"name", "name", j.name, nil},
-		{"command", "command", j.command, nil},
-		{"expression", "expression", j.expression, nil},
+		"type": {"type", j.jobType}, "interval": {"interval", j.interval}, "exit-signal": {"exitSignal", j.exitSignal},
+		"name": {"name", j.name}, "command": {"command", j.command}, "expression": {"expression", j.expression},
+		"exit-timeout": {"exitTimeout", j.exitTimeout}, "max-runtime": {"maxRuntime", j.maxRuntime},
 	} {
-		if !flags.Changed(field.flag) {
-			continue
+		if flags.Changed(flag) {
+			body[field.key] = field.value
 		}
-		if field.value == "" {
-			return nil, fmt.Errorf("--%s must not be empty", field.flag)
-		}
-		if field.allowed != nil && !slices.Contains(field.allowed, field.value) {
-			return nil, fmt.Errorf("--%s must be one of %s", field.flag, strings.Join(field.allowed, ", "))
-		}
-		body[field.key] = field.value
-	}
-	for _, field := range []struct {
-		flag, key string
-		value     int
-		allowed   []int
-	}{{"exit-timeout", "exitTimeout", j.exitTimeout, exitTimeouts}, {"max-runtime", "maxRuntime", j.maxRuntime, maxRuntimes}} {
-		if !flags.Changed(field.flag) {
-			continue
-		}
-		if !slices.Contains(field.allowed, field.value) {
-			return nil, fmt.Errorf("--%s must be one of %s", field.flag, joinInts(field.allowed))
-		}
-		body[field.key] = field.value
-	}
-	if command, ok := body["command"].(string); ok && !strings.HasPrefix(command, "php ") && !strings.HasPrefix(command, "bash ") {
-		return nil, fmt.Errorf(`--command must start with "php " or "bash "`)
 	}
 	if flags.Changed("inactive") {
 		body["isActive"] = !j.inactive
@@ -182,27 +145,7 @@ func (j *jobFlags) payload(cmd *cobra.Command) (map[string]any, error) {
 	if flags.Changed("active") {
 		body["isActive"] = j.active
 	}
-	return body, nil
-}
-
-func joinInts(values []int) string {
-	parts := make([]string, len(values))
-	for i, value := range values {
-		parts[i] = strconv.Itoa(value)
-	}
-	return strings.Join(parts, ", ")
-}
-
-// checkExpression rejects a crontab expression the API cannot schedule.
-func checkExpression(cmd *cobra.Command, client *api.Client, expression string) error {
-	response, err := client.GetResourceWithQuery(cmd.Context(), "/v1/jobs/check-cron", url.Values{"expression": {expression}})
-	if err != nil {
-		return err
-	}
-	if valid, _ := response.Resource["valid"].(bool); !valid {
-		return fmt.Errorf("cron expression %q is not valid", expression)
-	}
-	return nil
+	return body
 }
 
 func newCmdCreate(factory *app.Factory) *cobra.Command {
@@ -213,36 +156,11 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Add a worker or a cron job to an environment",
 		Long: "Add a worker or a cron job to an environment.\n\n" +
 			`A worker needs --name, --command and --type worker, e.g. --command "php artisan queue:work".` + "\n" +
-			"A cron job also needs --interval and --max-runtime, and --expression with --interval custom (checked before the job is created).\n" +
+			"A cron job also needs --interval and --max-runtime, and --expression with --interval custom.\n" +
 			"Jobs count against the booked jobs plan; see frbit jobs list.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := j.payload(cmd)
-			if err != nil {
-				return err
-			}
-			for _, required := range []string{"name", "command", "type"} {
-				if _, ok := body[required]; !ok {
-					return fmt.Errorf("--%s is required", required)
-				}
-			}
-			if body["type"] == "worker" {
-				ignoreFlags(cmd, body, "a worker", "interval", "expression", "max-runtime")
-			} else {
-				if _, ok := body["interval"]; !ok {
-					return fmt.Errorf("--interval is required for --type cron")
-				}
-				if _, ok := body["maxRuntime"]; !ok {
-					return fmt.Errorf("--max-runtime is required for --type cron")
-				}
-				if body["interval"] == "custom" {
-					if _, ok := body["expression"]; !ok {
-						return fmt.Errorf("--expression is required with --interval custom")
-					}
-				} else {
-					ignoreFlags(cmd, body, "an interval other than custom", "expression")
-				}
-			}
+			body := j.payload(cmd)
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
@@ -250,11 +168,6 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
-			}
-			if body["interval"] == "custom" {
-				if err := checkExpression(cmd, client, body["expression"].(string)); err != nil {
-					return err
-				}
 			}
 			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/jobs", body)
 			if err != nil {
@@ -268,17 +181,6 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-// ignoreFlags warns about flags the API ignores for reason and drops them from body.
-func ignoreFlags(cmd *cobra.Command, body map[string]any, reason string, flags ...string) {
-	keys := map[string]string{"interval": "interval", "expression": "expression", "max-runtime": "maxRuntime"}
-	for _, flag := range flags {
-		if cmd.Flags().Changed(flag) {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: --%s is ignored for %s\n", flag, reason)
-			delete(body, keys[flag])
-		}
-	}
-}
-
 func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	var j jobFlags
 	var printJSON bool
@@ -287,24 +189,13 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 		Short: "Change a job; only the flags you pass are sent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := j.payload(cmd)
-			if err != nil {
-				return err
-			}
+			body := j.payload(cmd)
 			if len(body) == 0 {
 				return fmt.Errorf("pass at least one flag to change")
-			}
-			if body["interval"] != nil && body["interval"] != "custom" {
-				ignoreFlags(cmd, body, "an interval other than custom", "expression")
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
-			}
-			if expression, ok := body["expression"].(string); ok {
-				if err := checkExpression(cmd, client, expression); err != nil {
-					return err
-				}
 			}
 			response, err := client.UpdateResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(args[0]), body)
 			if err != nil {

@@ -51,18 +51,6 @@ func TestDomainsCreatePrintsDNSRecords(t *testing.T) {
 	}
 }
 
-func TestDomainsCreateCloudTakenFailsBeforePost(t *testing.T) {
-	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/domains/cloud/availability" || r.URL.Query().Get("name") != "acme-shop" {
-			t.Fatalf("unexpected %s %s", r.Method, r.URL)
-		}
-		_, _ = w.Write([]byte(`{"name":"acme-shop","domain":"acme-shop.frbit.cloud","available":false,"reason":"taken"}`))
-	}, "domains", "create", "en-abc123", "acme-shop", "--cloud")
-	if err == nil || !strings.Contains(err.Error(), "taken") {
-		t.Fatalf("err = %v, want taken reason", err)
-	}
-}
-
 func TestDomainsDNSRefreshPostsBeforeGet(t *testing.T) {
 	var calls []string
 	output, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {

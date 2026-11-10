@@ -305,19 +305,6 @@ func parsePortRange(value string) (int, any, error) {
 		}
 		end = number
 	}
-	last := start
-	if end != nil {
-		last = end.(int)
-	}
-	if start < 1 || last > 65535 {
-		return 0, nil, fmt.Errorf("--port must be within 1-65535, got %q", value)
-	}
-	if last < start {
-		return 0, nil, fmt.Errorf("--port range %q ends before it starts", value)
-	}
-	if last-start+1 > 1000 {
-		return 0, nil, fmt.Errorf("--port range %q opens %d ports; at most 1000 are allowed", value, last-start+1)
-	}
 	return start, end, nil
 }
 

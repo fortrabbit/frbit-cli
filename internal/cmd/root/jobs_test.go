@@ -1,10 +1,8 @@
 package root
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -26,66 +24,20 @@ func TestJobsListShowsCountAndLimit(t *testing.T) {
 	}
 }
 
-func TestJobsCreateCustomCronChecksExpression(t *testing.T) {
+func TestJobsCreateSendsWhatWasTyped(t *testing.T) {
 	var calls []string
 	var posted map[string]any
 	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.Path)
-		switch r.Method + " " + r.URL.Path {
-		case "GET /v1/jobs/check-cron":
-			if r.URL.Query().Get("expression") != "0 */2 * * *" {
-				t.Fatalf("query = %s", r.URL.RawQuery)
-			}
-			_, _ = w.Write([]byte(`{"expression":"0 */2 * * *","valid":true,"nextRuns":[]}`))
-		case "POST /v1/environments/en-abc123/jobs":
-			_ = json.NewDecoder(r.Body).Decode(&posted)
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"publicId":"jo-abc123"}`))
-		default:
-			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-	}, "jobs", "create", "en-abc123", "--name", "sync", "--type", "cron", "--command", "php artisan schedule:run", "--interval", "custom", "--expression", "0 */2 * * *", "--max-runtime", "300")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(calls, ",") != "GET /v1/jobs/check-cron,POST /v1/environments/en-abc123/jobs" || posted["expression"] != "0 */2 * * *" || posted["maxRuntime"] != float64(300) || posted["interval"] != "custom" {
-		t.Fatalf("calls = %v, posted = %#v", calls, posted)
-	}
-
-	_, err = runDomains(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"expression":"nope","valid":false,"nextRuns":[]}`))
-	}, "jobs", "create", "en-abc123", "--name", "sync", "--type", "cron", "--command", "php x", "--interval", "custom", "--expression", "nope", "--max-runtime", "300")
-	if err == nil || !strings.Contains(err.Error(), "not valid") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestJobsCreateWorkerWarnsAboutIgnoredFlags(t *testing.T) {
-	var posted map[string]any
-	var stderr bytes.Buffer
-	t.Setenv("FRBIT_TOKEN", "test-token")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&posted)
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"publicId":"jo-abc123"}`))
-	}))
-	defer server.Close()
-	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
-	command.SetErr(&stderr)
-	command.SetArgs([]string{"--host", server.URL, "jobs", "create", "en-abc123", "--name", "q", "--type", "worker", "--command", "php x", "--interval", "day", "--max-runtime", "300"})
-	if err := command.Execute(); err != nil {
+	}, "jobs", "create", "en-abc123", "--name", "sync", "--type", "cron", "--command", "php artisan schedule:run", "--interval", "custom", "--expression", "0 */2 * * *", "--max-runtime", "301")
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"warning: --interval is ignored for a worker", "warning: --max-runtime is ignored for a worker"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
-		}
-	}
-	if posted["name"] != "q" || posted["interval"] != nil || posted["maxRuntime"] != nil {
-		t.Fatalf("posted = %#v", posted)
+	if strings.Join(calls, ",") != "POST /v1/environments/en-abc123/jobs" || posted["expression"] != "0 */2 * * *" || posted["maxRuntime"] != float64(301) || posted["interval"] != "custom" || len(posted) != 6 {
+		t.Fatalf("calls = %v, posted = %#v", calls, posted)
 	}
 }
 
@@ -132,17 +84,6 @@ func TestJobsDeleteNeedsConfirm(t *testing.T) {
 	}, "jobs", "delete", "jo-abc123", "--confirm", "jo-abc123")
 	if err != nil || !deleted || !strings.Contains(output, "Deleted job jo-abc123.") {
 		t.Fatalf("err = %v, deleted = %v\n%s", err, deleted, output)
-	}
-}
-
-func TestJobsUpdateExpressionOnlyChecksCronFirst(t *testing.T) {
-	var calls []string
-	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
-		calls = append(calls, r.Method+" "+r.URL.Path)
-		_, _ = w.Write([]byte(`{"expression":"nope","valid":false,"nextRuns":[]}`))
-	}, "jobs", "update", "jo-abc123", "--expression", "nope")
-	if err == nil || !strings.Contains(err.Error(), "not valid") || strings.Join(calls, ",") != "GET /v1/jobs/check-cron" {
-		t.Fatalf("err = %v, calls = %v", err, calls)
 	}
 }
 

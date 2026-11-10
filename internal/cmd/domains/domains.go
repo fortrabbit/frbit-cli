@@ -51,17 +51,6 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			domainType := "external"
 			if cloud {
 				domainType = "cloud"
-				availability, err := client.GetResourceWithQuery(cmd.Context(), "/v1/domains/cloud/availability", url.Values{"name": {name}})
-				if err != nil {
-					return err
-				}
-				if available, _ := availability.Resource["available"].(bool); !available {
-					reason, _ := availability.Resource["reason"].(string)
-					if reason == "" {
-						reason = "unavailable"
-					}
-					return fmt.Errorf("cloud domain %q is not available: %s", name, reason)
-				}
 			}
 			response, err := client.CreateResource(cmd.Context(), "/v1/domains", map[string]any{
 				"environment": environment, "name": name, "type": domainType, "isMain": main,

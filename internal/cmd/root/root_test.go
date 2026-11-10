@@ -1151,11 +1151,8 @@ func TestEnvironmentsUpdateDeploymentFlags(t *testing.T) {
 	}
 }
 
-func TestEnvironmentsUpdateRejectsBadDeploymentFlags(t *testing.T) {
+func TestEnvironmentsUpdateRejectsConflictingListFlags(t *testing.T) {
 	for _, args := range [][]string{
-		{"--strategy", "overwrite"},
-		{"--trigger", "cron"},
-		{"--permission", "everyone"},
 		{"--exclude-pattern", "/a", "--clear-exclude-patterns"},
 	} {
 		output := &bytes.Buffer{}
