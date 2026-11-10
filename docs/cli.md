@@ -788,6 +788,19 @@ frbit --profile work auth logout
 
 `FRBIT_TOKEN` overrides the stored token for every profile. This makes it suitable for automation, where a token is normally supplied by the job's secret store instead of being saved on disk.
 
+## Changes for scripts
+
+Behaviour that changed since v1.14.0 and can break a script:
+
+| Before (v1.14.0) | Now |
+|---|---|
+| `apps create` and `environments create` created at once, also without a terminal | A billed create without a terminal fails with `billed change needs --yes`; each create first sends a dry-run request for the price |
+| A declined confirmation exited 0 | It prints `Aborted.` and exits 1 |
+| The delete warning went to stdout | It goes to stderr |
+| An API error with `--json` printed to stderr only | The problem document (`title`, `detail`, `violations`) also goes to stdout; `auth status` and `auth login` keep their own one-line JSON |
+| `Warning`, `Deprecation` and `Sunset` headers were not shown | They print `warning: …` lines on stderr |
+| A path argument with `.` or `..` segments was sent as is | The CLI refuses it before any request |
+
 ## Command reference
 
 | Command | Description |
