@@ -7,6 +7,7 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -50,7 +51,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 					keys = append(keys, key)
 				}
 			}
-			table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+			table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 			for _, key := range keys {
 				value := response.Resource[key]
 				if value == nil {

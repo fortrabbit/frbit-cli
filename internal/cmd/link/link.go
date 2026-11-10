@@ -10,6 +10,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	envlink "github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/spf13/cobra"
@@ -75,7 +76,7 @@ The file lives at the top of the git checkout, or in the current folder outside 
 				return err
 			}
 			confirm := func() error {
-				_, err := fmt.Fprintf(out, "%s is connected: branch %s deploys to %s (%s). Nothing to write.\n", match.Repository, match.Branch, match.EnvironmentID, match.EnvironmentName)
+				_, err := fmt.Fprintf(out, "%s is connected: branch %s deploys to %s (%s). Nothing to write.\n", match.Repository, match.Branch, match.EnvironmentID, iostreams.StripControl(match.EnvironmentName))
 				return err
 			}
 			var id string
@@ -137,7 +138,7 @@ func describe(out io.Writer, branch string, resolution envlink.Resolution) error
 		_, err = fmt.Fprintf(out, "%s is set to %s.\n", envlink.EnvVar, resolution.ID)
 	case envlink.SourceRepository:
 		match := resolution.Match
-		_, err = fmt.Fprintf(out, "%s is connected: branch %s deploys to %s (%s). Nothing to write.\n", match.Repository, match.Branch, match.EnvironmentID, match.EnvironmentName)
+		_, err = fmt.Fprintf(out, "%s is connected: branch %s deploys to %s (%s). Nothing to write.\n", match.Repository, match.Branch, match.EnvironmentID, iostreams.StripControl(match.EnvironmentName))
 	case envlink.SourceFile:
 		if resolution.Label == branch {
 			_, err = fmt.Fprintf(out, "Branch %s is linked to %s in %s.\n", branch, resolution.ID, envlink.FilePath)

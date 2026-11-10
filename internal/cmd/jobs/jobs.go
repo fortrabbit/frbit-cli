@@ -10,6 +10,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -238,7 +239,7 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			}
 			name, _ := response.Resource["name"].(string)
 			stderr := cmd.ErrOrStderr()
-			_, _ = fmt.Fprintf(stderr, "Job: %s (%s)\n\n", name, id)
+			_, _ = fmt.Fprintf(stderr, "Job: %s (%s)\n\n", iostreams.StripControl(name), id)
 			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "deletion", id, confirmation, "The job stops running and is removed from its environment. This cannot be undone.")
 			if err != nil {
 				return err

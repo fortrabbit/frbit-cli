@@ -12,6 +12,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -98,7 +99,7 @@ func metricQuery(rangeName, step string, now time.Time) (url.Values, error) {
 }
 
 func writeMetricsSummary(out io.Writer, value api.Resource) error {
-	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(table, "COMPONENT\tMETRIC\tCURRENT\tLIMIT\tUSED")
 	usage, _ := value["usage"].([]any)
 	for _, raw := range usage {
@@ -118,7 +119,7 @@ func writeMetricsSummary(out io.Writer, value api.Resource) error {
 	}
 	if last, ok := value["last24Hours"].(map[string]any); ok {
 		_, _ = fmt.Fprintln(out, "\nLast 24 hours")
-		table = tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+		table = tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 		_, _ = fmt.Fprintf(table, "requests\t%s\n", number(last["requests"]))
 		errors, _ := last["errors"].(map[string]any)
 		for _, status := range []string{"500", "503", "504"} {
@@ -152,7 +153,7 @@ func writeMetricHistory(out io.Writer, value api.Resource) error {
 	}
 	if totals, _ := value["totals"].([]any); len(totals) > 0 {
 		_, _ = fmt.Fprintln(out)
-		table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+		table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 		for _, raw := range totals {
 			row, _ := raw.(map[string]any)
 			_, _ = fmt.Fprintf(table, "%v\t%s\n", row["label"], number(row["value"]))
@@ -180,7 +181,7 @@ func writeMetricHistory(out io.Writer, value api.Resource) error {
 		}
 	}
 	_, _ = fmt.Fprintln(out)
-	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintf(table, "TIME\t%s\n", strings.ToUpper(strings.Join(names, "\t")))
 	for row := 0; row < rows; row++ {
 		cells := make([]string, len(names))

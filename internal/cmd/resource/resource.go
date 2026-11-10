@@ -12,11 +12,11 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
-	"unicode"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
 )
 
@@ -381,6 +381,7 @@ func writeDeleteWarning(output io.Writer, spec Spec, resource api.Resource, publ
 		label = strings.ToUpper(label[:1]) + label[1:]
 	}
 	name, _ := resource["name"].(string)
+	name = iostreams.StripControl(name)
 	if name == "" {
 		if _, err := fmt.Fprintf(output, "%s: %s\n\n", label, publicID); err != nil {
 			return err
@@ -438,7 +439,7 @@ func writeResources(output io.Writer, resources []api.Resource, totalItems int, 
 			return err
 		}
 	} else {
-		table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+		table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 		for index, field := range spec.Fields {
 			if index > 0 {
 				_, _ = fmt.Fprint(table, "\t")
@@ -491,7 +492,7 @@ func writeResource(output io.Writer, resource api.Resource) error {
 	}
 	sort.Strings(keys)
 
-	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(table, "FIELD\tVALUE"); err != nil {
 		return err
 	}
@@ -553,20 +554,11 @@ func writeLogLines(output io.Writer, logs []any, asJSON bool) error {
 			}
 			continue
 		}
-		if _, err := fmt.Fprintf(output, "%s\t%s\n", stripControlCharacters(resourceValue(entry["time"])), stripControlCharacters(resourceValue(entry["log"]))); err != nil {
+		if _, err := fmt.Fprintf(output, "%s\t%s\n", iostreams.StripControl(resourceValue(entry["time"])), iostreams.StripControl(resourceValue(entry["log"]))); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func stripControlCharacters(value string) string {
-	return strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
-			return -1
-		}
-		return character
-	}, value)
 }
 
 func resourceValue(value any) string {

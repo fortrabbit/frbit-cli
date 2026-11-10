@@ -40,7 +40,7 @@ func TestWriteLogsStripsTerminalControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); strings.ContainsAny(got, "\x1b\r") || !strings.Contains(got, "[2Jbuildcomplete") {
+	if got := output.String(); strings.ContainsAny(got, "\x1b\r") || !strings.Contains(got, "[2Jbuild\ncomplete") {
 		t.Fatalf("log output = %q", got)
 	}
 }

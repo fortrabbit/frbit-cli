@@ -13,6 +13,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -254,7 +255,7 @@ func writeFirewallRules(out io.Writer, rules []api.Resource) error {
 		_, err := fmt.Fprintln(out, "No firewall rules found.")
 		return err
 	}
-	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(table, "ID\tPORTS\tDESCRIPTION")
 	for _, rule := range rules {
 		_, _ = fmt.Fprintf(table, "%v\t%s\t%v\n", rule["publicId"], formatPorts(rule), rule["description"])
@@ -385,7 +386,7 @@ func newCmdComponents(factory *app.Factory) *cobra.Command {
 }
 
 func writeComponents(out io.Writer, value api.Resource) error {
-	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(out), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(table, "COMPONENT\tSIZE\tPRICE/MONTH")
 	components, _ := value["components"].([]any)
 	for _, raw := range components {

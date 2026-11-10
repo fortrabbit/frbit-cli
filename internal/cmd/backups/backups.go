@@ -17,6 +17,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -160,7 +161,7 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			name, _ := env.Resource["name"].(string)
 			created, _ := response.Resource["createdAt"].(string)
 			stderr := cmd.ErrOrStderr()
-			_, _ = fmt.Fprintf(stderr, "Backup:      %s, created %s\nEnvironment: %s (%s)\n\n", id, created, name, environment)
+			_, _ = fmt.Fprintf(stderr, "Backup:      %s, created %s\nEnvironment: %s (%s)\n\n", id, iostreams.StripControl(created), iostreams.StripControl(name), environment)
 			warning := "Restoring overwrites the live data of " + environment + ": its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
 			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "restore", environment, confirmation, warning)
 			if err != nil {

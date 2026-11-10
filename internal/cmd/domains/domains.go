@@ -11,6 +11,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -120,7 +121,7 @@ func newCmdDNS(factory *app.Factory) *cobra.Command {
 }
 
 func writeDNS(output io.Writer, dns api.Resource) error {
-	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(table, "RECORD\tTYPE\tNAME\tVALUE")
 	for _, row := range []struct{ label, key string }{{"expected", "expected"}, {"actual", "actual"}} {
 		record, _ := dns[row.key].(map[string]any)

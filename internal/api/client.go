@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"io"
 	"net"
 	"net/http"
@@ -436,7 +437,7 @@ func (c Client) writeWarnings(header http.Header) {
 					continue
 				}
 			}
-			_, _ = fmt.Fprintf(c.Warnings, "warning: %s\n", message)
+			_, _ = fmt.Fprintf(c.Warnings, "warning: %s\n", iostreams.StripControl(message))
 		}
 	}
 }

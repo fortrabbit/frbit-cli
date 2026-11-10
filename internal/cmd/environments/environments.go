@@ -11,6 +11,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -566,7 +567,7 @@ func writeResourceResponse(command *cobra.Command, response api.ResourceResponse
 }
 
 func writeEnvironmentVariables(output io.Writer, value api.Resource, reveal bool) error {
-	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	table := tabwriter.NewWriter(iostreams.Stripper(output), 0, 4, 2, ' ', 0)
 	wroteHeader := false
 	for _, kind := range []string{"custom", "platform"} {
 		variables, _ := value[kind].([]any)

@@ -28,6 +28,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	envlink "github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -103,7 +104,7 @@ func Execute(factory *app.Factory, args []string) int {
 		return 1
 	}
 	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
-	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", err)
+	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", iostreams.StripControl(err.Error()))
 	return 1
 }
 

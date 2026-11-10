@@ -175,3 +175,21 @@ func TestDotSegmentInIDNeverReachesAnotherResource(t *testing.T) {
 		}
 	}
 }
+
+func TestAPITextIsStrippedOfControlCharacters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/apps/ap-000002" {
+			writer.Header().Set("Content-Type", "application/problem+json")
+			writer.WriteHeader(http.StatusNotFound)
+			_, _ = writer.Write([]byte(`{"title":"Not Found","detail":"gone\u001b[31m"}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`[{"publicId":"ap-000001","name":"shop\u001b]0;x\u0007\u001b[1A"}]`))
+	}))
+	defer server.Close()
+	stdout, stderr, _ := runRoot(t, "--host", server.URL, "apps", "list")
+	_, errOut, _ := runRoot(t, "--host", server.URL, "apps", "get", "ap-000002")
+	if strings.ContainsAny(stdout+stderr+errOut, "\x1b\x07") || !strings.Contains(stdout, "shop]0;x[1A") || !strings.Contains(errOut, "gone[31m") {
+		t.Fatalf("stdout = %q, stderr = %q, error = %q", stdout, stderr, errOut)
+	}
+}

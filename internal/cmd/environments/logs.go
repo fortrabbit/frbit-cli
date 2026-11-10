@@ -7,11 +7,11 @@ import (
 	"io"
 	"net/url"
 	"strings"
-	"unicode"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
@@ -136,28 +136,19 @@ func writeLogEntries(out io.Writer, entries []logEntry) error {
 	for _, entry := range entries {
 		level := ""
 		if entry.Level != nil {
-			level = stripLogControl(*entry.Level)
+			level = iostreams.StripControl(*entry.Level)
 		}
 		lines := strings.Split(strings.ReplaceAll(entry.Message, "\r\n", "\n"), "\n")
-		if _, err := fmt.Fprintf(out, "%s\t%s\t%s\n", stripLogControl(entry.Time), level, stripLogControl(lines[0])); err != nil {
+		if _, err := fmt.Fprintf(out, "%s\t%s\t%s\n", iostreams.StripControl(entry.Time), level, iostreams.StripControl(lines[0])); err != nil {
 			return err
 		}
 		for _, line := range lines[1:] {
-			if _, err := fmt.Fprintf(out, "  %s\n", stripLogControl(line)); err != nil {
+			if _, err := fmt.Fprintf(out, "  %s\n", iostreams.StripControl(line)); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func stripLogControl(value string) string {
-	return strings.Map(func(character rune) rune {
-		if character != '\t' && unicode.IsControl(character) {
-			return -1
-		}
-		return character
-	}, value)
 }
 
 func reversed(entries []logEntry) []logEntry {
