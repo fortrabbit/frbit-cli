@@ -58,10 +58,6 @@ func specs() []resource.Spec {
 			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}},
 		},
 	}
-	// Catalog data is the same for everyone, so the list help repeats the group's own summary.
-	for i := range list {
-		list[i].ListShort = list[i].Short
-	}
 	return list
 }
 

@@ -26,18 +26,23 @@ type ResourceResponse struct {
 	Raw      []byte
 }
 
-// CreateResource POSTs payload with a fresh Idempotency-Key, reused on the token-refresh retry and on one 429/5xx retry.
-func (c Client) CreateResource(ctx context.Context, path string, payload any, opts ...CreateOption) (ResourceResponse, error) {
-	var options createOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+// CreateResource POSTs payload with a fresh Idempotency-Key, reused on the token-refresh retry and on one 429 retry.
+func (c Client) CreateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	return c.create(ctx, path, payload, true)
+}
+
+// DryRunCreate POSTs payload without an Idempotency-Key and without a retry, as dry runs need.
+func (c Client) DryRunCreate(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	return c.create(ctx, path, payload, false)
+}
+
+func (c Client) create(ctx context.Context, path string, payload any, keyed bool) (ResourceResponse, error) {
 	body, err := marshalPayload(payload)
 	if err != nil {
 		return ResourceResponse{}, err
 	}
 	request := call{method: http.MethodPost, path: path, body: body, contentType: "application/json", accept: "application/json"}
-	if !options.withoutKey {
+	if keyed {
 		if request.idempotencyKey, err = newIdempotencyKey(); err != nil {
 			return ResourceResponse{}, err
 		}

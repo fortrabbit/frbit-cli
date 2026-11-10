@@ -67,7 +67,7 @@ func priceQuote(cmd *cobra.Command, client *api.Client, path string, payload any
 	if err != nil {
 		return quote{}, err
 	}
-	response, err := client.CreateResource(cmd.Context(), path, body, api.WithoutIdempotencyKey())
+	response, err := client.DryRunCreate(cmd.Context(), path, body)
 	if err != nil {
 		return quote{}, err
 	}

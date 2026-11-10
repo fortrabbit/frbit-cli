@@ -58,10 +58,8 @@ type Spec struct {
 	QueryFilters   []QueryFilter
 	ClientFilters  []ClientFilter
 	NoGet          bool
-	// ListShort replaces the generated short help of list.
-	ListShort string
-	Logs      bool
-	Delete    *DeleteSpec
+	Logs           bool
+	Delete         *DeleteSpec
 }
 
 func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
@@ -84,9 +82,6 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 }
 
 func listShort(spec Spec) string {
-	if spec.ListShort != "" {
-		return spec.ListShort
-	}
 	return "List " + spec.Use + " available to the authenticated person"
 }
 

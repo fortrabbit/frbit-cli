@@ -432,7 +432,7 @@ func TestCreateWithoutIdempotencyKeySendsNoKeyAndDoesNotRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.sleep = func(context.Context, time.Duration) error { return nil }
-	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}, WithoutIdempotencyKey()); err == nil {
+	if _, err := client.DryRunCreate(context.Background(), "/v1/apps", map[string]any{}); err == nil {
 		t.Fatal("expected an error")
 	}
 	if calls != 1 {
@@ -440,17 +440,14 @@ func TestCreateWithoutIdempotencyKeySendsNoKeyAndDoesNotRetry(t *testing.T) {
 	}
 }
 
-func TestIdempotencyKeyIsUUIDv4(t *testing.T) {
-	key, err := newIdempotencyKey()
+func TestIdempotencyKeyIsRandomHex(t *testing.T) {
+	first, err := newIdempotencyKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(key) != 36 || key[14] != '4' || !strings.ContainsRune("89ab", rune(key[19])) {
-		t.Fatalf("key = %q, want UUID v4", key)
-	}
-	other, _ := newIdempotencyKey()
-	if other == key {
-		t.Fatal("keys repeat")
+	second, _ := newIdempotencyKey()
+	if len(first) != 32 || first == second || strings.Trim(first, "0123456789abcdef") != "" {
+		t.Fatalf("keys = %q, %q", first, second)
 	}
 }
 
