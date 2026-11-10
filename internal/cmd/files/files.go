@@ -136,8 +136,8 @@ func progressFlag(version string) string {
 var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*"}
 
 // rsyncArgs builds the rsync arguments; "--" ends the options before the paths.
-func rsyncArgs(progress string, interactive, dryRun, del bool, src, dst string) []string {
-	args := append([]string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " ")}, excludes...)
+func rsyncArgs(progress, rsh string, dryRun, del bool, src, dst string) []string {
+	args := append([]string{"-az", progress, "-e", rsh}, excludes...)
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
@@ -273,7 +273,11 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 		stdin = factory.IOStreams.In
 	}
 	tail := sshexec.NewTail(stderr)
-	err = runner.Run(ctx, "rsync", rsyncArgs(progressFlag(version.String()), interactive, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
+	rsh, err := sshexec.RshCommand(target, interactive)
+	if err != nil {
+		return err
+	}
+	err = runner.Run(ctx, "rsync", rsyncArgs(progressFlag(version.String()), rsh, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
 	if err != nil && ctx.Err() != nil {
 		_, _ = fmt.Fprintf(stderr, "Cancelled: the sync of %s stopped partway; some files may be copied and others not.\n", remotePath)
 		return ctx.Err()

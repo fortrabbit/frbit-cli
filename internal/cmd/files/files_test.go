@@ -133,8 +133,6 @@ func execute(t *testing.T, dir string, in invocation) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-const sshE = "ssh -T -a -x -o ConnectTimeout=10 -o BatchMode=yes"
-
 func TestFilesPullBuildsRsyncArgs(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
@@ -173,8 +171,8 @@ func TestFilesRsyncArgsOldRsync(t *testing.T) {
 			t.Fatalf("%q: %q", version, got)
 		}
 	}
-	got := rsyncArgs("--progress", true, true, true, "a", "b")
-	want := []string{"-az", "--progress", "-e", "ssh -T -a -x -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*", "--dry-run", "-v", "--delete", "--", "a", "b"}
+	got := rsyncArgs("--progress", "ssh -T", true, true, "a", "b")
+	want := []string{"-az", "--progress", "-e", "ssh -T", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*", "--dry-run", "-v", "--delete", "--", "a", "b"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rsyncArgs = %q", got)
 	}
@@ -282,7 +280,7 @@ func TestFilesPushPromptsOnTTY(t *testing.T) {
 
 	fake = &fakeRunner{version: rsync3}
 	_, _, err = execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("en-abc123\n"), args: []string{"files", "push", "web/uploads", "--environment", "en-abc123"}})
-	want := []string{"-az", "--info=progress2", "-e", "ssh -T -a -x -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
+	want := []string{"-az", "--info=progress2", "-e", sshTTY, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
 	if err != nil || len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("confirmed: %v, %q", err, fake.syncs)
 	}

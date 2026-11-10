@@ -54,22 +54,22 @@ func TestCheckNamesTheTool(t *testing.T) {
 }
 
 func TestArgsBatchModeWithoutTerminal(t *testing.T) {
-	batch := Args("en-abc123@ssh.x", "uptime", false)
+	batch, _ := Args("en-abc123@ssh.x", "uptime", false)
 	if !slices.Contains(batch, "BatchMode=yes") || batch[len(batch)-3] != "--" || batch[len(batch)-2] != "en-abc123@ssh.x" || batch[len(batch)-1] != "uptime" || !slices.Contains(batch, "-T") {
 		t.Fatalf("Args = %q", batch)
 	}
-	if !slices.Equal(Options(false), batch[:len(batch)-3]) {
-		t.Fatalf("Options = %q", Options(false))
+	if options, _ := Options("en-abc123@ssh.x", false); !slices.Equal(options, batch[:len(batch)-3]) {
+		t.Fatalf("Options = %q", options)
 	}
-	if slices.Contains(Args("en-abc123@ssh.x", "uptime", true), "BatchMode=yes") {
+	if tty, _ := Args("en-abc123@ssh.x", "uptime", true); slices.Contains(tty, "BatchMode=yes") {
 		t.Fatal("BatchMode on a terminal")
 	}
 	if !slices.Contains(batch, "-a") || !slices.Contains(batch, "-x") {
 		t.Fatalf("agent or X11 forwarding not disabled: %q", batch)
 	}
 	for _, arg := range batch {
-		if strings.Contains(arg, "StrictHostKeyChecking") {
-			t.Fatal("host key checking disabled")
+		if strings.Contains(arg, "StrictHostKeyChecking=no") || strings.Contains(arg, "accept-new") {
+			t.Fatal("host key checking relaxed")
 		}
 	}
 }

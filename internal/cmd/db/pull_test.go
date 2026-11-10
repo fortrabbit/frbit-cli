@@ -165,7 +165,10 @@ func TestDbPullRunsExpectedSSHCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-T", "-a", "-x", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "--", "en-abc123@ssh.us-e1a.frbit.app", `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip`}
+	want, _ := sshexec.Args("en-abc123@ssh.us-e1a.frbit.app", `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip`, false)
+	if !slices.Contains(want, "StrictHostKeyChecking=yes") {
+		t.Fatalf("production host not pinned: %q", want)
+	}
 	if fake.name != "ssh" || !slices.Equal(fake.args, want) {
 		t.Fatalf("ran %s %q", fake.name, fake.args)
 	}

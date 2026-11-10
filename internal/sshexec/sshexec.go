@@ -84,24 +84,39 @@ func Check(name string) error {
 	return nil
 }
 
-// Options are the ssh options every caller uses: no agent or X11 forwarding to the environment, and without a terminal BatchMode stops ssh from hanging on a password prompt.
-func Options(interactive bool) []string {
+// Options are the ssh options for target: no agent or X11 forwarding to the environment, the pinned host key for production endpoints, and without a terminal BatchMode stops ssh from hanging on a password prompt.
+func Options(target string, interactive bool) ([]string, error) {
 	options := []string{"-T", "-a", "-x", "-o", "ConnectTimeout=10"}
 	if !interactive {
 		options = append(options, "-o", "BatchMode=yes")
 	}
-	return options
+	if Pinned(target) {
+		pin, err := pinOptions(target)
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, pin...)
+	}
+	return options, nil
 }
 
 // Args builds the ssh arguments; "--" ends the options before the destination.
-func Args(target, remote string, interactive bool) []string {
-	return append(Options(interactive), "--", target, remote)
+func Args(target, remote string, interactive bool) ([]string, error) {
+	options, err := Options(target, interactive)
+	if err != nil {
+		return nil, err
+	}
+	return append(options, "--", target, remote), nil
 }
 
 // Run runs remote on target over ssh and maps the exit as MapOutput does.
 func Run(ctx context.Context, runner Runner, target, remote string, interactive bool, stdin io.Reader, stdout, stderr io.Writer) error {
+	args, err := Args(target, remote, interactive)
+	if err != nil {
+		return err
+	}
 	tail := NewTail(stderr)
-	err := runner.Run(ctx, "ssh", Args(target, remote, interactive), stdin, stdout, tail)
+	err = runner.Run(ctx, "ssh", args, stdin, stdout, tail)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
