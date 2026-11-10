@@ -7,6 +7,7 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -14,23 +15,27 @@ const rotateWarning = "The app breaks until it reads the new password (redeploy 
 
 func NewCmdMysql(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "mysql", Short: "Inspect the MySQL database of an environment and rotate its password", Args: cobra.NoArgs}
-	command.AddCommand(newCmdGet(factory), newCmdRotatePassword(factory))
+	command.AddCommand(link.Documented(newCmdGet(factory), false), link.Documented(newCmdRotatePassword(factory), true))
 	return command
 }
 
 func newCmdGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "get <environment>",
+		Use:   "get [environment]",
 		Short: "Show host, port, user and database",
 		Long:  "Show host, port, user and database. The password is never printed. The app reads it from its environment variables.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/mysql")
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/mysql")
 			if err != nil {
 				return err
 			}
@@ -68,9 +73,16 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 		Use:   "rotate-password <environment>",
 		Short: "Generate a new MySQL password",
 		Long:  "Generate a new MySQL password. The new password is never printed. Once the platform has applied it, the app reads it from its environment variables. " + rotateWarning,
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
+			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			id, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
 			if err := cmdutil.CheckDestructive(factory, "password rotation", id, confirmation); err != nil {
 				return err
 			}
@@ -81,10 +93,6 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 			}
 			if !confirmed {
 				_, err = fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-				return err
-			}
-			client, err := cmdutil.APIClient(cmd, factory)
-			if err != nil {
 				return err
 			}
 			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+url.PathEscape(id)+"/mysql/regenerate-password"); err != nil {

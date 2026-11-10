@@ -12,6 +12,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,7 @@ var spec = resource.Spec{
 
 func NewCmdJobs(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "jobs", Short: "Manage the workers and cron jobs of an environment", Args: cobra.NoArgs}
-	command.AddCommand(newCmdList(factory), newCmdGet(factory), newCmdCreate(factory), newCmdUpdate(factory), newCmdDelete(factory))
+	command.AddCommand(link.Documented(newCmdList(factory), false), newCmdGet(factory), link.Documented(newCmdCreate(factory), true), newCmdUpdate(factory), newCmdDelete(factory))
 	return command
 }
 
@@ -38,15 +39,19 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 	var printJSON, all bool
 	var limit int
 	command := &cobra.Command{
-		Use:   "list <environment>",
+		Use:   "list [environment]",
 		Short: "List the jobs of an environment and the limit of the booked jobs plan",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(args[0])+"/jobs", limit, all)
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(env)+"/jobs", limit, all)
 			if err != nil {
 				return err
 			}
@@ -210,7 +215,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			`A worker needs --name, --command and --type worker, e.g. --command "php artisan queue:work".` + "\n" +
 			"A cron job also needs --interval and --max-runtime, and --expression with --interval custom (checked before the job is created).\n" +
 			"Jobs count against the booked jobs plan; see frbit jobs list.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := j.payload(cmd)
 			if err != nil {
@@ -242,12 +247,16 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
 			if body["interval"] == "custom" {
 				if err := checkExpression(cmd, client, body["expression"].(string)); err != nil {
 					return err
 				}
 			}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/jobs", body)
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/jobs", body)
 			if err != nil {
 				return err
 			}

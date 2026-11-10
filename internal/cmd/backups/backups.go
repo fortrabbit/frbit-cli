@@ -19,6 +19,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ var spec = resource.Spec{
 
 func NewCmdBackups(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "backups", Short: "List, create, restore and download backups of an environment", Args: cobra.NoArgs}
-	command.AddCommand(newCmdList(factory), newCmdGet(factory), newCmdCreate(factory), newCmdRestore(factory), newCmdDownload(factory))
+	command.AddCommand(link.Documented(newCmdList(factory), false), newCmdGet(factory), link.Documented(newCmdCreate(factory), true), newCmdRestore(factory), newCmdDownload(factory))
 	return command
 }
 
@@ -39,15 +40,19 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 	var printJSON, all bool
 	var limit int
 	command := &cobra.Command{
-		Use:   "list <environment>",
+		Use:   "list [environment]",
 		Short: "List the backups of an environment",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(args[0])+"/backups", limit, all)
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(env)+"/backups", limit, all)
 			if err != nil {
 				return err
 			}
@@ -94,13 +99,17 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "create <environment>",
 		Short: "Request a backup of an environment",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/backups", map[string]any{})
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/backups", map[string]any{})
 			if err != nil {
 				return err
 			}
@@ -109,7 +118,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			status, _ := response.Resource["status"].(string)
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Backup of %s requested (%s). It shows up in `frbit backups list %s` once it is completed.\n", args[0], status, args[0])
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Backup of %s requested (%s). It shows up in `frbit backups list %s` once it is completed.\n", env, status, env)
 			return err
 		},
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +21,7 @@ func NewCmdDomains(factory *app.Factory) *cobra.Command {
 		Delete: &resource.DeleteSpec{Warning: "Deleting this domain disconnects it from its environment. The domain will no longer serve the environment."},
 		Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "NAME", Key: "name"}, {Header: "TYPE", Key: "type"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "MAIN", Key: "isMain"}, {Header: "UPDATED", Key: "updatedAt"}},
 	})
-	command.AddCommand(newCmdCreate(factory), newCmdDNS(factory))
+	command.AddCommand(link.Documented(newCmdCreate(factory), true), newCmdDNS(factory))
 	return command
 }
 
@@ -32,10 +33,18 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Long: "Add a domain to an environment and print the DNS record to set at your DNS provider.\n\n" +
 			"Without --cloud, name is a hostname you own, such as www.example.com.\n" +
 			"With --cloud, name is a label such as acme-shop, not a full hostname; the API appends the cloud domain root.",
-		Args: cobra.ExactArgs(2),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			environment, name := args[0], args[1]
+			// With one argument it is the domain name and the environment is missing.
+			envArg, name := "", args[len(args)-1]
+			if len(args) == 2 {
+				envArg = args[0]
+			}
 			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			environment, err := link.WriteEnvironment(cmd, factory, client, envArg, cmd.CommandPath()+" <env-id|label> <name>")
 			if err != nil {
 				return err
 			}
