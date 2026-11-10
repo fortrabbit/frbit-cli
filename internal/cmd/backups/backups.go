@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -315,8 +316,14 @@ func extension(disposition, urlPath string) string {
 	ext := path.Ext(name)
 	if ext == ".gz" {
 		if inner := path.Ext(strings.TrimSuffix(name, ext)); inner != "" {
-			return inner + ext
+			ext = inner + ext
 		}
+	}
+	// The extension lands in a file name and the "Saved" line, so only plain characters pass.
+	if !plainExtension.MatchString(ext) {
+		return ""
 	}
 	return ext
 }
+
+var plainExtension = regexp.MustCompile(`^(\.[A-Za-z0-9]+){1,2}$`)
