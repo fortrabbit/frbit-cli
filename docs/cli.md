@@ -122,7 +122,7 @@ Request a specific page of results. Pages start at `1`.
 frbit apps list --page 2
 ```
 
-`--limit N` returns at most N apps and fetches further pages until it has them. `--all` returns every page. Both work on every `list` command. `--all` cannot be combined with `--page` or `--limit`.
+`--limit N` returns at most N apps and fetches further pages until it has them. `--all` returns every page. Both work on every `list` command except `environments firewall-rules list` and `git branches`. `--all` cannot be combined with `--page` or `--limit`.
 
 ```sh
 frbit apps list --limit 50
@@ -457,7 +457,7 @@ gunzip -c dump.sql.gz | frbit db push - en-a1b2c3 --confirm en-a1b2c3
 
 `db push <file|-> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL; `-` reads it from stdin and is refused when stdin is a terminal. An empty file, a `.gz` file that is not gzip data, or a damaged gzip file fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
 
-It needs the environment ID typed on a terminal, or `--confirm <id>` without one or when the dump comes from stdin. The check runs before the environment is read and before any SSH call.
+It needs the environment ID typed on a terminal, or `--confirm <id>` without one or when the dump comes from stdin. The check runs before any SSH call; with a label or the environment of the checkout, the environment may already have been read from the API to resolve it.
 
 Each step is its own SSH call with your own SSH key:
 
@@ -485,7 +485,7 @@ Changed files are overwritten on the receiving side. `--delete` also removes fil
 
 A sync without a path, and any sync with `--delete`, refuses to run from `/`, your home folder, or a subfolder of a git checkout; the error names the project root to run it from. The confirmation names the absolute local folder.
 
-`files push`, `files pull` without a path, and `files pull --delete` need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before the environment is read and before rsync starts. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
+`files push`, `files pull` without a path, and `files pull --delete` need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before rsync starts; with a label or the environment of the checkout, the environment may already have been read from the API to resolve it. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
 
 rsync 3.1 and later shows overall progress (`--info=progress2`); the older rsync and openrsync that macOS ships show per-file progress. Missing `rsync` or `ssh` fails with how to install it. A rejected SSH key (exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>; any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
 
@@ -762,9 +762,14 @@ frbit --profile work auth logout
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
 | `frbit environments logs <id>` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
+| `frbit environments metrics <environment> [slug]` | Show the usage summary, or the history of one metric with `--range` and `--step`. Accepts `--json`. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit backups list <environment>` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |
+| `frbit backups download <backup>` | Download the files or the database of a backup through a signed link. Accepts `--type files\|database`, `--output` (file, folder, or `-` for stdout), `--force`. |
+| `frbit backups restore <backup>` | Restore a backup, overwriting the live data of its environment; needs `--confirm <backup>` without a terminal. |
+| `frbit mysql get <environment>` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). A whole-folder sync never touches `.git/`, `.fortrabbit/`, `.env`, `.env.*`, `.frbit-*` or default dump and backup files. |
