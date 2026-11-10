@@ -3,12 +3,14 @@
 package resource
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
@@ -219,8 +221,14 @@ func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 	return command
 }
 
+// LogsPollInterval is the wait between polls of logs --follow; tests replace it.
+var LogsPollInterval = 2 * time.Second
+
+// finalDeploymentStates end a deployment; anything else is still running.
+var finalDeploymentStates = map[string]bool{"succeeded": true, "failed": true, "canceled": true, "unknown": true}
+
 func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
-	var printJSON bool
+	var printJSON, follow bool
 	command := &cobra.Command{
 		Use:   "logs <public-id>",
 		Short: "Get deployment logs",
@@ -229,6 +237,9 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 			client, err := clientFor(cmd, factory)
 			if err != nil {
 				return err
+			}
+			if follow {
+				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), "/v1"+spec.Path+"/"+args[0], printJSON)
 			}
 			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0]+"/logs")
 			if err != nil {
@@ -241,8 +252,46 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 			return writeLogs(cmd.OutOrStdout(), response.Resource)
 		},
 	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	command.Flags().BoolVar(&follow, "follow", false, "Keep polling and print new lines until the deployment reaches a final state")
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON (one object per line with --follow)")
 	return command
+}
+
+// followDeploymentLogs prints each log line once and stops when the deployment is final and its logs are complete.
+func followDeploymentLogs(ctx context.Context, client *api.Client, out io.Writer, path string, asJSON bool) error {
+	printed := 0
+	for {
+		deployment, err := client.GetResource(ctx, path)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		response, err := client.GetResource(ctx, path+"/logs")
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		logs, _ := response.Resource["logs"].([]any)
+		if len(logs) > printed {
+			if err := writeLogLines(out, logs[printed:], asJSON); err != nil {
+				return err
+			}
+			printed = len(logs)
+		}
+		ready, _ := response.Resource["ready"].(bool)
+		if ready && finalDeploymentStates[strings.ToLower(resourceValue(deployment.Resource["status"]))] {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(LogsPollInterval):
+		}
+	}
 }
 
 func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
@@ -417,15 +466,33 @@ func writeNested(table io.Writer, prefix string, nested map[string]any) error {
 func writeLogs(output io.Writer, resource api.Resource) error {
 	logs, ok := resource["logs"].([]any)
 	if !ok || len(logs) == 0 {
-		_, err := fmt.Fprintln(output, "No deployment logs found.")
+		message := "No deployment logs found."
+		if ready, known := resource["ready"].(bool); known && !ready {
+			message = "Deployment logs are still being collected. Try again shortly or use --follow."
+		}
+		_, err := fmt.Fprintln(output, message)
 		return err
 	}
+	return writeLogLines(output, logs, false)
+}
+
+func writeLogLines(output io.Writer, logs []any, asJSON bool) error {
 	for _, value := range logs {
 		entry, ok := value.(map[string]any)
 		if !ok {
 			continue
 		}
-		if _, err := fmt.Fprintf(output, "%s\t%s\n", resourceValue(entry["time"]), stripControlCharacters(resourceValue(entry["log"]))); err != nil {
+		if asJSON {
+			raw, err := json.Marshal(entry)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(output, "%s\n", raw); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(output, "%s\t%s\n", stripControlCharacters(resourceValue(entry["time"])), stripControlCharacters(resourceValue(entry["log"]))); err != nil {
 			return err
 		}
 	}

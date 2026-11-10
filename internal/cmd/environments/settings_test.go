@@ -2,6 +2,7 @@ package environments
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -37,6 +38,11 @@ type request struct {
 
 func run(t *testing.T, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, []request, error) {
 	t.Helper()
+	return runContext(t, context.Background(), stdin, handler, args...)
+}
+
+func runContext(t *testing.T, ctx context.Context, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, []request, error) {
+	t.Helper()
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	var seen []request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +69,7 @@ func run(t *testing.T, stdin string, handler func(r request, w http.ResponseWrit
 	root.SetErr(&bytes.Buffer{})
 	root.AddCommand(NewCmdEnvironments(factory))
 	root.SetArgs(append([]string{"--host", server.URL, "environments"}, args...))
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
 	return output.String(), seen, err
 }
 

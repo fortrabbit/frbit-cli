@@ -363,6 +363,16 @@ frbit environments metrics en-a1b2c3 web-storage --range 30d --step hour
 
 Without a slug, `metrics` prints one row per booked component (storage, database, traffic) with current usage, limit and percentage, the last 24 hours (requests, 500/503/504 responses, response times, PHP memory, out-of-memory kills) and the available metric slugs. With a slug it prints the history: totals and one point per step. `--range 1h|24h|7d|30d` (default `24h`) sets `from` and `to` (ISO 8601, UTC) counted back from now; `--step hour|day` defaults to `hour` for 1h and 24h and `day` for 7d and 30d (the API allows hourly steps up to 83 days). `--json` prints the raw API body.
 
+### Logs
+
+```sh
+frbit environments logs en-a1b2c3
+frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
+frbit environments logs en-a1b2c3 --source php --follow
+```
+
+Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. `--follow` polls every 2 seconds for new entries until Ctrl-C, which exits 0. Control characters are stripped. `--json` prints the entries as a JSON array, or one object per line with `--follow`.
+
 ## Deployments
 
 Inspect deployments and retrieve the log entries for one deployment. The list shows the newest 30 first; `--environment` narrows it to one environment:
@@ -372,7 +382,10 @@ frbit deployments list
 frbit deployments list --environment en-a1b2c3 --page 2
 frbit deployments get dp-a1b2c3
 frbit deployments logs dp-a1b2c3
+frbit deployments logs dp-a1b2c3 --follow
 ```
+
+`logs --follow` polls every 2 seconds, prints each line once and stops when the deployment is `succeeded`, `failed`, `canceled` or `unknown` and its logs are complete (`ready: true`). Without `--follow`, logs that are still being collected say so.
 
 ## Domains
 
@@ -658,7 +671,8 @@ frbit --profile work auth logout
 | `frbit environments variables update <id>` | Set or delete custom environment variables. |
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
+| `frbit environments logs <id>` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |

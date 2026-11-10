@@ -59,6 +59,20 @@ func (c Client) ListAll(ctx context.Context, path string, query url.Values, limi
 	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: raw}, nil
 }
 
+// GetWithLinks GETs path and returns the body with the Link header (all values joined).
+func (c Client) GetWithLinks(ctx context.Context, path string, query url.Values) ([]byte, string, error) {
+	response, err := c.do(ctx, call{method: http.MethodGet, path: path, query: query, accept: "application/json"})
+	if err != nil {
+		return nil, "", err
+	}
+	return response.body, strings.Join(response.header.Values("Link"), ","), nil
+}
+
+// ResolveLink turns a Link target into a path and query on the API origin.
+func (c Client) ResolveLink(link string) (string, url.Values, error) {
+	return c.sameOriginPath(link)
+}
+
 // sameOriginPath keeps the bearer token on the API origin when following a next link.
 func (c Client) sameOriginPath(link string) (string, url.Values, error) {
 	reference, err := url.Parse(link)
@@ -73,7 +87,10 @@ func (c Client) sameOriginPath(link string) (string, url.Values, error) {
 }
 
 // nextLink returns the target of the rel="next" entry of an RFC 8288 Link header.
-func nextLink(header string) string {
+func nextLink(header string) string { return LinkRel(header, "next") }
+
+// LinkRel returns the target of the entry with the given rel of an RFC 8288 Link header.
+func LinkRel(header, wanted string) string {
 	rest := header
 	for {
 		start := strings.IndexByte(rest, '<')
@@ -97,7 +114,7 @@ func nextLink(header string) string {
 			}
 			value = strings.Trim(strings.TrimRight(strings.TrimSpace(value), ", "), `"`)
 			for _, rel := range strings.Fields(value) {
-				if strings.EqualFold(rel, "next") {
+				if strings.EqualFold(rel, wanted) {
 					return target
 				}
 			}
