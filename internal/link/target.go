@@ -164,3 +164,26 @@ func FirstArg(args []string) string {
 	}
 	return args[0]
 }
+
+// ReadHelp and WriteHelp state in the long help how a command takes its environment.
+const (
+	ReadHelp  = "The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link)."
+	WriteHelp = "The environment is required: an ID or a label from .fortrabbit/environments.yml."
+)
+
+// Documented adds ReadHelp, or WriteHelp when write is set, to the long help of command.
+func Documented(command *cobra.Command, write bool) *cobra.Command {
+	help := ReadHelp
+	if write {
+		help = WriteHelp
+	}
+	if strings.Contains(command.Long, help) {
+		return command
+	}
+	long := command.Long
+	if long == "" {
+		long = command.Short + "."
+	}
+	command.Long = long + "\n\n" + help
+	return command
+}

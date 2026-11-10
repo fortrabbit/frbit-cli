@@ -13,6 +13,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -23,22 +24,26 @@ func writeRaw(cmd *cobra.Command, raw []byte) error {
 
 func newCmdPhpSettings(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "php-settings", Short: "Read and update php.ini settings and extensions", Args: cobra.NoArgs}
-	command.AddCommand(newCmdPhpSettingsGet(factory), newCmdPhpSettingsUpdate(factory))
+	command.AddCommand(link.Documented(newCmdPhpSettingsGet(factory), false), link.Documented(newCmdPhpSettingsUpdate(factory), true))
 	return command
 }
 
 func newCmdPhpSettingsGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "get <public-id>",
+		Use:   "get [environment]",
 		Short: "Get PHP settings and extensions",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/php-settings")
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/php-settings")
 			if err != nil {
 				return err
 			}
@@ -53,10 +58,10 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 	var setValues, extensionValues []string
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "update <public-id>",
+		Use:   "update <environment>",
 		Short: "Change php.ini settings and enable or disable extensions",
 		Long:  "Change php.ini settings and enable or disable extensions. Valid directives and values: 'frbit php-settings list'. Valid extensions: 'frbit php-extensions list'. Directives and extensions you do not name stay unchanged.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload, err := phpSettingsPayload(setValues, extensionValues)
 			if err != nil {
@@ -66,7 +71,11 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/php-settings", payload)
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/php-settings", payload)
 			if err != nil {
 				return err
 			}
@@ -123,22 +132,26 @@ func phpSettingsPayload(setValues, extensionValues []string) (map[string]any, er
 
 func newCmdBasicAuth(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "basic-auth", Short: "Read and update HTTP basic auth", Args: cobra.NoArgs}
-	command.AddCommand(newCmdBasicAuthGet(factory), newCmdBasicAuthUpdate(factory))
+	command.AddCommand(link.Documented(newCmdBasicAuthGet(factory), false), link.Documented(newCmdBasicAuthUpdate(factory), true))
 	return command
 }
 
 func newCmdBasicAuthGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "get <public-id>",
+		Use:   "get [environment]",
 		Short: "Get the basic auth state (the password is never returned)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/basic-auth")
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/basic-auth")
 			if err != nil {
 				return err
 			}
@@ -155,10 +168,10 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 	var passwordStdin bool
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "update <public-id>",
+		Use:   "update <environment>",
 		Short: "Enable, disable, or change basic auth",
 		Long:  "Enable, disable, or change basic auth. The password is read as one line from stdin with --password-stdin and is never accepted as a flag. Pipe it in: printf '%s\\n' \"$PASSWORD\" | frbit environments basic-auth update ... --password-stdin. A password typed on a terminal is echoed. Omit it to keep the current password. --enabled and --username keep their current values when omitted.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload := map[string]any{}
 			if cmd.Flags().Changed("enabled") {
@@ -185,7 +198,11 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path := "/v1/environments/" + url.PathEscape(args[0]) + "/basic-auth"
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			path := "/v1/environments/" + url.PathEscape(env) + "/basic-auth"
 			// The PUT replaces the settings and needs enabled and username, so missing ones keep their current value.
 			if _, ok := payload["enabled"]; !ok || payload["username"] == nil {
 				current, err := client.GetResource(cmd.Context(), path)
@@ -219,7 +236,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 
 func newCmdFirewallRules(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "firewall-rules", Short: "Open extra ports of an environment", Args: cobra.NoArgs}
-	command.AddCommand(newCmdFirewallList(factory), newCmdFirewallAdd(factory), newCmdFirewallDelete(factory))
+	command.AddCommand(link.Documented(newCmdFirewallList(factory), false), link.Documented(newCmdFirewallAdd(factory), true), newCmdFirewallDelete(factory))
 	return command
 }
 
@@ -248,15 +265,19 @@ func writeFirewallRules(out io.Writer, rules []api.Resource) error {
 func newCmdFirewallList(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "list <environment-id>",
+		Use:   "list [environment]",
 		Short: "List the firewall rules of an environment",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/firewall-rules", 0, nil, nil)
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/firewall-rules", 0, nil, nil)
 			if err != nil {
 				return err
 			}
@@ -304,9 +325,9 @@ func newCmdFirewallAdd(factory *app.Factory) *cobra.Command {
 	var description, port string
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "add <environment-id> --description D --port N[-M]",
+		Use:   "add <environment> --description D --port N[-M]",
 		Short: "Open a port or port range",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if description == "" || port == "" {
 				return fmt.Errorf("--description and --port are required")
@@ -319,8 +340,12 @@ func newCmdFirewallAdd(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
 			payload := map[string]any{"description": description, "portStart": start, "portEnd": end}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/firewall-rules", payload)
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/firewall-rules", payload)
 			if err != nil {
 				return err
 			}
@@ -369,7 +394,7 @@ func newCmdFirewallDelete(factory *app.Factory) *cobra.Command {
 
 func newCmdComponents(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "components", Short: "Read and change the booked component sizes", Args: cobra.NoArgs}
-	command.AddCommand(newCmdComponentsGet(factory), newCmdComponentsUpdate(factory))
+	command.AddCommand(link.Documented(newCmdComponentsGet(factory), false), link.Documented(newCmdComponentsUpdate(factory), true))
 	return command
 }
 
@@ -396,15 +421,19 @@ func writeComponents(out io.Writer, value api.Resource) error {
 func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "get <public-id>",
+		Use:   "get [environment]",
 		Short: "Get the booked component plans",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components")
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components")
 			if err != nil {
 				return err
 			}
@@ -423,10 +452,10 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 	var region string
 	var yes, printJSON bool
 	command := &cobra.Command{
-		Use:   "update <public-id> --component SLUG=SIZE",
+		Use:   "update <environment> --component SLUG=SIZE",
 		Short: "Change component sizes (billed)",
 		Long:  "Change component sizes (billed). Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows old -> new price per changed component and the monthly change, priced in the environment's region, and asks first, also for a downsize. Components already at the requested size are skipped; if nothing changes, nothing is sent.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			components, err := cmdutil.ParseAssignments(componentValues)
 			if err != nil {
@@ -439,7 +468,11 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components")
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components")
 			if err != nil {
 				return err
 			}
@@ -452,7 +485,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if region == "" {
-				if region, err = environmentRegion(cmd, client, args[0]); err != nil {
+				if region, err = environmentRegion(cmd, client, env); err != nil {
 					return err
 				}
 			}
@@ -476,7 +509,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			for slug, size := range components {
 				payload[slug] = size
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components", payload)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components", payload)
 			if err != nil {
 				return err
 			}

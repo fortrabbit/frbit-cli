@@ -13,6 +13,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -33,10 +34,10 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 	var limit int
 	var follow, printJSON bool
 	command := &cobra.Command{
-		Use:   "logs <environment>",
+		Use:   "logs [environment]",
 		Short: "Show the logs of an environment, optionally following new entries",
 		Long:  "Prints the newest --limit entries of one log source, oldest first. --follow keeps polling and prints new entries until Ctrl-C. Logs are kept for 14 days. --status and --method filter the access log only.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch source {
 			case "php", "apache", "access", "jobs":
@@ -63,7 +64,11 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path := "/v1/environments/" + url.PathEscape(args[0]) + "/logs"
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			path := "/v1/environments/" + url.PathEscape(env) + "/logs"
 			out := cmd.OutOrStdout()
 			newest, raw, pages, prev, err := fetchLogs(cmd.Context(), client, path, query, limit)
 			for follow && err != nil && cmd.Context().Err() == nil {

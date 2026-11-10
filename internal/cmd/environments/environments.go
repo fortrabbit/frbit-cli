@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"text/tabwriter"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +26,7 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		},
 		SupportsPage:   true,
 		SupportsFilter: true,
+		NoGet:          true,
 		Fields: []resource.Field{
 			{Header: "ID", Key: "publicId"},
 			{Header: "NAME", Key: "name"},
@@ -32,18 +35,49 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		},
 	})
 	command.AddCommand(
+		link.Documented(newCmdGet(factory), false),
 		newCmdCreate(factory),
-		newCmdUpdate(factory),
+		link.Documented(newCmdUpdate(factory), true),
 		newCmdVariables(factory),
 		newCmdPhpSettings(factory),
 		newCmdBasicAuth(factory),
 		newCmdFirewallRules(factory),
 		newCmdComponents(factory),
-		newCmdRestart(factory),
-		newCmdDeploy(factory),
+		link.Documented(newCmdRestart(factory), true),
+		link.Documented(newCmdDeploy(factory), true),
 		newCmdMetrics(factory),
-		newCmdLogs(factory),
+		link.Documented(newCmdLogs(factory), false),
 	)
+	return command
+}
+
+func newCmdGet(factory *app.Factory) *cobra.Command {
+	var printJSON bool
+	command := &cobra.Command{
+		Use:   "get [environment]",
+		Short: "Get an environment",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env))
+			if err != nil {
+				return err
+			}
+			if printJSON {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
+				return err
+			}
+			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+		},
+	}
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }
 
@@ -222,9 +256,9 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 
 	command := &cobra.Command{
-		Use:   "update <public-id>",
+		Use:   "update <environment>",
 		Short: "Update an environment's name, root path, or deployment configuration",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload, err := environmentUpdatePayload(cmd, factory, opts)
 			if err != nil {
@@ -234,7 +268,11 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+args[0], payload)
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+env, payload)
 			if err != nil {
 				return err
 			}
@@ -376,7 +414,7 @@ func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, opts
 
 func newCmdVariables(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "variables", Short: "Read and update environment variables", Args: cobra.NoArgs}
-	command.AddCommand(newCmdVariablesGet(factory), newCmdVariablesUpdate(factory))
+	command.AddCommand(link.Documented(newCmdVariablesGet(factory), false), link.Documented(newCmdVariablesUpdate(factory), true))
 	return command
 }
 
@@ -384,15 +422,19 @@ func newCmdVariablesGet(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	var reveal bool
 	command := &cobra.Command{
-		Use:   "get <public-id>",
+		Use:   "get [environment]",
 		Short: "Get custom and platform environment variables",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/environment-variables")
+			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+env+"/environment-variables")
 			if err != nil {
 				return err
 			}
@@ -417,9 +459,9 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 	var deleteNames []string
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "update <public-id>",
+		Use:   "update <environment>",
 		Short: "Add, change, or delete custom environment variables",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var payload any
 			if file != "" {
@@ -450,7 +492,11 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+args[0]+"/environment-variables", payload)
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+env+"/environment-variables", payload)
 			if err != nil {
 				return err
 			}
@@ -470,18 +516,22 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 
 func newCmdRestart(factory *app.Factory) *cobra.Command {
 	return &cobra.Command{
-		Use:   "restart <public-id>",
+		Use:   "restart <environment>",
 		Short: "Request an environment restart",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+args[0]+"/restart"); err != nil {
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restart requested for %s.\n", args[0])
+			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+env+"/restart"); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restart requested for %s.\n", env)
 			return err
 		},
 	}
@@ -490,15 +540,19 @@ func newCmdRestart(factory *app.Factory) *cobra.Command {
 func newCmdDeploy(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "deploy <public-id>",
+		Use:   "deploy <environment>",
 		Short: "Create a deployment for an environment",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.PostAction(cmd.Context(), "/v1/environments/"+args[0]+"/deployments")
+			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			if err != nil {
+				return err
+			}
+			response, err := client.PostAction(cmd.Context(), "/v1/environments/"+env+"/deployments")
 			if err != nil {
 				return err
 			}

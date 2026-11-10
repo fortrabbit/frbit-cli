@@ -12,6 +12,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -29,25 +30,41 @@ func newCmdMetrics(factory *app.Factory) *cobra.Command {
 	var printJSON bool
 	var rangeName, step string
 	command := &cobra.Command{
-		Use:   "metrics <environment> [slug]",
+		Use:   "metrics [environment] [slug]",
 		Short: "Show usage against plan limits, or the history of one metric",
-		Long:  "Without a slug: current usage per booked component with its limit, the last 24 hours, and the available metric slugs. With a slug: that metric over --range (default 24h), one point per --step (default hour for 1h and 24h, day for 7d and 30d).",
-		Args:  cobra.RangeArgs(1, 2),
+		Long: `Without a slug: current usage per booked component with its limit, the last 24 hours, and the available metric slugs. With a slug: that metric over --range (default 24h), one point per --step (default hour for 1h and 24h, day for 7d and 30d).
+
+The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link). A single argument is the environment when it is an ID (en-…) or a label in that file, else it is the metric slug.`,
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := "/v1/environments/" + url.PathEscape(args[0]) + "/metrics"
-			var query url.Values
-			if len(args) == 2 {
-				var err error
-				if query, err = metricQuery(rangeName, step, metricsNow()); err != nil {
-					return err
-				}
-				path += "/" + url.PathEscape(args[1])
-			} else if cmd.Flags().Changed("range") || cmd.Flags().Changed("step") {
-				return fmt.Errorf("--range and --step need a metric slug")
-			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
+			}
+			envArg, slug := "", ""
+			switch {
+			case len(args) == 2:
+				envArg, slug = args[0], args[1]
+			case len(args) == 1 && link.TargetFor(factory.IOStreams).IsEnvironmentArg(cmd.Context(), args[0]):
+				envArg = args[0]
+			case len(args) == 1:
+				slug = args[0]
+			}
+			var query url.Values
+			if slug != "" {
+				if query, err = metricQuery(rangeName, step, metricsNow()); err != nil {
+					return err
+				}
+			} else if cmd.Flags().Changed("range") || cmd.Flags().Changed("step") {
+				return fmt.Errorf("--range and --step need a metric slug")
+			}
+			env, err := link.ReadEnvironment(cmd, factory, client, envArg)
+			if err != nil {
+				return err
+			}
+			path := "/v1/environments/" + url.PathEscape(env) + "/metrics"
+			if slug != "" {
+				path += "/" + url.PathEscape(slug)
 			}
 			response, err := client.GetResourceWithQuery(cmd.Context(), path, query)
 			if err != nil {
@@ -56,7 +73,7 @@ func newCmdMetrics(factory *app.Factory) *cobra.Command {
 			if printJSON {
 				return writeRaw(cmd, response.Raw)
 			}
-			if len(args) == 2 {
+			if slug != "" {
 				return writeMetricHistory(cmd.OutOrStdout(), response.Resource)
 			}
 			return writeMetricsSummary(cmd.OutOrStdout(), response.Resource)
