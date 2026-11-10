@@ -139,7 +139,7 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "Backup: %s (environment %s)\n\n", id, environment)
 			warning := "Restoring overwrites the live data of the environment: its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
 			_, _ = fmt.Fprintln(out, warning)
-			confirmed, err := cmdutil.ConfirmDestructive(factory, out, "restore", id, confirmation, "")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, out, "restore", id, confirmation, "")
 			if err != nil {
 				return err
 			}
@@ -214,7 +214,10 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	// No overall timeout: backups are large, the context ends the transfer.
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = base.Clone()
+	}
 	transport.ResponseHeaderTimeout = 30 * time.Second
 	response, err := (&http.Client{Transport: transport}).Do(request)
 	if err != nil {

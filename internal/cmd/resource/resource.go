@@ -269,7 +269,7 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 
-			confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.OutOrStdout(), "deletion", publicID, confirmation, "")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.OutOrStdout(), "deletion", publicID, confirmation, "")
 			if err != nil {
 				return err
 			}

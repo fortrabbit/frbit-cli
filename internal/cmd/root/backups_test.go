@@ -3,7 +3,9 @@ package root
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -132,5 +134,34 @@ func TestBackupsDownloadRefusesExistingFile(t *testing.T) {
 	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { calls++ }, "backups", "download", "ba-abc123", "--output", target)
 	if err == nil || !strings.Contains(err.Error(), "pass --force") || calls != 0 {
 		t.Fatalf("err = %v, calls = %d", err, calls)
+	}
+}
+
+func TestBackupsRestorePromptEndsOnCancel(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		_, _ = w.Write([]byte(`{"publicId":"ba-abc123","environment":"en-abc123"}`))
+	}))
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	factory := testFactory(&bytes.Buffer{})
+	factory.IOStreams.IsTTY = true
+	factory.IOStreams.In = reader
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"--host", server.URL, "backups", "restore", "ba-abc123"})
+	start := time.Now()
+	err := command.ExecuteContext(ctx)
+	if !errors.Is(err, context.Canceled) || time.Since(start) > 2*time.Second {
+		t.Fatalf("err = %v after %s", err, time.Since(start))
+	}
+	for _, call := range calls {
+		if strings.HasPrefix(call, "POST") {
+			t.Fatalf("destructive request sent: %v", calls)
+		}
 	}
 }

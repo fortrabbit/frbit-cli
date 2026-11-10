@@ -54,7 +54,7 @@ func AskBilledWith(cmd *cobra.Command, f *app.Factory, summary, prompt string, y
 	if !f.IOStreams.IsTTY {
 		return false, fmt.Errorf("billed change needs --yes")
 	}
-	return Confirm(f.IOStreams.In, out, prompt)
+	return ConfirmContext(cmd.Context(), f.IOStreams.In, out, prompt)
 }
 
 func dryRunBody(payload any) (map[string]any, error) {

@@ -325,7 +325,7 @@ func newCmdFirewallDelete(factory *app.Factory) *cobra.Command {
 			if err := cmdutil.CheckDestructive(factory, "deletion", id, confirmation); err != nil {
 				return err
 			}
-			confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.OutOrStdout(), "deletion", id, confirmation, "Deleting this rule closes its ports again.")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.OutOrStdout(), "deletion", id, confirmation, "Deleting this rule closes its ports again.")
 			if err != nil {
 				return err
 			}

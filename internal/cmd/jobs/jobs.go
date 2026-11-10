@@ -332,7 +332,7 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			name, _ := response.Resource["name"].(string)
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Job: %s (%s)\n\n", name, id)
-			confirmed, err := cmdutil.ConfirmDestructive(factory, out, "deletion", id, confirmation, "The job stops running and is removed from its environment. This cannot be undone.")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, out, "deletion", id, confirmation, "The job stops running and is removed from its environment. This cannot be undone.")
 			if err != nil {
 				return err
 			}

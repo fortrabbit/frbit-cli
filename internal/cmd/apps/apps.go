@@ -261,7 +261,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if disconnectRepository {
-				confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.ErrOrStderr(), "disconnecting the repository", publicID, confirmation,
+				confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "disconnecting the repository", publicID, confirmation,
 					"Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again.")
 				if err != nil {
 					return err

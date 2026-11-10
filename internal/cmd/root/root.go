@@ -2,6 +2,7 @@ package root
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -75,12 +76,20 @@ func Execute(factory *app.Factory, args []string) int {
 	command.SetArgs(args)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// After the first signal restore the default behaviour so a second Ctrl-C kills the process.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	executed, err := command.ExecuteContextC(ctx)
 	if err == nil {
 		return 0
 	}
 	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
 	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", err)
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		return 130
+	}
 	return 1
 }
 

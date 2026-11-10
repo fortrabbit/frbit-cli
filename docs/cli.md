@@ -458,7 +458,7 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 `restore` overwrites the live database and files of the environment with the backup and cannot be undone. It asks you to type the backup ID, or takes `--confirm <backup>` without a TTY; a missing or wrong value fails before any request.
 
-`download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. An existing target file is not overwritten unless you pass `--force`. `--output -` may leave partial output on stdout when the transfer fails. The link expires; run the command again for a fresh one.
+`download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. The file is written with mode 0600 because a backup holds database dumps. An existing target file is not overwritten unless you pass `--force`. `--output -` may leave partial output on stdout when the transfer fails. The link expires; run the command again for a fresh one.
 
 ## Deleting resources
 
