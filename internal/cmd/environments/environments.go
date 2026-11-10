@@ -41,6 +41,7 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		newCmdComponents(factory),
 		newCmdRestart(factory),
 		newCmdDeploy(factory),
+		newCmdMetrics(factory),
 	)
 	return command
 }

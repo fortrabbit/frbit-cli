@@ -353,6 +353,16 @@ frbit environments components update en-a1b2c3 --component php=md --component da
 - `firewall-rules delete` needs the exact rule ID: typed on a terminal, or `--confirm <id>` without one.
 - `components update` looks up each size in the catalog first (an unknown size is an error before any request), prints `slug: old (price) -> new (price)` per changed component and the signed `Monthly change` to stderr (priced in the region of the environment's app; `--region` overrides, and the command fails before any change if the region can't be resolved), skips components already at the requested size (nothing changes: `No component plan changes.`), and asks `Change component plans? [y/N]`, also for a downsize. Without a terminal it fails with `billed change needs --yes`. The change is applied asynchronously (202).
 
+### Metrics
+
+```sh
+frbit environments metrics en-a1b2c3
+frbit environments metrics en-a1b2c3 php-requests --range 7d
+frbit environments metrics en-a1b2c3 web-storage --range 30d --step hour
+```
+
+Without a slug, `metrics` prints one row per booked component (storage, database, traffic) with current usage, limit and percentage, the last 24 hours (requests, 500/503/504 responses, response times, PHP memory, out-of-memory kills) and the available metric slugs. With a slug it prints the history: totals and one point per step. `--range 1h|24h|7d|30d` (default `24h`) sets `from` and `to` (ISO 8601, UTC) counted back from now; `--step hour|day` defaults to `hour` for 1h and 24h and `day` for 7d and 30d (the API allows hourly steps up to 83 days). `--json` prints the raw API body.
+
 ## Deployments
 
 Inspect deployments and retrieve the log entries for one deployment. The list shows the newest 30 first; `--environment` narrows it to one environment:
