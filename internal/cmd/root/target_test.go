@@ -131,6 +131,7 @@ func TestDomainsCreateTakesLabelAndNeedsEnvironment(t *testing.T) {
 }
 
 func TestDeploymentsListEnvironmentFilter(t *testing.T) {
+	others := 0
 	query := func(args ...string) (string, string, string) {
 		t.Helper()
 		var raw string
@@ -144,6 +145,7 @@ func TestDeploymentsListEnvironmentFilter(t *testing.T) {
 				_, _ = w.Write([]byte(`[]`))
 				return
 			}
+			others++
 			_, _ = w.Write([]byte(`{"publicId":"en-abc123"}`))
 		}))
 		defer server.Close()
@@ -166,12 +168,13 @@ func TestDeploymentsListEnvironmentFilter(t *testing.T) {
 	if raw, _, stderr := query("--environment", "en-zzz999"); raw != "environment=en-zzz999&page=1" || strings.Contains(stderr, "→") {
 		t.Fatalf("ID: %q, %q", raw, stderr)
 	}
-	// Two entries and no branch: nothing resolves, so every deployment is listed.
 	if raw, _, stderr := query(); raw != "page=1" || strings.Contains(stderr, "→") {
 		t.Fatalf("none: %q, %q", raw, stderr)
 	}
+	// Without -e every deployment is listed, even when the checkout resolves to an environment.
 	t.Setenv("FORTRABBIT_ENVIRONMENT", "en-abc123")
-	if raw, stdout, stderr := query("--json"); raw != "environment=en-abc123&page=1" || !strings.Contains(stderr, "→ en-abc123 (from FORTRABBIT_ENVIRONMENT)") || strings.Contains(stdout, "→") {
-		t.Fatalf("implicit: %q, %q, %q", raw, stdout, stderr)
+	others = 0
+	if raw, stdout, stderr := query("--json"); raw != "page=1" || strings.Contains(stderr, "→") || strings.Contains(stdout, "→") || others != 0 {
+		t.Fatalf("no -e: %q, %q, %q, %d other requests", raw, stdout, stderr, others)
 	}
 }

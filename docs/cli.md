@@ -573,8 +573,9 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`) or a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)).
 
-- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`, `deployments list -e`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file, else a list to pick from on a terminal. `deployments list` never asks: without an environment it lists all deployments.
+- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file, else a list to pick from on a terminal.
 - Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`add` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one they fail with `name the environment: frbit <command> <env-id|label>`, and add `(the checkout resolves to en-a1b2c3 via …)` when the checkout points to one.
+- `deployments list -e` takes an ID or a label; without `-e` it lists every deployment and never reads the checkout.
 - `db push` and `files pull|push` keep using the checkout, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path.
 - `--confirm` and the typed confirmation always compare with the resolved `en-` ID, never the label.
 
@@ -801,7 +802,7 @@ frbit --profile work auth logout
 | `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
 | `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
 | `frbit environments metrics [environment] [slug]` | Show the usage summary, or the history of one metric with `--range` and `--step`. Accepts `--json`. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (default: the environment of the checkout, if any). |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (an ID or a label; default: all deployments). |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list [environment]` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit backups list [environment]` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |

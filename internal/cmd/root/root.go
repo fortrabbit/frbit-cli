@@ -124,15 +124,18 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 	)
 }
 
-// deploymentsEnvironment narrows deployments list to the named environment or the checkout's; without either it lists all.
+// deploymentsEnvironment resolves -e as an ID or label; without it every deployment is listed, as scripts expect.
 func deploymentsEnvironment(cmd *cobra.Command, client *api.Client, value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
 	return envlink.OptionalEnvironment(cmd, client, value)
 }
 
 func deploymentSpec() resource.Spec {
 	return resource.Spec{
 		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments, newest first", Logs: true, SupportsPage: true,
-		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID or a label (default: the environment of the checkout, if any)", Resolve: deploymentsEnvironment}},
+		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID or a label (default: all deployments)", Resolve: deploymentsEnvironment}},
 		Fields:       []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "CREATED", Key: "createdAt"}},
 	}
 }
