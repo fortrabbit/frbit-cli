@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -62,7 +63,7 @@ func (f *pushRunner) remotes() []string {
 const (
 	wantBackup        = `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip > /data/home/frbit-backup-20261110093005.sql.gz.part && mv /data/home/frbit-backup-20261110093005.sql.gz.part /data/home/frbit-backup-20261110093005.sql.gz || { status=$?; rm -f /data/home/frbit-backup-20261110093005.sql.gz.part; exit $status; }`
 	wantBackupCleanup = `rm -f /data/home/frbit-backup-20261110093005.sql.gz.part`
-	wantUpload        = `rm -f /data/home/fortrabbit-import-*.sql.gz; cat > /data/home/frbit-import.sql.gz`
+	wantUpload        = `cat > /data/home/frbit-import.sql.gz`
 	wantTest          = `gzip -t /data/home/frbit-import.sql.gz`
 	wantImport        = `set -o pipefail; gunzip -c /data/home/frbit-import.sql.gz | mysql "$FORTRABBIT_DB_NAME"`
 	wantCleanup       = `rm -f /data/home/frbit-import.sql.gz`
@@ -106,27 +107,6 @@ func TestDbPushWithoutTTYRequiresConfirmBeforeSSH(t *testing.T) {
 			t.Fatalf("%v: ssh %q, requests %q", args, fake.remotes(), requests)
 		}
 	}
-
-	// stdin carries the dump, so it cannot answer a prompt: - needs --confirm.
-	fake := &pushRunner{}
-	_, _, err := push(t, dir, fake, invocation{stdin: strings.NewReader(dump), args: []string{"-", "en-abc123"}})
-	if err == nil || !strings.Contains(err.Error(), "--confirm en-abc123") || len(fake.calls) != 0 {
-		t.Fatalf("stdin without --confirm: %v, %q", err, fake.remotes())
-	}
-}
-
-func TestDbPushStdinOnTTYRefusedBeforeReading(t *testing.T) {
-	dir := t.TempDir()
-	fake := &pushRunner{}
-	requests := []string{}
-	stdin := strings.NewReader(dump)
-	_, _, err := push(t, dir, fake, invocation{tty: true, stdin: stdin, requests: &requests, args: []string{"-", "en-abc123", "--confirm", "en-abc123"}})
-	if err == nil || err.Error() != "- reads the dump from stdin; pipe a file in" {
-		t.Fatalf("err = %v", err)
-	}
-	if stdin.Len() != len(dump) || len(fake.calls) != 0 || len(requests) != 0 {
-		t.Fatalf("read %d bytes, ssh %q, requests %q", len(dump)-stdin.Len(), fake.remotes(), requests)
-	}
 }
 
 func TestDbPushPromptsOnTTY(t *testing.T) {
@@ -157,8 +137,6 @@ func TestDbPushStepsInOrder(t *testing.T) {
 	for _, in := range []invocation{
 		{args: []string{plain, "en-abc123", "--confirm", "en-abc123"}},
 		{args: []string{packed, "en-abc123", "--confirm", "en-abc123"}},
-		{stdin: strings.NewReader(dump), args: []string{"-", "en-abc123", "--confirm", "en-abc123"}},
-		{stdin: bytes.NewReader(gzipped(t, dump)), args: []string{"-", "en-abc123", "--confirm", "en-abc123"}},
 	} {
 		fake := &pushRunner{}
 		stdout, stderr, err := push(t, dir, fake, in)
@@ -168,9 +146,12 @@ func TestDbPushStepsInOrder(t *testing.T) {
 		if got := fake.remotes(); !slices.Equal(got, []string{wantBackup, wantUpload, wantTest, wantImport, wantCleanup}) {
 			t.Fatalf("%v: ran\n%s", in.args, strings.Join(got, "\n"))
 		}
-		var sql bytes.Buffer
-		if _, err := decompress(&sql, bytes.NewReader(fake.calls[1].stdin), -1); err != nil || sql.String() != dump {
-			t.Fatalf("%v: uploaded %q, %v", in.args, sql.String(), err)
+		reader, err := gzip.NewReader(bytes.NewReader(fake.calls[1].stdin))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sql, err := io.ReadAll(reader); err != nil || string(sql) != dump {
+			t.Fatalf("%v: uploaded %q, %v", in.args, sql, err)
 		}
 		if stdout != "" {
 			t.Fatalf("stdout %q", stdout)
@@ -185,14 +166,10 @@ func TestDbPushRefusesBadInputBeforeSSH(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "empty.sql", nil)
 	writeFile(t, dir, "fake.sql.gz", []byte(dump))
-	broken := gzipped(t, dump)
-	writeFile(t, dir, "broken.sql.gz", broken[:len(broken)-6])
 	for _, in := range []invocation{
 		{args: []string{"empty.sql", "en-abc123", "--confirm", "en-abc123"}},
 		{args: []string{"missing.sql", "en-abc123", "--confirm", "en-abc123"}},
 		{args: []string{"fake.sql.gz", "en-abc123", "--confirm", "en-abc123"}},
-		{args: []string{"broken.sql.gz", "en-abc123", "--confirm", "en-abc123"}},
-		{stdin: strings.NewReader(""), args: []string{"-", "en-abc123", "--confirm", "en-abc123"}},
 	} {
 		fake := &pushRunner{}
 		requests := []string{}

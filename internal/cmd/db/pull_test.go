@@ -194,9 +194,11 @@ func TestDbPullRunsExpectedSSHCommand(t *testing.T) {
 		t.Fatalf("--force: %v", err)
 	}
 
-	stdout, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--stdout")
-	if err != nil || stdout != dump {
-		t.Fatalf("--stdout = %q, %v", stdout, err)
+	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--output", "-"); err == nil || !strings.Contains(err.Error(), "--output - is not supported") {
+		t.Fatalf("--output -: %v", err)
+	}
+	if got := entries(t, dir); slices.Contains(got, "-") {
+		t.Fatalf("files %v", got)
 	}
 
 	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-zzz999"); err == nil || !strings.Contains(err.Error(), "en-zzz999 is not in your account; check the ID with frbit environments list") {
@@ -204,14 +206,8 @@ func TestDbPullRunsExpectedSSHCommand(t *testing.T) {
 	}
 }
 
-func TestDbPullEmptyDumpFailsAndLeavesNoFile(t *testing.T) {
+func TestDbPullFailedDumpLeavesNoFile(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, "")}, "en-abc123"); err == nil || !strings.Contains(err.Error(), "empty") {
-		t.Fatalf("empty dump: %v", err)
-	}
-	if got := entries(t, dir); len(got) != 0 {
-		t.Fatalf("left %v", got)
-	}
 	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, "-- partial"), err: exitError(2)}, "en-abc123"); err == nil || !strings.Contains(err.Error(), "mysqldump failed") {
 		t.Fatalf("dump failure: %v", err)
 	}
@@ -265,7 +261,7 @@ func TestDbPullOutputToMissingFolder(t *testing.T) {
 	dir := t.TempDir()
 	fake := &fakeRunner{stdout: gzipped(t, dump)}
 	_, _, err := run(t, dir, fake, "en-abc123", "--output", "nope/")
-	if err == nil || err.Error() != "folder nope/ does not exist" {
+	if err == nil || err.Error() != "folder nope does not exist" {
 		t.Fatalf("missing folder: %v", err)
 	}
 	if fake.name != "" {
@@ -279,15 +275,15 @@ func TestDbPullAnnouncesLabelOnStderr(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit", "environments.yml"), []byte("production: en-abc123\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "production", "--stdout")
+	stdout, stderr, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "production", "--force")
 	if err != nil || !strings.Contains(stderr, "→ en-abc123 (production, from .fortrabbit/environments.yml)\n") || strings.Contains(stdout, "→") {
 		t.Fatalf("err %v, stderr %q", err, stderr)
 	}
-	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "--stdout")
+	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "--force")
 	if err != nil || !strings.Contains(stderr, "→ en-abc123 (production, from .fortrabbit/environments.yml)\n") {
 		t.Fatalf("implicit: err %v, stderr %q", err, stderr)
 	}
-	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--stdout")
+	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--force")
 	if err != nil || strings.Contains(stderr, "→") {
 		t.Fatalf("ID: err %v, stderr %q", err, stderr)
 	}

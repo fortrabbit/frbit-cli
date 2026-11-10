@@ -455,14 +455,13 @@ frbit mysql rotate-password en-a1b2c3 --confirm en-a1b2c3
 ```sh
 frbit db pull
 frbit db pull en-a1b2c3 --output ./dumps/
-frbit db pull en-a1b2c3 --stdout | gzip > db.sql.gz
 ```
 
 `db pull [environment]` dumps the database of an environment to a local gzipped file and never touches a local database: import the file yourself, or let ddev do it. Without an argument it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
 
 It runs the local `ssh` with your own SSH key; `mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces` runs on the environment, so no database credentials reach your machine. Without a terminal, ssh runs with `BatchMode=yes` and fails instead of asking for a password.
 
-The default output is `<environment>.sql.gz` in the current folder; `--output` is a file or a folder. The dump goes to a temporary file in the target folder that is renamed on success and removed on failure or Ctrl-C, with mode 0600. An existing file is not overwritten unless you pass `--force`. An empty dump fails. `--stdout` writes plain SQL to stdout instead.
+The default output is `<environment>.sql.gz` in the current folder; `--output` is a file or a folder. The file has mode 0600 and appears only once the dump is complete. An existing file is not overwritten unless you pass `--force`. `--output -` is refused: `db pull` writes a file.
 
 A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A missing `ssh` client fails before any request.
 
@@ -475,17 +474,16 @@ Other hosts keep your ssh setup. When their host key is not in your `known_hosts
 ```sh
 frbit db push dump.sql.gz en-a1b2c3
 frbit db push dump.sql --confirm en-a1b2c3
-gunzip -c dump.sql.gz | frbit db push - en-a1b2c3 --confirm en-a1b2c3
 ```
 
-`db push <file|-> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL; `-` reads it from stdin and is refused when stdin is a terminal. An empty file, a `.gz` file that is not gzip data, or a damaged gzip file fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
+`db push <file> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL. An empty file or a `.gz` file that is not gzip data fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
 
-It needs the environment ID typed on a terminal, or `--confirm <id>` without one or when the dump comes from stdin. The check runs before any SSH call; with a label or the environment of the checkout, the environment may already have been read from the API to resolve it.
+It needs the environment ID typed on a terminal, or `--confirm <id>` without one. The check runs before any SSH call; with a label or the environment of the checkout, the environment may already have been read from the API to resolve it.
 
 Each step is its own SSH call with your own SSH key:
 
-1. Backup: `mysqldump` of the current database to `/data/home/frbit-backup-<UTC time>.sql.gz` on the environment, written as `.part` and renamed when complete. When it fails or is cancelled, the partial file is removed and the database is not touched. When the connection drops (ssh exit 255), the removal is tried over a new connection; if that cannot connect either, `frbit-backup-<UTC time>.sql.gz.part` may stay in `/data/home/`. It never carries the backup name; remove it once you can connect.
-2. Upload to `/data/home/frbit-import.sql.gz` (leftover uploads of the agent skill's `db-up.sh` are removed first).
+1. Backup: `mysqldump` of the current database to `/data/home/frbit-backup-<UTC time>.sql.gz` on the environment, written as `.part` and renamed when complete. When it fails or is cancelled, the partial file is removed and the database is not touched. When the connection drops, `frbit-backup-<UTC time>.sql.gz.part` may stay in `/data/home/`; it never carries the backup name.
+2. Upload to `/data/home/frbit-import.sql.gz`.
 3. `gzip -t` of the upload. A damaged upload imports nothing.
 4. Import: `gunzip -c | mysql "$FORTRABBIT_DB_NAME"`.
 5. Removal of the upload.
@@ -824,8 +822,8 @@ frbit --profile work auth logout
 | `frbit backups download <backup>` | Download the files or the database of a backup through a signed link. Accepts `--type files\|database`, `--output` (file, folder, or `-` for stdout), `--force`. |
 | `frbit backups restore <backup>` | Restore a backup, overwriting the live data of its environment; needs `--confirm <environment-id>` without a terminal. Accepts `--json`. |
 | `frbit mysql get [environment]` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
-| `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
-| `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
+| `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--force`. |
+| `frbit db push <file> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--environment`/`-e`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.env` and `.env.*` alone. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
