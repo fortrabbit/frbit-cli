@@ -39,6 +39,9 @@ func DryRunBilled(cmd *cobra.Command, client *api.Client, path string, payload a
 		if until, ok := quote.trialEndsAt.(string); ok && until != "" {
 			text += " until " + until
 		}
+		if quote.cents > 0 {
+			text += fmt.Sprintf("; after the trial: %.2f %s/month", quote.cents/100, quote.currency)
+		}
 		text += "."
 	}
 	_, err = fmt.Fprintf(out, "%s\nDry run: nothing was created.\n", text)

@@ -220,7 +220,7 @@ Payment method: default payment method
 Dry run: nothing was created.
 
 $ frbit apps create --name shop --region eu-w1a --dry-run   # trial account
-The app would be created as a trial at no cost until 2026-11-14T10:30:00+00:00.
+The app would be created as a trial at no cost until 2026-11-14T10:30:00+00:00; after the trial: 24.00 EUR/month.
 Dry run: nothing was created.
 ```
 

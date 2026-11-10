@@ -1218,7 +1218,7 @@ func runCreateDryRun(t *testing.T, server *httptest.Server, args ...string) (str
 	return output.String(), errOut.String(), err
 }
 
-const trialPricing = `{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`
+const trialPricing = `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`
 
 func TestCreateDryRunCreatesNothing(t *testing.T) {
 	for _, args := range [][]string{
@@ -1238,7 +1238,7 @@ func TestCreateDryRunCreatesNothing(t *testing.T) {
 			}
 			want := "Monthly price: 24.00 EUR\nPayment method: default payment method\nDry run: nothing was created.\n"
 			if name == "trial" {
-				want = "would be created as a trial at no cost until 2026-11-14T10:30:00+00:00.\nDry run: nothing was created.\n"
+				want = "would be created as a trial at no cost until 2026-11-14T10:30:00+00:00; after the trial: 24.00 EUR/month.\nDry run: nothing was created.\n"
 			}
 			if !strings.HasSuffix(stdout, want) {
 				t.Fatalf("%v %s: stdout = %q", args, name, stdout)
