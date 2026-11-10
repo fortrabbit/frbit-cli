@@ -45,10 +45,11 @@ type fakeRunner struct {
 	version string
 	syncs   [][]string
 	err     error
+	stderr  string
 	onSync  func()
 }
 
-func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ io.Reader, stdout, _ io.Writer) error {
+func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ io.Reader, stdout, stderr io.Writer) error {
 	if name != "rsync" {
 		return errors.New("not rsync: " + name)
 	}
@@ -57,6 +58,7 @@ func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ io.Rea
 		return err
 	}
 	f.syncs = append(f.syncs, args)
+	_, _ = io.WriteString(stderr, f.stderr)
 	if f.onSync != nil {
 		f.onSync()
 	}
@@ -315,6 +317,11 @@ func TestFilesRsyncFailures(t *testing.T) {
 	_, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})
 	if err == nil || !strings.Contains(err.Error(), sshexec.KeyURL) {
 		t.Fatalf("255: %v", err)
+	}
+	fake = &fakeRunner{version: rsync3, err: exitError(255), stderr: "Host key verification failed.\r\nrsync: connection unexpectedly closed\n"}
+	_, _, err = execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})
+	if err == nil || !strings.Contains(err.Error(), "ssh-keyscan ssh.us-e1a.frbit.app") {
+		t.Fatalf("host key: %v", err)
 	}
 	fake = &fakeRunner{version: rsync3, err: exitError(23)}
 	_, _, err = execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})

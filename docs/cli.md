@@ -445,7 +445,7 @@ It runs the local `ssh` with your own SSH key; `mysqldump --single-transaction -
 
 The default output is `<environment>.sql.gz` in the current folder; `--output` is a file or a folder. The dump goes to a temporary file in the target folder that is renamed on success and removed on failure or Ctrl-C, with mode 0600. An existing file is not overwritten unless you pass `--force`. An empty dump fails. `--stdout` writes plain SQL to stdout instead.
 
-A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A missing `ssh` client fails before any request.
+A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A host key that is not in `~/.ssh/known_hosts` yet (`Host key verification failed`, common on the first connection without a terminal) names the fix instead: run `ssh <target> exit` once in a terminal, or `ssh-keyscan <host> >> ~/.ssh/known_hosts`. This applies to `db push` and `files` too. A missing `ssh` client fails before any request.
 
 ## Database push
 

@@ -265,14 +265,16 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if interactive {
 		stdin = factory.IOStreams.In
 	}
-	err = runner.Run(ctx, "rsync", rsyncArgs(progressFlag(version.String()), interactive, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), stderr)
+	tail := sshexec.NewTail(stderr)
+	err = runner.Run(ctx, "rsync", rsyncArgs(progressFlag(version.String()), interactive, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
 	if err != nil && ctx.Err() != nil {
 		_, _ = fmt.Fprintf(stderr, "Cancelled: the sync of %s stopped partway; some files may be copied and others not.\n", remotePath)
 		return ctx.Err()
 	}
-	if code := sshexec.ExitCode(err); code == 255 {
-		return sshexec.MapExit(target, err)
-	} else if err != nil && code > 0 {
+	if mapped := sshexec.MapOutput(target, err, tail.String()); mapped != err {
+		return mapped
+	}
+	if code := sshexec.ExitCode(err); err != nil && code > 0 {
 		return fmt.Errorf("rsync failed with exit code %d; see the message above", code)
 	} else if err != nil {
 		return fmt.Errorf("rsync: %w", err)

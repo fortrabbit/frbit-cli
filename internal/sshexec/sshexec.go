@@ -89,21 +89,31 @@ func Args(target, remote string, interactive bool) []string {
 	return append(Options(interactive), "--", target, remote)
 }
 
-// Run runs remote on target over ssh and maps the exit as MapExit does.
+// Run runs remote on target over ssh and maps the exit as MapOutput does.
 func Run(ctx context.Context, runner Runner, target, remote string, interactive bool, stdin io.Reader, stdout, stderr io.Writer) error {
-	err := runner.Run(ctx, "ssh", Args(target, remote, interactive), stdin, stdout, stderr)
+	tail := NewTail(stderr)
+	err := runner.Run(ctx, "ssh", Args(target, remote, interactive), stdin, stdout, tail)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return MapExit(target, err)
+	return MapOutput(target, err, tail.String())
 }
 
 // MapExit turns ssh's own exit code 255 into an error pointing at the SSH key page; other errors pass through.
 func MapExit(target string, err error) error {
-	if ExitCode(err) == 255 {
-		return &keyError{target: target, err: err}
+	return MapOutput(target, err, "")
+}
+
+// MapOutput is MapExit that also reads what ssh printed, to name the fix for a host key it could not verify.
+func MapOutput(target string, err error, stderr string) error {
+	// rsync may report a failed ssh with its own exit code, so the ssh message counts on any failure.
+	if err != nil && strings.Contains(stderr, "Host key verification failed") {
+		return &hostKeyError{target: target, changed: strings.Contains(stderr, "IDENTIFICATION HAS CHANGED"), err: err}
 	}
-	return err
+	if ExitCode(err) != 255 {
+		return err
+	}
+	return &keyError{target: target, err: err}
 }
 
 type keyError struct {
@@ -116,6 +126,49 @@ func (e *keyError) Error() string {
 }
 
 func (e *keyError) Unwrap() error { return e.err }
+
+type hostKeyError struct {
+	target  string
+	changed bool
+	err     error
+}
+
+func (e *hostKeyError) Error() string {
+	_, host, _ := strings.Cut(e.target, "@")
+	if e.changed {
+		return fmt.Sprintf("ssh to %s failed: the host key of %s changed since it was stored in ~/.ssh/known_hosts; check the entry for %s there before connecting again", e.target, host, host)
+	}
+	return fmt.Sprintf("ssh to %s failed: the host key of %s is not in ~/.ssh/known_hosts yet; run `ssh %s exit` once in a terminal to accept it, or add it with `ssh-keyscan %s >> ~/.ssh/known_hosts`", e.target, host, e.target, host)
+}
+
+func (e *hostKeyError) Unwrap() error { return e.err }
+
+// tailSize is how much of ssh's stderr is kept for MapOutput.
+const tailSize = 4096
+
+// Tail passes writes through and keeps the last bytes for MapOutput.
+type Tail struct {
+	out io.Writer
+	buf []byte
+}
+
+// NewTail writes to out; a nil out only keeps the tail.
+func NewTail(out io.Writer) *Tail {
+	if out == nil {
+		out = io.Discard
+	}
+	return &Tail{out: out}
+}
+
+func (t *Tail) Write(p []byte) (int, error) {
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > tailSize {
+		t.buf = t.buf[len(t.buf)-tailSize:]
+	}
+	return t.out.Write(p)
+}
+
+func (t *Tail) String() string { return string(t.buf) }
 
 // ExitCode returns the exit code inside err: 0 for nil, -1 when err carries none.
 func ExitCode(err error) int {

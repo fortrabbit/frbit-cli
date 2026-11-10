@@ -104,3 +104,38 @@ func TestMapExit(t *testing.T) {
 		t.Fatalf("12: %v", err)
 	}
 }
+
+type stderrRunner struct {
+	stderr string
+	err    error
+}
+
+func (f stderrRunner) Run(_ context.Context, _ string, _ []string, _ io.Reader, _, stderr io.Writer) error {
+	_, _ = io.WriteString(stderr, f.stderr)
+	return f.err
+}
+
+func TestRunUnknownHostKeyNamesTheFix(t *testing.T) {
+	var shown bytes.Buffer
+	unknown := "No ED25519 host key is known for ssh.eu-w1a.frbit.app and you have requested strict checking.\r\nHost key verification failed.\r\n"
+	err := Run(context.Background(), stderrRunner{unknown, exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &shown)
+	for _, want := range []string{"ssh en-abc123@ssh.eu-w1a.frbit.app exit", "ssh-keyscan ssh.eu-w1a.frbit.app >> ~/.ssh/known_hosts"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want %q", err, want)
+		}
+	}
+	if ExitCode(err) != 255 || shown.String() != unknown {
+		t.Fatalf("exit %d, stderr %q", ExitCode(err), shown.String())
+	}
+
+	changed := "@@@@@@@@\r\n@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\nHost key verification failed.\r\n"
+	err = Run(context.Background(), stderrRunner{changed, exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || strings.Contains(err.Error(), "ssh-keyscan") || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("changed: %v", err)
+	}
+
+	err = Run(context.Background(), stderrRunner{"Permission denied (publickey).\r\n", exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), KeyURL) || strings.Contains(err.Error(), "ssh-keyscan") {
+		t.Fatalf("rejected key: %v", err)
+	}
+}
