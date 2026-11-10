@@ -11,6 +11,7 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
@@ -64,7 +65,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 				return err
 			}
 			if printJSON {
-				return writeRaw(cmd, response.Raw)
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			if slug != "" {
 				return writeMetricHistory(cmd.OutOrStdout(), response.Resource)

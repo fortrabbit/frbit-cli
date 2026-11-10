@@ -60,8 +60,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			if err := resource.WriteResource(cmd.OutOrStdout(), response.Resource); err != nil {
 				return err
@@ -109,8 +108,7 @@ func newCmdDNS(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return writeDNS(cmd.OutOrStdout(), response.Resource)
 		},

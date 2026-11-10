@@ -98,11 +98,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
-			}
-			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
@@ -326,11 +322,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					return partialFailure(payload != nil, "disconnecting", err)
 				}
 			}
-			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
-			}
-			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")

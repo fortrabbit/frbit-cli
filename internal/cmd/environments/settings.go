@@ -12,16 +12,12 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
-
-func writeRaw(cmd *cobra.Command, raw []byte) error {
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
-	return err
-}
 
 func newCmdPhpSettings(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "php-settings", Short: "Read and update php.ini settings and extensions", Args: cobra.NoArgs}
@@ -30,29 +26,7 @@ func newCmdPhpSettings(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdPhpSettingsGet(factory *app.Factory) *cobra.Command {
-	var printJSON bool
-	command := &cobra.Command{
-		Use:   "get [environment]",
-		Short: "Get PHP settings and extensions",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := cmdutil.APIClient(cmd, factory)
-			if err != nil {
-				return err
-			}
-			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
-			if err != nil {
-				return err
-			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/php-settings")
-			if err != nil {
-				return err
-			}
-			return writeResourceResponse(cmd, response, printJSON)
-		},
-	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
-	return command
+	return newEnvGet(factory, "Get PHP settings and extensions", "/php-settings", resource.WriteResource)
 }
 
 func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
@@ -80,7 +54,7 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().StringArrayVar(&setValues, "set", nil, "php.ini directive as KEY=VALUE (repeatable)")
@@ -138,29 +112,7 @@ func newCmdBasicAuth(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdBasicAuthGet(factory *app.Factory) *cobra.Command {
-	var printJSON bool
-	command := &cobra.Command{
-		Use:   "get [environment]",
-		Short: "Get the basic auth state (the password is never returned)",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := cmdutil.APIClient(cmd, factory)
-			if err != nil {
-				return err
-			}
-			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
-			if err != nil {
-				return err
-			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/basic-auth")
-			if err != nil {
-				return err
-			}
-			return writeResourceResponse(cmd, response, printJSON)
-		},
-	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
-	return command
+	return newEnvGet(factory, "Get the basic auth state (the password is never returned)", "/basic-auth", resource.WriteResource)
 }
 
 func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
@@ -225,7 +177,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().BoolVar(&enabled, "enabled", false, "Ask for credentials (--enabled=false turns it off)")
@@ -283,7 +235,7 @@ func newCmdFirewallList(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				return writeRaw(cmd, response.Raw)
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return writeFirewallRules(cmd.OutOrStdout(), response.Resources)
 		},
@@ -337,7 +289,7 @@ func newCmdFirewallCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().StringVar(&description, "description", "", "What the port is for")
@@ -406,32 +358,7 @@ func writeComponents(out io.Writer, value api.Resource) error {
 }
 
 func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
-	var printJSON bool
-	command := &cobra.Command{
-		Use:   "get [environment]",
-		Short: "Get the booked component plans",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := cmdutil.APIClient(cmd, factory)
-			if err != nil {
-				return err
-			}
-			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
-			if err != nil {
-				return err
-			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components")
-			if err != nil {
-				return err
-			}
-			if printJSON {
-				return writeRaw(cmd, response.Raw)
-			}
-			return writeComponents(cmd.OutOrStdout(), response.Resource)
-		},
-	}
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
-	return command
+	return newEnvGet(factory, "Get the booked component plans", "/components", writeComponents)
 }
 
 func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
@@ -471,7 +398,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "No component plan changes."); err != nil || !printJSON {
 					return err
 				}
-				return writeRaw(cmd, current.Raw)
+				return resource.WriteRaw(cmd, current.Raw)
 			}
 			if region == "" {
 				if region, err = environmentRegion(cmd, client, env); err != nil {
@@ -502,7 +429,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				return writeRaw(cmd, response.Raw)
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return writeComponents(cmd.OutOrStdout(), response.Resource)
 		},

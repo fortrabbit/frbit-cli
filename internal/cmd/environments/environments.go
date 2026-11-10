@@ -53,10 +53,15 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdGet(factory *app.Factory) *cobra.Command {
+	return newEnvGet(factory, "Get an environment", "", resource.WriteResource)
+}
+
+// newEnvGet builds "get [environment]" for /v1/environments/<env><subpath>; write prints it without --json.
+func newEnvGet(factory *app.Factory, short, subpath string, write func(io.Writer, api.Resource) error) *cobra.Command {
 	var printJSON bool
 	command := &cobra.Command{
 		Use:   "get [environment]",
-		Short: "Get an environment",
+		Short: short,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
@@ -67,15 +72,14 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env))
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+subpath)
 			if err != nil {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
-			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+			return write(cmd.OutOrStdout(), response.Resource)
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
@@ -130,7 +134,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
@@ -276,7 +280,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	flags := command.Flags()
@@ -430,8 +434,7 @@ func newCmdVariablesGet(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON && reveal {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			if printJSON {
 				return writeEnvironmentVariablesJSON(cmd.OutOrStdout(), response.Resource)
@@ -492,8 +495,7 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return writeEnvironmentVariables(cmd.OutOrStdout(), response.Resource, false)
 		},
@@ -547,7 +549,7 @@ func newCmdDeploy(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := writeResourceResponse(cmd, response, printJSON); err != nil {
+			if err := resource.Write(cmd, response, printJSON); err != nil {
 				return err
 			}
 			cmdutil.SuggestClaudePlugin(cmd.ErrOrStderr())
@@ -556,14 +558,6 @@ func newCmdDeploy(factory *app.Factory) *cobra.Command {
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
-}
-
-func writeResourceResponse(command *cobra.Command, response api.ResourceResponse, printJSON bool) error {
-	if printJSON {
-		_, err := fmt.Fprintf(command.OutOrStdout(), "%s\n", response.Raw)
-		return err
-	}
-	return resource.WriteResource(command.OutOrStdout(), response.Resource)
 }
 
 func writeEnvironmentVariables(output io.Writer, value api.Resource, reveal bool) error {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
@@ -70,13 +71,13 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			}
 			if printJSON {
 				if pages == 1 {
-					return writeRaw(cmd, raw)
+					return resource.WriteRaw(cmd, raw)
 				}
 				merged, err := json.Marshal(newest)
 				if err != nil {
 					return err
 				}
-				return writeRaw(cmd, merged)
+				return resource.WriteRaw(cmd, merged)
 			}
 			out := cmd.OutOrStdout()
 			if len(newest) == 0 {

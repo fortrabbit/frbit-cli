@@ -47,8 +47,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			out := cmd.OutOrStdout()
 			if err := resource.WriteResources(out, response.Resources, response.TotalItems, spec); err != nil {
@@ -85,11 +84,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
-			}
-			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
@@ -174,7 +169,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeJob(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	j.bind(command, false)
@@ -202,7 +197,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeJob(cmd, response, printJSON)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	j.bind(command, true)
@@ -211,11 +206,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 }
 
 func writeJob(cmd *cobra.Command, response api.ResourceResponse, printJSON bool) error {
-	if printJSON {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-		return err
-	}
-	return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+	return resource.Write(cmd, response, printJSON)
 }
 
 func newCmdDelete(factory *app.Factory) *cobra.Command {

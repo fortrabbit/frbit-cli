@@ -57,8 +57,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return resource.WriteResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
 		},
@@ -83,11 +82,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
-			}
-			return resource.WriteResource(cmd.OutOrStdout(), response.Resource)
+			return resource.Write(cmd, response, printJSON)
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
@@ -114,8 +109,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			status, _ := response.Resource["status"].(string)
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Backup of %s requested (%s). It shows up in `frbit backups list %s` once it is completed.\n", env, status, env)

@@ -133,8 +133,7 @@ func newCmdBranches(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return resource.WriteRaw(cmd, response.Raw)
 			}
 			return resource.WriteResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
 		},

@@ -229,8 +229,7 @@ func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return WriteRaw(cmd, response.Raw)
 			}
 			return writeResource(cmd.OutOrStdout(), response.Resource)
 		},
@@ -264,8 +263,7 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 			if printJSON {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
-				return err
+				return WriteRaw(cmd, response.Raw)
 			}
 			return writeLogs(cmd.OutOrStdout(), response.Resource)
 		},
@@ -422,6 +420,20 @@ func clientFor(command *cobra.Command, factory *app.Factory) (*api.Client, error
 // WriteResources prints resources as the table of spec followed by the total line.
 func WriteResources(output io.Writer, resources []api.Resource, totalItems int, spec Spec) error {
 	return writeResources(output, resources, totalItems, spec)
+}
+
+// Write prints the API response with printJSON, else the resource as a table.
+func Write(cmd *cobra.Command, response api.ResourceResponse, printJSON bool) error {
+	if printJSON {
+		return WriteRaw(cmd, response.Raw)
+	}
+	return WriteResource(cmd.OutOrStdout(), response.Resource)
+}
+
+// WriteRaw prints an API response body on its own line.
+func WriteRaw(cmd *cobra.Command, raw []byte) error {
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
+	return err
 }
 
 func WriteResource(output io.Writer, value api.Resource) error {
