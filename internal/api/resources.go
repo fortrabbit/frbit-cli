@@ -18,6 +18,7 @@ type ResourcesResponse struct {
 	Resources  []Resource
 	TotalItems int
 	Raw        []byte
+	Header     http.Header // response headers of the single request; unset by ListAll
 }
 
 type ResourceResponse struct {
@@ -105,13 +106,12 @@ func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page in
 func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string, includeTotal bool) (ResourcesResponse, error) {
 	query := ListQuery(page, publicIDs, filters)
 
-	var body []byte
-	var err error
+	accept := "application/json"
 	if includeTotal {
-		body, err = c.getCollection(ctx, path, query)
-	} else {
-		body, err = c.get(ctx, path, query)
+		accept = "application/ld+json"
 	}
+	raw, err := c.do(ctx, call{method: http.MethodGet, path: path, query: query, accept: accept})
+	body := raw.body
 	if err != nil {
 		return ResourcesResponse{}, err
 	}
@@ -119,7 +119,7 @@ func (c Client) listResources(ctx context.Context, path string, page int, public
 	if err != nil {
 		return ResourcesResponse{}, err
 	}
-	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body}, nil
+	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body, Header: raw.header}, nil
 }
 
 // ListQuery builds the query of a collection request; page 0 leaves the page to the API.

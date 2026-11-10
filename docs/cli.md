@@ -381,6 +381,24 @@ With `--cloud`, `name` is a label such as `acme-shop`, not a full hostname; the 
 
 `domains dns <id>` shows the expected and actual record. `--refresh` makes the API check DNS again first. Cloud and default frbit.app domains have no DNS record and answer 404. Domains are not billed. `--json` prints the raw API body (for `create`, the created domain only).
 
+## Jobs
+
+```sh
+frbit jobs list en-a1b2c3
+frbit jobs get jo-a1b2c3
+frbit jobs create en-a1b2c3 --name queue --type worker --command "php artisan queue:work"
+frbit jobs create en-a1b2c3 --name nightly --type cron --command "php artisan schedule:run" --interval day --max-runtime 3600
+frbit jobs create en-a1b2c3 --name sync --type cron --command "php sync.php" --interval custom --expression "0 */2 * * *" --max-runtime 300
+frbit jobs update jo-a1b2c3 --inactive
+frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
+```
+
+`jobs list <environment>` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers; the limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
+
+`create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. `--interval`, `--expression` and `--max-runtime` are rejected for a worker. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
+
+`update <job>` takes the same flags plus `--active`, and sends only the flags you pass. `delete <job>` stops and removes the job; it needs the job ID typed on a terminal or `--confirm <id>` without one. `--json` prints the raw API body.
+
 ## People
 
 ```sh
@@ -428,12 +446,13 @@ frbit git branches acme/site
 
 ## Deleting resources
 
-Apps, environments, domains, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
+Apps, environments, domains, jobs, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
 
 ```sh
 frbit apps delete ap-a1b2c3
 frbit environments delete en-a1b2c3
 frbit domains delete do-a1b2c3
+frbit jobs delete jo-a1b2c3
 frbit teams delete tm-a1b2c3
 frbit payment-methods delete pm-a1b2c3
 ```
@@ -606,6 +625,7 @@ frbit --profile work auth logout
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
+| `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

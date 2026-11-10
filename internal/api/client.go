@@ -274,10 +274,6 @@ func (c Client) get(ctx context.Context, path string, query url.Values) ([]byte,
 	return c.request(ctx, http.MethodGet, path, query, nil, "")
 }
 
-func (c Client) getCollection(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	return c.requestWithAccept(ctx, http.MethodGet, path, query, nil, "", "application/ld+json")
-}
-
 func (c Client) post(ctx context.Context, path string, payload any) ([]byte, error) {
 	body, err := marshalPayload(payload)
 	if err != nil {
