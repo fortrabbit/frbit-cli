@@ -2,6 +2,7 @@ package apps
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -199,6 +200,13 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 	return payload, nil
 }
 
+// Warnings for app updates that change every environment; they follow what the API does on these changes.
+const (
+	connectRepositoryWarning    = "Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again."
+	softwarePresetWarning       = "Changing the software preset sets the software version of every environment of this app to the preset default and clears pinned versions. The next deployment uses that version."
+	disconnectRepositoryWarning = "Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again."
+)
+
 func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	var file string
 	var name string
@@ -260,11 +268,22 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					payload = fields
 				}
 			}
-			if cmd.Flags().Changed("confirm") && !disconnectRepository {
-				return fmt.Errorf("--confirm is only used with --disconnect-repository")
+			var warnings []string
+			if repository != "" {
+				warnings = append(warnings, connectRepositoryWarning)
+			}
+			if file == "" && cmd.Flags().Changed("software-preset") {
+				warnings = append(warnings, softwarePresetWarning)
 			}
 			if disconnectRepository {
-				if err := cmdutil.CheckDestructive(factory, "disconnecting the repository", publicID, confirmation); err != nil {
+				warnings = append(warnings, disconnectRepositoryWarning)
+			}
+			if cmd.Flags().Changed("confirm") && len(warnings) == 0 {
+				return fmt.Errorf("--confirm is only used with --repository, --software-preset or --disconnect-repository")
+			}
+			const action = "this app update"
+			if len(warnings) > 0 {
+				if err := cmdutil.CheckDestructive(factory, action, publicID, confirmation); err != nil {
 					return err
 				}
 			}
@@ -272,9 +291,8 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if disconnectRepository {
-				confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "disconnecting the repository", publicID, confirmation,
-					"Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again.")
+			if len(warnings) > 0 {
+				confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), action, publicID, confirmation, strings.Join(warnings, "\n"))
 				if err != nil {
 					return err
 				}
@@ -309,13 +327,13 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
 	command.Flags().StringVar(&name, "name", "", "New app name")
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "New payment method public ID")
-	command.Flags().StringVar(&softwarePreset, "software-preset", "", "Software preset slug; resets the software version of every environment to the preset default")
+	command.Flags().StringVar(&softwarePreset, "software-preset", "", "Software preset slug; resets the software version of every environment to the preset default (asks first)")
 	command.Flags().BoolVar(&gitDeployComments, "git-deploy-comments", false, "Comment on GitHub pull requests with the deployment (true or false)")
 	command.Flags().StringArrayVar(&technicalContacts, "technical-contact", nil, "Technical contact person public ID, replaces the list (repeatable)")
 	command.Flags().BoolVar(&clearTechnicalContacts, "clear-technical-contacts", false, "Remove all technical contacts")
-	command.Flags().StringVar(&repository, "repository", "", "Connect a GitHub repository in OWNER/REPOSITORY form; resets environment branches")
-	command.Flags().BoolVar(&disconnectRepository, "disconnect-repository", false, "Disconnect the GitHub repository; stops deployments until one is connected again")
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm --disconnect-repository by repeating the app ID")
+	command.Flags().StringVar(&repository, "repository", "", "Connect a GitHub repository in OWNER/REPOSITORY form; clears every environment's deploy branch (asks first)")
+	command.Flags().BoolVar(&disconnectRepository, "disconnect-repository", false, "Disconnect the GitHub repository; stops deployments until one is connected again (asks first)")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm --repository, --software-preset or --disconnect-repository by repeating the app ID")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }

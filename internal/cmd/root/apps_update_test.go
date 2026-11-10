@@ -38,7 +38,7 @@ func runAppsUpdate(t *testing.T, tty bool, input string, args ...string) ([]reco
 }
 
 func TestAppsUpdateConnectsRepository(t *testing.T) {
-	requests, output, err := runAppsUpdate(t, false, "", "--repository", "acme/shop")
+	requests, output, err := runAppsUpdate(t, false, "", "--repository", "acme/shop", "--confirm", "ap-abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestAppsUpdateConnectsRepository(t *testing.T) {
 }
 
 func TestAppsUpdateRepositoryAndNameInOneCall(t *testing.T) {
-	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--repository", "acme/shop")
+	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--repository", "acme/shop", "--confirm", "ap-abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAppsUpdateRepositoryAndNameInOneCall(t *testing.T) {
 }
 
 func TestAppsUpdateGitDeployCommentsFalseIsSent(t *testing.T) {
-	requests, _, err := runAppsUpdate(t, false, "", "--git-deploy-comments=false", "--software-preset", "laravel")
+	requests, _, err := runAppsUpdate(t, false, "", "--git-deploy-comments=false", "--software-preset", "laravel", "--confirm", "ap-abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +140,6 @@ func TestAppsUpdateReportsPartialFailure(t *testing.T) {
 		t.Setenv("FRBIT_TOKEN", "test-token")
 		command := NewCmdRoot(factory)
 		command.SetArgs([]string{"--host", server.URL, "apps", "update", "ap-abc123", "--name", "shop", test.flag, "--confirm", "ap-abc123"})
-		if test.method == http.MethodPut {
-			command.SetArgs([]string{"--host", server.URL, "apps", "update", "ap-abc123", "--name", "shop", test.flag})
-		}
 		err := command.Execute()
 		server.Close()
 		if err == nil || !strings.Contains(err.Error(), test.want) || len(methods) != 2 || methods[0] != http.MethodPatch {
@@ -158,9 +155,42 @@ func TestAppsUpdateWrongConfirmSendsNothing(t *testing.T) {
 	}
 }
 
-func TestAppsUpdateConfirmNeedsDisconnect(t *testing.T) {
+func TestAppsUpdateConfirmNeedsAGatedFlag(t *testing.T) {
 	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--confirm", "ap-abc123")
-	if err == nil || !strings.Contains(err.Error(), "only used with --disconnect-repository") || len(requests) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "only used with --repository, --software-preset or --disconnect-repository") || len(requests) != 0 {
 		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+}
+
+func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
+	for _, args := range [][]string{
+		{"--repository", "acme/shop"},
+		{"--software-preset", "laravel"},
+		{"--name", "shop", "--software-preset", "laravel"},
+		{"--repository", "acme/shop", "--confirm", "ap-wrong1"},
+	} {
+		requests, _, err := runAppsUpdate(t, false, "", args...)
+		if err == nil || !strings.Contains(err.Error(), "ap-abc123") || len(requests) != 0 {
+			t.Fatalf("%v: err = %v, requests = %#v", args, err, requests)
+		}
+	}
+}
+
+func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
+	requests, output, err := runAppsUpdate(t, true, "no\n", "--repository", "acme/shop", "--software-preset", "laravel")
+	if err != nil || len(requests) != 0 || !strings.Contains(output, "Aborted.") {
+		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
+	}
+	for _, want := range []string{"Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again.", "Changing the software preset sets the software version of every environment of this app to the preset default and clears pinned versions. The next deployment uses that version."} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q: %q", want, output)
+		}
+	}
+	if strings.Count(output, "Type ap-abc123 to confirm:") != 1 {
+		t.Fatalf("asked more than once: %q", output)
+	}
+	requests, _, err = runAppsUpdate(t, true, "ap-abc123\n", "--software-preset", "laravel")
+	if err != nil || len(requests) != 1 || requests[0].body["softwarePresetName"] != "laravel" {
+		t.Fatalf("confirmed: err = %v, requests = %#v", err, requests)
 	}
 }
