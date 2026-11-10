@@ -43,6 +43,13 @@ func run(t *testing.T, stdin string, handler func(r request, w http.ResponseWrit
 
 func runContext(t *testing.T, ctx context.Context, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, []request, error) {
 	t.Helper()
+	out, _, seen, err := runStreams(t, ctx, stdin, handler, args...)
+	return out, seen, err
+}
+
+// runStreams returns stdout and stderr separately.
+func runStreams(t *testing.T, ctx context.Context, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, string, []request, error) {
+	t.Helper()
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	var seen []request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,9 +61,9 @@ func runContext(t *testing.T, ctx context.Context, stdin string, handler func(r 
 		handler(req, w)
 	}))
 	t.Cleanup(server.Close)
-	output := &bytes.Buffer{}
+	output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := &app.Factory{
-		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: &bytes.Buffer{}},
+		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: stderr},
 		ConfigStore:     configStore{},
 		CredentialStore: credentialStore{},
 		HTTPClient:      &http.Client{},
@@ -66,11 +73,11 @@ func runContext(t *testing.T, ctx context.Context, stdin string, handler func(r 
 	root.PersistentFlags().String("host", "", "")
 	root.PersistentFlags().String("profile", app.DefaultProfile, "")
 	root.SetOut(output)
-	root.SetErr(&bytes.Buffer{})
+	root.SetErr(stderr)
 	root.AddCommand(NewCmdEnvironments(factory))
 	root.SetArgs(append([]string{"--host", server.URL, "environments"}, args...))
 	err := root.ExecuteContext(ctx)
-	return output.String(), seen, err
+	return output.String(), stderr.String(), seen, err
 }
 
 func echo(w http.ResponseWriter, status int, body string) {
@@ -281,9 +288,9 @@ func patched(seen []request) bool {
 }
 
 func TestComponentsUpdateSkipsUnchanged(t *testing.T) {
-	out, seen, err := run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm")
-	if err != nil || !strings.Contains(out, "No component plan changes.") || patched(seen) {
-		t.Fatalf("out = %q, err = %v, seen = %+v", out, err, seen)
+	out, stderr, seen, err := runStreams(t, context.Background(), "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm")
+	if err != nil || out != "" || !strings.Contains(stderr, "No component plan changes.") || patched(seen) {
+		t.Fatalf("out = %q, stderr = %q, err = %v, seen = %+v", out, stderr, err, seen)
 	}
 }
 

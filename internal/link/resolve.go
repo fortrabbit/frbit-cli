@@ -77,11 +77,21 @@ func (r Resolver) Resolve(ctx context.Context, client *api.Client, dir string, a
 	}
 	branch := r.Branch(ctx, dir)
 	entries, err := r.Entries(ctx, dir, branch)
+	// Without a terminal a legacy file only fails when nothing else resolves, so CI on a connected repo keeps working.
+	legacyErr := err
+	if errors.Is(err, ErrLegacyFile) && !r.IsTTY {
+		entries, err = newEntries(), nil
+	} else {
+		legacyErr = nil
+	}
 	if err != nil {
 		return "", err
 	}
 	if arg != "" {
 		id, ok := entries.Get(arg)
+		if !ok && legacyErr != nil {
+			return "", legacyErr
+		}
 		if !ok {
 			return "", fmt.Errorf("no environment labelled %q in %s; run frbit link", arg, FilePath)
 		}
@@ -102,6 +112,9 @@ func (r Resolver) Resolve(ctx context.Context, client *api.Client, dir string, a
 	if entries.Len() == 1 {
 		id, _ := entries.Get(entries.Labels()[0])
 		return Verify(ctx, client, id)
+	}
+	if legacyErr != nil {
+		return "", legacyErr
 	}
 	if !r.IsTTY {
 		return "", errors.New("no environment for this checkout; run frbit link or pass the environment ID")
@@ -168,7 +181,7 @@ func (r Resolver) Lookup(ctx context.Context, client *api.Client, dir string, br
 	if !ok || branch == "" {
 		return Match{}, false, nil
 	}
-	apps, err := client.ListAll(ctx, "/v1/apps", nil, 0)
+	apps, err := client.ListAll(ctx, "/v1/apps", url.Values{"gitRepository": {repository}}, 0)
 	if err != nil {
 		return Match{}, false, fmt.Errorf("list apps: %w", err)
 	}
@@ -269,7 +282,7 @@ func (r Resolver) Pick(ctx context.Context, client *api.Client) (string, error) 
 func NormalizeRemote(remote string) (string, bool) {
 	remote = strings.TrimSpace(remote)
 	var path string
-	if rest, ok := strings.CutPrefix(remote, "git@github.com:"); ok {
+	if host, rest, ok := strings.Cut(remote, ":"); ok && strings.EqualFold(host, "git@github.com") {
 		path = rest
 	} else {
 		parsed, err := url.Parse(remote)

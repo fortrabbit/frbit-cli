@@ -373,9 +373,11 @@ func TestDeleteCommandsUseExpectedEndpoints(t *testing.T) {
 			}))
 			defer server.Close()
 
-			output := &bytes.Buffer{}
+			output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			t.Setenv("FRBIT_TOKEN", "test-token")
-			command := NewCmdRoot(testFactory(output))
+			factory := testFactory(output)
+			factory.IOStreams.ErrOut = stderr
+			command := NewCmdRoot(factory)
 			command.SetArgs([]string{"--host", server.URL, test.resource, "delete", test.publicID, "--confirm", test.publicID})
 			if err := command.Execute(); err != nil {
 				t.Fatal(err)
@@ -383,10 +385,13 @@ func TestDeleteCommandsUseExpectedEndpoints(t *testing.T) {
 			if requests != 2 {
 				t.Fatalf("requests = %d, want GET followed by DELETE", requests)
 			}
-			for _, expected := range []string{test.name, test.publicID, test.warning, "This cannot be undone.", "Deleted"} {
-				if !strings.Contains(output.String(), expected) {
-					t.Fatalf("output %q does not contain %q", output.String(), expected)
+			for _, expected := range []string{test.name, test.publicID, test.warning, "This cannot be undone."} {
+				if !strings.Contains(stderr.String(), expected) {
+					t.Fatalf("stderr %q does not contain %q", stderr.String(), expected)
 				}
+			}
+			if !strings.Contains(output.String(), "Deleted") || strings.Contains(output.String(), "This cannot be undone.") {
+				t.Fatalf("output %q", output.String())
 			}
 		})
 	}
@@ -403,8 +408,9 @@ func TestDeleteAbortsWhenInteractiveConfirmationDoesNotMatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := &bytes.Buffer{}
+	output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := testFactory(output)
+	factory.IOStreams.ErrOut = stderr
 	factory.IOStreams.In = strings.NewReader("ap-wrong1\n")
 	factory.IOStreams.IsTTY = true
 	t.Setenv("FRBIT_TOKEN", "test-token")
@@ -413,8 +419,8 @@ func TestDeleteAbortsWhenInteractiveConfirmationDoesNotMatch(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 || !strings.Contains(output.String(), "Type ap-abc123 to confirm:") || !strings.Contains(output.String(), "Aborted.") {
-		t.Fatalf("requests = %d, output = %q", requests, output.String())
+	if requests != 1 || output.Len() != 0 || !strings.Contains(stderr.String(), "Type ap-abc123 to confirm:") || !strings.Contains(stderr.String(), "Aborted.") {
+		t.Fatalf("requests = %d, output = %q, stderr = %q", requests, output.String(), stderr.String())
 	}
 }
 

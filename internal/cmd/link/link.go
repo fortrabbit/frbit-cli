@@ -95,7 +95,9 @@ On a repository connected to an app, the environment deploying the current branc
 			if err := envlink.ValidLabel(name); err != nil {
 				return fmt.Errorf("%w; pass --label", err)
 			}
-			entries.Set(name, id)
+			if err := entries.Set(name, id); err != nil {
+				return err
+			}
 			if err := envlink.WriteFile(dir, entries); err != nil {
 				return err
 			}

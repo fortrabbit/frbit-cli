@@ -329,16 +329,16 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := writeDeleteWarning(cmd.OutOrStdout(), spec, response.Resource, publicID); err != nil {
+			if err := writeDeleteWarning(cmd.ErrOrStderr(), spec, response.Resource, publicID); err != nil {
 				return err
 			}
 
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.OutOrStdout(), "deletion", publicID, confirmation, "")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "deletion", publicID, confirmation, "")
 			if err != nil {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return err
 			}
 
@@ -375,6 +375,26 @@ func articleFor(singular string) string {
 		return "an"
 	}
 	return "a"
+}
+
+// AddPageFlags binds --limit and --all for ListPaged to a list command without --page.
+func AddPageFlags(command *cobra.Command, noun string, limit *int, all *bool) {
+	command.Flags().IntVar(limit, "limit", 0, "Return at most N "+noun+", following further pages as needed")
+	command.Flags().BoolVar(all, "all", false, "Return every page")
+}
+
+// ListPaged returns the first page of path, or with --all or --limit the resources of further pages too.
+func ListPaged(cmd *cobra.Command, client *api.Client, path string, limit int, all bool) (api.ResourcesResponse, error) {
+	if all && cmd.Flags().Changed("limit") {
+		return api.ResourcesResponse{}, fmt.Errorf("--all cannot be combined with --limit")
+	}
+	if cmd.Flags().Changed("limit") && limit < 1 {
+		return api.ResourcesResponse{}, fmt.Errorf("--limit must be at least 1")
+	}
+	if all || limit > 0 {
+		return client.ListAll(cmd.Context(), path, nil, limit)
+	}
+	return client.ListResources(cmd.Context(), path, 0, nil, nil)
 }
 
 func clientFor(command *cobra.Command, factory *app.Factory) (*api.Client, error) {

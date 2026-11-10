@@ -416,7 +416,7 @@ frbit jobs update jo-a1b2c3 --inactive
 frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 ```
 
-`jobs list <environment>` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers; the limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
+`jobs list <environment>` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page; `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
 
 `create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. For a worker, `--interval`, `--expression` and `--max-runtime` are ignored with a warning on stderr and not sent; so is `--expression` with an interval other than `custom`. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
 
@@ -455,7 +455,7 @@ frbit db push dump.sql --confirm en-a1b2c3
 gunzip -c dump.sql.gz | frbit db push - en-a1b2c3 --confirm en-a1b2c3
 ```
 
-`db push <file|-> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL; `-` reads it from stdin. An empty file, a `.gz` file that is not gzip data, or a damaged gzip file fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
+`db push <file|-> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL; `-` reads it from stdin and is refused when stdin is a terminal. An empty file, a `.gz` file that is not gzip data, or a damaged gzip file fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
 
 It needs the environment ID typed on a terminal, or `--confirm <id>` without one or when the dump comes from stdin. The check runs before the environment is read and before any SSH call.
 
@@ -467,12 +467,11 @@ Each step is its own SSH call with your own SSH key:
 4. Import: `gunzip -c | mysql "$FORTRABBIT_DB_NAME"`.
 5. Removal of the upload.
 
-A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
+A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'set -o pipefail; gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
 
 ## Files
 
 ```sh
-frbit files pull
 frbit files pull web/uploads --env en-a1b2c3 --dry-run
 frbit files pull storage --env en-a1b2c3 --delete --confirm en-a1b2c3
 frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
@@ -482,9 +481,9 @@ frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
 
 The path is relative to `/data/www/` and to the current folder; without one, all of `/data/www/` syncs with the current folder. A folder path syncs onto the same-named folder on the other side: `web/uploads` syncs `/data/www/web/uploads` with `./web/uploads`, not into `./web/uploads/uploads`. A file path syncs that file. Absolute paths, `..`, `~` and characters other than letters, digits and `. _ - + @ /` are refused before any request. On push, the parent folder of the path must exist on the environment.
 
-Changed files are overwritten on the receiving side. `--delete` also removes files there that the sending side does not have. `--dry-run` lists what would change and copies nothing. `.git/` and `.fortrabbit/` at the top of the synced folder are always excluded (`--exclude=/.git/ --exclude=/.fortrabbit/`), so a sync never copies or deletes the repository, the deploy file or the link file.
+Changed files are overwritten on the receiving side. `--delete` also removes files there that the sending side does not have. `--dry-run` lists what would change and copies nothing. rsync always runs with `--exclude=/.git/ --exclude=/.fortrabbit/ --exclude=/.env --exclude=/.env.*`. These excludes are anchored at the transfer root, so they apply to a whole-folder sync (no path): it never copies or deletes the repository, the deploy file, the link file or the local `.env` files. Inside a synced subfolder they do not apply.
 
-`files push`, and `files pull --delete`, need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before the environment is read and before rsync starts. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
+`files push`, `files pull` without a path, and `files pull --delete` need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before the environment is read and before rsync starts. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
 
 rsync 3.1 and later shows overall progress (`--info=progress2`); the older rsync and openrsync that macOS ships show per-file progress. Missing `rsync` or `ssh` fails with how to install it. A rejected SSH key (exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>; any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
 
@@ -543,7 +542,7 @@ frbit backups restore ba-a1b2c3 --confirm ba-a1b2c3
 frbit backups download ba-a1b2c3 --type database --output ./backups/
 ```
 
-`create` requests a manual backup; it appears in `list` once completed. `list` and `get` take `--json`.
+`create` requests a manual backup; it appears in `list` once completed. `list` and `get` take `--json`; `list` also takes `--limit` and `--all`.
 
 `restore` overwrites the live database and files of the environment with the backup and cannot be undone. It asks you to type the backup ID, or takes `--confirm <backup>` without a TTY; a missing or wrong value fails before any request.
 
@@ -568,7 +567,7 @@ main: en-a1b2c3
 staging: en-d4e5f6
 ```
 
-An ID outside your account fails with `run frbit link`, for example in a fork of a template. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch.
+An ID outside your account fails with `run frbit link`, for example in a fork of a template. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch. Without a terminal, commands still find the environment through the connected repository and fail with the migration hint only when nothing resolves.
 
 ## Deleting resources
 
@@ -755,7 +754,7 @@ frbit --profile work auth logout
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
-| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`, `--confirm` (push, and pull with `--delete`). Never sync `.git/` or `.fortrabbit/`. |
+| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). A whole-folder sync never touches `.git/`, `.fortrabbit/`, `.env` or `.env.*`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

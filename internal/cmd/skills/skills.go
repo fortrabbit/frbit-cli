@@ -174,12 +174,12 @@ func newCmdRemove(factory *app.Factory, service *agentskills.Service) *cobra.Com
 				}
 			}
 			if !yes {
-				confirmed, err := cmdutil.ConfirmContext(cmd.Context(), factory.IOStreams.In, cmd.OutOrStdout(), "Continue? [y/N] ")
+				confirmed, err := cmdutil.ConfirmContext(cmd.Context(), factory.IOStreams.In, cmd.ErrOrStderr(), "Continue? [y/N] ")
 				if err != nil {
 					return err
 				}
 				if !confirmed {
-					_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+					_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 					return err
 				}
 			}

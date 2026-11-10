@@ -35,7 +35,8 @@ func NewCmdJobs(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdList(factory *app.Factory) *cobra.Command {
-	var printJSON bool
+	var printJSON, all bool
+	var limit int
 	command := &cobra.Command{
 		Use:   "list <environment>",
 		Short: "List the jobs of an environment and the limit of the booked jobs plan",
@@ -45,7 +46,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+args[0]+"/jobs", 0, nil, nil)
+			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(args[0])+"/jobs", limit, all)
 			if err != nil {
 				return err
 			}
@@ -69,6 +70,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	resource.AddPageFlags(command, "jobs", &limit, &all)
 	return command
 }
 
@@ -83,7 +85,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/jobs/"+args[0])
+			response, err := client.GetResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(args[0]))
 			if err != nil {
 				return err
 			}
@@ -240,7 +242,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 					return err
 				}
 			}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+args[0]+"/jobs", body)
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/jobs", body)
 			if err != nil {
 				return err
 			}
@@ -290,7 +292,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					return err
 				}
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/jobs/"+args[0], body)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(args[0]), body)
 			if err != nil {
 				return err
 			}
@@ -325,25 +327,25 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/jobs/"+id)
+			response, err := client.GetResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(id))
 			if err != nil {
 				return err
 			}
 			name, _ := response.Resource["name"].(string)
-			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Job: %s (%s)\n\n", name, id)
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, out, "deletion", id, confirmation, "The job stops running and is removed from its environment. This cannot be undone.")
+			stderr := cmd.ErrOrStderr()
+			_, _ = fmt.Fprintf(stderr, "Job: %s (%s)\n\n", name, id)
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "deletion", id, confirmation, "The job stops running and is removed from its environment. This cannot be undone.")
 			if err != nil {
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(out, "Aborted.")
+				_, err = fmt.Fprintln(stderr, "Aborted.")
 				return err
 			}
-			if err := client.DeleteResource(cmd.Context(), "/v1/jobs/"+id); err != nil {
+			if err := client.DeleteResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(id)); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "Deleted job %s.\n", id)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted job %s.\n", id)
 			return err
 		},
 	}

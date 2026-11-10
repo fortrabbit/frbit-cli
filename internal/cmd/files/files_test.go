@@ -138,12 +138,12 @@ func TestFilesPullBuildsRsyncArgs(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{[]string{"files", "pull", "--env", "en-abc123"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
+		{[]string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
 		{[]string{"files", "pull", "web/uploads/", "--env", "en-abc123", "--delete", "--confirm", "en-abc123"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
 		{[]string{"files", "pull", "./storage", "--env", "en-abc123", "--dry-run"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
 	}
 	for _, c := range cases {
 		fake := &fakeRunner{version: rsync3}
@@ -171,13 +171,13 @@ func TestFilesRsyncArgsOldRsync(t *testing.T) {
 		}
 	}
 	got := rsyncArgs("--progress", true, true, true, "a", "b")
-	want := []string{"-az", "--progress", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--dry-run", "-v", "--delete", "--", "a", "b"}
+	want := []string{"-az", "--progress", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--dry-run", "-v", "--delete", "--", "a", "b"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rsyncArgs = %q", got)
 	}
 	dir := t.TempDir()
 	fake := &fakeRunner{version: "openrsync: protocol version 29\nrsync version 2.6.9 compatible\n"}
-	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123"}}); err != nil {
+	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fake.syncs) != 1 || fake.syncs[0][1] != "--progress" {
@@ -238,7 +238,7 @@ func TestFilesPushWithoutTTYRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "push", "--env", "en-abc123", "--confirm", "en-abc123", "--delete"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
+	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -278,7 +278,7 @@ func TestFilesPushPromptsOnTTY(t *testing.T) {
 
 	fake = &fakeRunner{version: rsync3}
 	_, _, err = execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("en-abc123\n"), args: []string{"files", "push", "web/uploads", "--env", "en-abc123"}})
-	want := []string{"-az", "--info=progress2", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
+	want := []string{"-az", "--info=progress2", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
 	if err != nil || len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("confirmed: %v, %q", err, fake.syncs)
 	}
@@ -311,19 +311,19 @@ func TestFilesMissingRsync(t *testing.T) {
 func TestFilesRsyncFailures(t *testing.T) {
 	dir := t.TempDir()
 	fake := &fakeRunner{version: rsync3, err: exitError(255)}
-	_, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123"}})
+	_, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})
 	if err == nil || !strings.Contains(err.Error(), sshexec.KeyURL) {
 		t.Fatalf("255: %v", err)
 	}
 	fake = &fakeRunner{version: rsync3, err: exitError(23)}
-	_, _, err = execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123"}})
+	_, _, err = execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})
 	if err == nil || !strings.Contains(err.Error(), "rsync") || !strings.Contains(err.Error(), "23") {
 		t.Fatalf("23: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	fake = &fakeRunner{version: rsync3, err: exitError(20), onSync: cancel}
-	_, stderr, err := execute(t, dir, invocation{runner: fake, ctx: ctx, args: []string{"files", "pull", "--env", "en-abc123"}})
+	_, stderr, err := execute(t, dir, invocation{runner: fake, ctx: ctx, args: []string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"}})
 	if !errors.Is(err, context.Canceled) || !strings.Contains(stderr, "partway") {
 		t.Fatalf("cancel: %v, %q", err, stderr)
 	}
@@ -356,7 +356,7 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--delete", "--confirm", "en-abc123"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
+	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -365,5 +365,50 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 	fake = &fakeRunner{version: rsync3}
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--delete", "--dry-run"}}); err != nil || len(fake.syncs) != 1 {
 		t.Fatalf("dry run: %v, %q", err, fake.syncs)
+	}
+}
+
+func TestFilesPullWithoutPathRequiresConfirm(t *testing.T) {
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"files", "pull", "--env", "en-abc123"},
+		{"files", "pull", ".", "--env", "en-abc123", "--confirm", "en-zzz999"},
+	} {
+		fake := &fakeRunner{version: rsync3}
+		requests := []string{}
+		_, _, err := execute(t, dir, invocation{runner: fake, requests: &requests, args: args})
+		if err == nil || !strings.Contains(err.Error(), "--confirm") {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if len(fake.syncs) != 0 || len(requests) != 0 {
+			t.Fatalf("%v: syncs %q, requests %q", args, fake.syncs, requests)
+		}
+	}
+
+	fake := &fakeRunner{version: rsync3}
+	_, stderr, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "--env", "en-abc123"}})
+	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
+		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
+	}
+	for _, want := range []string{"Local files under the current folder are overwritten by the copies on en-abc123.", "Type en-abc123 to confirm:"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr lacks %q: %q", want, stderr)
+		}
+	}
+
+	fake = &fakeRunner{version: rsync3}
+	if _, _, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("en-abc123\n"), args: []string{"files", "pull", "--env", "en-abc123"}}); err != nil || len(fake.syncs) != 1 {
+		t.Fatalf("confirmed: %v, %q", err, fake.syncs)
+	}
+
+	// A dry run and a folder path need no confirmation.
+	for _, args := range [][]string{
+		{"files", "pull", "--env", "en-abc123", "--dry-run"},
+		{"files", "pull", "web", "--env", "en-abc123"},
+	} {
+		fake = &fakeRunner{version: rsync3}
+		if _, _, err := execute(t, dir, invocation{runner: fake, args: args}); err != nil || len(fake.syncs) != 1 {
+			t.Fatalf("%v: %v, %q", args, err, fake.syncs)
+		}
 	}
 }

@@ -74,7 +74,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if publicID == "" {
 				return nil
 			}
-			dns, err := client.GetResource(cmd.Context(), "/v1/domains/"+publicID+"/dns")
+			dns, err := client.GetResource(cmd.Context(), "/v1/domains/"+url.PathEscape(publicID)+"/dns")
 			if err != nil {
 				return fmt.Errorf("domain %s was created, but its DNS records could not be read: %w", publicID, err)
 			}
@@ -99,7 +99,7 @@ func newCmdDNS(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path := "/v1/domains/" + args[0] + "/dns"
+			path := "/v1/domains/" + url.PathEscape(args[0]) + "/dns"
 			if refresh {
 				if _, err := client.PostAction(cmd.Context(), path+"/refresh"); err != nil {
 					return err

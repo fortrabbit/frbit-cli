@@ -63,7 +63,7 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			path := "/v1/environments/" + args[0] + "/logs"
+			path := "/v1/environments/" + url.PathEscape(args[0]) + "/logs"
 			out := cmd.OutOrStdout()
 			newest, raw, pages, prev, err := fetchLogs(cmd.Context(), client, path, query, limit)
 			if err != nil {

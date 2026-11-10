@@ -34,7 +34,7 @@ func newCmdMetrics(factory *app.Factory) *cobra.Command {
 		Long:  "Without a slug: current usage per booked component with its limit, the last 24 hours, and the available metric slugs. With a slug: that metric over --range (default 24h), one point per --step (default hour for 1h and 24h, day for 7d and 30d).",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := "/v1/environments/" + args[0] + "/metrics"
+			path := "/v1/environments/" + url.PathEscape(args[0]) + "/metrics"
 			var query url.Values
 			if len(args) == 2 {
 				var err error

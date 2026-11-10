@@ -40,7 +40,7 @@ func newCmdPush(factory *app.Factory) *cobra.Command {
 		Short: "Replace the database of an environment with a local dump",
 		Long: `Import a local SQL dump into the database of an environment. Every table in the dump is dropped and recreated; tables that exist only on the environment stay.
 
-The file is plain SQL (gzipped while uploading) or gzipped SQL; - reads the dump from stdin. Everything runs on the environment over SSH with your own SSH key: first a backup dump of the current database to /data/home/frbit-backup-<UTC time>.sql.gz, then the upload, a gzip check, the import with mysql, and the removal of the upload. When a step after the backup fails, the backup path and the command to restore it are printed.
+The file is plain SQL (gzipped while uploading) or gzipped SQL; - reads the dump from stdin, which must be piped in, not a terminal. Everything runs on the environment over SSH with your own SSH key: first a backup dump of the current database to /data/home/frbit-backup-<UTC time>.sql.gz, then the upload, a gzip check, the import with mysql, and the removal of the upload. When a step after the backup fails, the backup path and the command to restore it are printed.
 
 It asks you to type the environment ID on a terminal; without one, or when the dump comes from stdin, pass --confirm <environment>.
 
@@ -53,6 +53,9 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			ctx := cmd.Context()
 			stderr := cmd.ErrOrStderr()
 			fromStdin := args[0] == "-"
+			if fromStdin && factory.IOStreams.IsTTY {
+				return errors.New("- reads the dump from stdin; pipe a file in")
+			}
 			input, err := openInput(args[0], factory.IOStreams.In)
 			if err != nil {
 				return err
@@ -204,7 +207,7 @@ func (p pusher) run(ctx context.Context, remote string, stdin io.Reader) error {
 }
 
 func (p pusher) restoreCommand() string {
-	return fmt.Sprintf(`ssh %s 'gunzip -c %s | mysql "$FORTRABBIT_DB_NAME"'`, p.target, p.backup)
+	return fmt.Sprintf(`ssh %s 'set -o pipefail; gunzip -c %s | mysql "$FORTRABBIT_DB_NAME"'`, p.target, p.backup)
 }
 
 // report prints the state of the database and how to restore the backup.
@@ -220,7 +223,7 @@ func stepError(err error, step string) error {
 	return fmt.Errorf("%s (exit %d); see the message above", step, sshexec.ExitCode(err))
 }
 
-// cleanup removes the uploaded file even after Ctrl-C; it runs only when no import is reading it, or the import has ended.
+// cleanup removes the uploaded file even after Ctrl-C; an import still running on the environment keeps reading its open copy.
 func (p pusher) cleanup(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()

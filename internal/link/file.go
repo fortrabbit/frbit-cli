@@ -57,7 +57,13 @@ func (e *Entries) Labels() []string { return append([]string(nil), e.labels...) 
 func (e *Entries) Len() int { return len(e.labels) }
 
 // Set adds label or replaces its ID in place.
-func (e *Entries) Set(label, id string) {
+func (e *Entries) Set(label, id string) error {
+	if err := ValidLabel(label); err != nil {
+		return err
+	}
+	if !IsID(id) {
+		return fmt.Errorf("invalid environment ID %q", id)
+	}
 	line := label + ": " + id
 	if i, ok := e.index[label]; ok {
 		e.lines[i] = line
@@ -67,6 +73,7 @@ func (e *Entries) Set(label, id string) {
 		e.labels = append(e.labels, label)
 	}
 	e.ids[label] = id
+	return nil
 }
 
 func newEntries() *Entries {
@@ -148,6 +155,11 @@ func unquote(value string) string {
 
 // WriteFile writes entries to dir/.fortrabbit/environments.yml, creating the folder; other files in it stay untouched.
 func WriteFile(dir string, entries *Entries) error {
+	for _, label := range entries.labels {
+		if id := entries.ids[label]; !labelPattern.MatchString(label) || !IsID(id) {
+			return fmt.Errorf("write %s: invalid entry %q: %q", FilePath, label, id)
+		}
+	}
 	folder := filepath.Join(dir, FolderName)
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", FolderName, err)
@@ -229,7 +241,9 @@ func MigrateLegacy(dir, label string) (string, error) {
 		return "", fmt.Errorf("migrate %s: %w", FolderName, err)
 	}
 	entries := newEntries()
-	entries.Set(label, id)
+	if err := entries.Set(label, id); err != nil {
+		return "", err
+	}
 	if err := WriteFile(dir, entries); err != nil {
 		_ = os.RemoveAll(legacy)
 		_ = os.Rename(backup, legacy)

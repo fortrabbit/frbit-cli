@@ -20,6 +20,7 @@ func TestNormalizeRemote(t *testing.T) {
 		ok           bool
 	}{
 		{"git@github.com:Acme/Site.git", "Acme/Site", true},
+		{"git@GitHub.com:acme/site.git", "acme/site", true},
 		{"ssh://git@github.com/acme/site.git", "acme/site", true},
 		{"https://github.com/acme/site", "acme/site", true},
 		{"https://github.com/acme/site.git/", "acme/site", true},
@@ -59,6 +60,7 @@ type fakeAPI struct {
 	apps, environments string
 	missing            map[string]bool
 	paths              []string
+	appsQuery          string
 }
 
 func (f *fakeAPI) client(t *testing.T) *api.Client {
@@ -68,6 +70,7 @@ func (f *fakeAPI) client(t *testing.T) *api.Client {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/apps":
+			f.appsQuery = r.URL.RawQuery
 			_, _ = w.Write([]byte(f.apps))
 		case r.URL.Path == "/v1/environments":
 			_, _ = w.Write([]byte(f.environments))
@@ -200,6 +203,61 @@ func TestResolveLegacyFileWithoutTTYNeedsMigration(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "run frbit link on a terminal to migrate .fortrabbit") {
 		t.Fatalf("err = %v", err)
 	}
+	if _, err := resolver.Resolve(context.Background(), fake.client(t), dir, "staging"); !errors.Is(err, ErrLegacyFile) {
+		t.Fatalf("label: err = %v", err)
+	}
+}
+
+func TestResolveLegacyFileWithoutTTYUsesServerLookup(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit"), []byte("app-env-id=en-old111\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeAPI{apps: connectedApps, environments: connectedEnvironments}
+	resolver := Resolver{Git: fakeGit("git@github.com:acme/site.git", "main"), Getenv: func(string) string { return "" }}
+	got, err := resolver.Resolve(context.Background(), fake.client(t), dir, "")
+	if err != nil || got != "en-prod11" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".fortrabbit", "environments.yml")); err == nil {
+		t.Fatal("legacy file migrated without a terminal")
+	}
+}
+
+func TestLookupFiltersAppsByRepository(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeAPI{apps: connectedApps, environments: connectedEnvironments}
+	resolver := Resolver{Git: fakeGit("git@github.com:ACME/site.git", "develop"), Getenv: func(string) string { return "" }}
+	match, found, err := resolver.Lookup(context.Background(), fake.client(t), dir, "develop")
+	if err != nil || !found || match.EnvironmentID != "en-stag11" {
+		t.Fatalf("match %+v, %v, %v", match, found, err)
+	}
+	if fake.appsQuery != "gitRepository=ACME%2Fsite" {
+		t.Fatalf("apps query %q", fake.appsQuery)
+	}
+}
+
+func TestEntriesSetAndWriteFileValidate(t *testing.T) {
+	entries := newEntries()
+	for _, tc := range [][2]string{{"en-label", "en-abc111"}, {"bad label", "en-abc111"}, {"main", "ap-abc111"}, {"main", "en-abc111\nx: en-def222"}} {
+		if err := entries.Set(tc[0], tc[1]); err == nil {
+			t.Fatalf("Set(%q, %q) accepted", tc[0], tc[1])
+		}
+	}
+	if entries.Len() != 0 {
+		t.Fatalf("rejected entries stored: %v", entries.Labels())
+	}
+	if err := entries.Set("main", "en-abc111"); err != nil {
+		t.Fatal(err)
+	}
+	entries.ids["main"] = "not-an-id"
+	dir := t.TempDir()
+	if err := WriteFile(dir, entries); err == nil {
+		t.Fatal("WriteFile wrote an invalid ID")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".fortrabbit", "environments.yml")); err == nil {
+		t.Fatal("file written")
+	}
 }
 
 func TestFileKeepsOtherEntriesAndRejectsNesting(t *testing.T) {
@@ -212,8 +270,12 @@ func TestFileKeepsOtherEntriesAndRejectsNesting(t *testing.T) {
 	if id, _ := entries.Get("staging"); id != "en-file22" {
 		t.Fatalf("staging = %q", id)
 	}
-	entries.Set("main", "en-new111")
-	entries.Set("feature/x", "en-new222")
+	if err := entries.Set("main", "en-new111"); err != nil {
+		t.Fatal(err)
+	}
+	if err := entries.Set("feature/x", "en-new222"); err != nil {
+		t.Fatal(err)
+	}
 	if err := WriteFile(dir, entries); err != nil {
 		t.Fatal(err)
 	}

@@ -50,12 +50,12 @@ func newCmdSync(factory *app.Factory, push bool) *cobra.Command {
 
 The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .. and characters outside letters, digits and . _ - + @ / are refused.
 
-Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment; it asks you to type the environment ID on a terminal, without one pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
+Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment. Without a path, and with --delete, it asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
 
-.git/ and .fortrabbit/ at the top of the synced folder are never copied or deleted.
+Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`,
-		Example: `  frbit files pull
+		Example: `  frbit files pull web/uploads
   frbit files pull web/uploads --env en-a1b2c3
   frbit files pull storage --dry-run --delete`,
 		Args: cobra.MaximumNArgs(1),
@@ -74,7 +74,7 @@ Files that changed are overwritten on the environment. --delete also removes fil
 
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. A dry run needs no confirmation.
 
-.git/ and .fortrabbit/ at the top of the synced folder are never copied or deleted.
+Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`
 		command.Example = `  frbit files push web/uploads --env en-a1b2c3
@@ -118,9 +118,9 @@ func progressFlag(version string) string {
 	return "--progress"
 }
 
-// rsyncArgs builds the rsync arguments; the excludes keep the repository and its link file out of a sync and a --delete, and "--" ends the options before the paths.
+// rsyncArgs builds the rsync arguments; the excludes keep the repository, its link file and local secrets out of a sync and a --delete, and "--" ends the options before the paths.
 func rsyncArgs(progress string, interactive, dryRun, del bool, src, dst string) []string {
-	args := []string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " "), "--exclude=/.git/", "--exclude=/.fortrabbit/"}
+	args := []string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " "), "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*"}
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
@@ -184,8 +184,11 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	destructive := !opts.dryRun && (push || opts.delete)
-	action := "files pull --delete"
+	destructive := !opts.dryRun && (push || opts.delete || rel == ".")
+	action := "files pull"
+	if opts.delete {
+		action += " --delete"
+	}
 	if push {
 		action = "files push"
 	}
@@ -208,6 +211,12 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	}
 	if destructive {
 		warning := fmt.Sprintf("Local files under %s that are not on %s are deleted.", localPath(rel), id)
+		if rel == "." {
+			warning = fmt.Sprintf("Local files under the current folder are overwritten by the copies on %s.", id)
+			if opts.delete {
+				warning += fmt.Sprintf(" Local files there that are not on %s are deleted.", id)
+			}
+		}
 		if push {
 			warning = fmt.Sprintf("Files under %s on %s are overwritten by the local copies.", remotePath, id)
 			if opts.delete {

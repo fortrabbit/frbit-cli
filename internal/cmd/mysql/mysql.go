@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"fmt"
+	"net/url"
 	"text/tabwriter"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -29,7 +30,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/mysql")
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/mysql")
 			if err != nil {
 				return err
 			}
@@ -74,19 +75,19 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, out, "password rotation", id, confirmation, rotateWarning)
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "password rotation", id, confirmation, rotateWarning)
 			if err != nil {
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(out, "Aborted.")
+				_, err = fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return err
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+id+"/mysql/regenerate-password"); err != nil {
+			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+url.PathEscape(id)+"/mysql/regenerate-password"); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(out, "Rotating the MySQL password of %s. The app reads the new one from its environment variables once applied; redeploy or restart it.\n", id)

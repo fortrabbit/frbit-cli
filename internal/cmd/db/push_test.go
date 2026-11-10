@@ -63,7 +63,7 @@ const (
 	wantTest    = `gzip -t /data/home/frbit-import.sql.gz`
 	wantImport  = `set -o pipefail; gunzip -c /data/home/frbit-import.sql.gz | mysql "$FORTRABBIT_DB_NAME"`
 	wantCleanup = `rm -f /data/home/frbit-import.sql.gz`
-	wantRestore = `ssh en-abc123@ssh.us-e1a.frbit.app 'gunzip -c /data/home/frbit-backup-20261110093005.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`
+	wantRestore = `ssh en-abc123@ssh.us-e1a.frbit.app 'set -o pipefail; gunzip -c /data/home/frbit-backup-20261110093005.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`
 )
 
 func push(t *testing.T, dir string, fake *pushRunner, in invocation) (string, string, error) {
@@ -104,11 +104,25 @@ func TestDbPushWithoutTTYRequiresConfirmBeforeSSH(t *testing.T) {
 		}
 	}
 
-	// stdin carries the dump, so it cannot answer a prompt: - needs --confirm even on a terminal.
+	// stdin carries the dump, so it cannot answer a prompt: - needs --confirm.
 	fake := &pushRunner{}
-	_, _, err := push(t, dir, fake, invocation{tty: true, stdin: strings.NewReader(dump), args: []string{"-", "en-abc123"}})
+	_, _, err := push(t, dir, fake, invocation{stdin: strings.NewReader(dump), args: []string{"-", "en-abc123"}})
 	if err == nil || !strings.Contains(err.Error(), "--confirm en-abc123") || len(fake.calls) != 0 {
 		t.Fatalf("stdin without --confirm: %v, %q", err, fake.remotes())
+	}
+}
+
+func TestDbPushStdinOnTTYRefusedBeforeReading(t *testing.T) {
+	dir := t.TempDir()
+	fake := &pushRunner{}
+	requests := []string{}
+	stdin := strings.NewReader(dump)
+	_, _, err := push(t, dir, fake, invocation{tty: true, stdin: stdin, requests: &requests, args: []string{"-", "en-abc123", "--confirm", "en-abc123"}})
+	if err == nil || err.Error() != "- reads the dump from stdin; pipe a file in" {
+		t.Fatalf("err = %v", err)
+	}
+	if stdin.Len() != len(dump) || len(fake.calls) != 0 || len(requests) != 0 {
+		t.Fatalf("read %d bytes, ssh %q, requests %q", len(dump)-stdin.Len(), fake.remotes(), requests)
 	}
 }
 

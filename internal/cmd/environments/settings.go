@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ func newCmdPhpSettingsGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/php-settings")
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/php-settings")
 			if err != nil {
 				return err
 			}
@@ -65,7 +66,7 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+args[0]+"/php-settings", payload)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/php-settings", payload)
 			if err != nil {
 				return err
 			}
@@ -137,7 +138,7 @@ func newCmdBasicAuthGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/basic-auth")
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/basic-auth")
 			if err != nil {
 				return err
 			}
@@ -184,7 +185,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.PutResource(cmd.Context(), "/v1/environments/"+args[0]+"/basic-auth", payload)
+			response, err := client.PutResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/basic-auth", payload)
 			if err != nil {
 				return err
 			}
@@ -237,7 +238,7 @@ func newCmdFirewallList(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+args[0]+"/firewall-rules", 0, nil, nil)
+			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/firewall-rules", 0, nil, nil)
 			if err != nil {
 				return err
 			}
@@ -301,7 +302,7 @@ func newCmdFirewallAdd(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			payload := map[string]any{"description": description, "portStart": start, "portEnd": end}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+args[0]+"/firewall-rules", payload)
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/firewall-rules", payload)
 			if err != nil {
 				return err
 			}
@@ -325,19 +326,19 @@ func newCmdFirewallDelete(factory *app.Factory) *cobra.Command {
 			if err := cmdutil.CheckDestructive(factory, "deletion", id, confirmation); err != nil {
 				return err
 			}
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.OutOrStdout(), "deletion", id, confirmation, "Deleting this rule closes its ports again.")
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "deletion", id, confirmation, "Deleting this rule closes its ports again.")
 			if err != nil {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return err
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			if err := client.DeleteResource(cmd.Context(), "/v1/firewall-rules/"+id); err != nil {
+			if err := client.DeleteResource(cmd.Context(), "/v1/firewall-rules/"+url.PathEscape(id)); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted firewall rule %s.\n", id)
@@ -385,7 +386,7 @@ func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/components")
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components")
 			if err != nil {
 				return err
 			}
@@ -420,7 +421,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+args[0]+"/components")
+			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components")
 			if err != nil {
 				return err
 			}
@@ -429,7 +430,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if len(components) == 0 {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "No component plan changes.")
+				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No component plan changes.")
 				return err
 			}
 			if region == "" {
@@ -457,7 +458,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			for slug, size := range components {
 				payload[slug] = size
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+args[0]+"/components", payload)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/components", payload)
 			if err != nil {
 				return err
 			}

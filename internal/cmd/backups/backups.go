@@ -36,7 +36,8 @@ func NewCmdBackups(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdList(factory *app.Factory) *cobra.Command {
-	var printJSON bool
+	var printJSON, all bool
+	var limit int
 	command := &cobra.Command{
 		Use:   "list <environment>",
 		Short: "List the backups of an environment",
@@ -46,7 +47,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1/environments/"+args[0]+"/backups", 0, nil, nil)
+			response, err := resource.ListPaged(cmd, client, "/v1/environments/"+url.PathEscape(args[0])+"/backups", limit, all)
 			if err != nil {
 				return err
 			}
@@ -58,6 +59,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	resource.AddPageFlags(command, "backups", &limit, &all)
 	return command
 }
 
@@ -72,7 +74,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+args[0])
+			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+url.PathEscape(args[0]))
 			if err != nil {
 				return err
 			}
@@ -98,7 +100,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+args[0]+"/backups", map[string]any{})
+			response, err := client.CreateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/backups", map[string]any{})
 			if err != nil {
 				return err
 			}
@@ -130,27 +132,27 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+id)
+			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id))
 			if err != nil {
 				return err
 			}
 			environment, _ := response.Resource["environment"].(string)
-			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Backup: %s (environment %s)\n\n", id, environment)
+			stderr := cmd.ErrOrStderr()
+			_, _ = fmt.Fprintf(stderr, "Backup: %s (environment %s)\n\n", id, environment)
 			warning := "Restoring overwrites the live data of the environment: its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
-			_, _ = fmt.Fprintln(out, warning)
-			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, out, "restore", id, confirmation, "")
+			_, _ = fmt.Fprintln(stderr, warning)
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "restore", id, confirmation, "")
 			if err != nil {
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(out, "Aborted.")
+				_, err = fmt.Fprintln(stderr, "Aborted.")
 				return err
 			}
-			if _, err := client.CreateResource(cmd.Context(), "/v1/backups/"+id+"/restore", map[string]any{}); err != nil {
+			if _, err := client.CreateResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id)+"/restore", map[string]any{}); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "Restore of %s requested.\n", id)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restore of %s requested.\n", id)
 			return err
 		},
 	}
@@ -179,7 +181,7 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+id+"/download/"+downloadType)
+			response, err := client.GetResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id)+"/download/"+downloadType)
 			if err != nil {
 				return err
 			}

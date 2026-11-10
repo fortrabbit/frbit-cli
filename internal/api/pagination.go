@@ -17,10 +17,11 @@ import (
 const maxPages = 1000
 
 // ListAll follows the Link rel="next" pages from path and returns up to limit resources, or all when limit is 0.
-// Raw is a JSON array of the returned resources; TotalItems comes from X-Total-Count.
+// Raw is a JSON array of the returned resources; TotalItems comes from X-Total-Count; Header is the first page's.
 func (c Client) ListAll(ctx context.Context, path string, query url.Values, limit int) (ResourcesResponse, error) {
 	resources := []Resource{}
 	totalItems := -1
+	var header http.Header
 	for page := 0; ; page++ {
 		if page >= maxPages {
 			return ResourcesResponse{}, fmt.Errorf("stopped after %d pages", maxPages)
@@ -32,6 +33,9 @@ func (c Client) ListAll(ctx context.Context, path string, query url.Values, limi
 		pageResources, _, err := decodeResources(response.body)
 		if err != nil {
 			return ResourcesResponse{}, err
+		}
+		if header == nil {
+			header = response.header
 		}
 		if totalItems < 0 {
 			if total, err := strconv.Atoi(strings.TrimSpace(response.header.Get("X-Total-Count"))); err == nil && total >= 0 {
@@ -59,7 +63,7 @@ func (c Client) ListAll(ctx context.Context, path string, query url.Values, limi
 	if err != nil {
 		return ResourcesResponse{}, fmt.Errorf("encode resource collection: %w", err)
 	}
-	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: raw}, nil
+	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: raw, Header: header}, nil
 }
 
 // GetWithLinks GETs path and returns the body with the Link header (all values joined).
