@@ -1,0 +1,230 @@
+package link
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/api"
+)
+
+func TestNormalizeRemote(t *testing.T) {
+	cases := []struct {
+		remote, want string
+		ok           bool
+	}{
+		{"git@github.com:Acme/Site.git", "Acme/Site", true},
+		{"ssh://git@github.com/acme/site.git", "acme/site", true},
+		{"https://github.com/acme/site", "acme/site", true},
+		{"https://github.com/acme/site.git/", "acme/site", true},
+		{"https://token@github.com/acme/site.git", "acme/site", true},
+		{"git@gitlab.com:acme/site.git", "", false},
+		{"https://bitbucket.org/acme/site", "", false},
+		{"https://github.com/acme", "", false},
+		{"https://github.com/acme/site/extra", "", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := NormalizeRemote(tc.remote)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("NormalizeRemote(%q) = %q, %v; want %q, %v", tc.remote, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// fakeGit answers git commands with a fixed remote and branch; empty means the command fails.
+func fakeGit(remote, branch string) GitRunner {
+	return func(_ context.Context, _ string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "remote get-url origin":
+			if remote != "" {
+				return remote, nil
+			}
+		case "symbolic-ref --short HEAD":
+			if branch != "" {
+				return branch, nil
+			}
+		}
+		return "", errors.New("git failed")
+	}
+}
+
+type fakeAPI struct {
+	apps, environments string
+	missing            map[string]bool
+	paths              []string
+}
+
+func (f *fakeAPI) client(t *testing.T) *api.Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.paths = append(f.paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/apps":
+			_, _ = w.Write([]byte(f.apps))
+		case r.URL.Path == "/v1/environments":
+			_, _ = w.Write([]byte(f.environments))
+		case strings.HasPrefix(r.URL.Path, "/v1/environments/"):
+			id := strings.TrimPrefix(r.URL.Path, "/v1/environments/")
+			if f.missing[id] {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"title":"Not Found"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"publicId":"` + id + `","name":"x"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, err := api.NewClient(server.URL, "test-token", &http.Client{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+func writeEnvironments(t *testing.T, dir, content string) {
+	t.Helper()
+	if content == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".fortrabbit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit", "environments.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const connectedApps = `[{"publicId":"ap-aaa111","gitRepository":"acme/site","environments":["en-prod11","en-stag11"]},{"publicId":"ap-bbb222","gitRepository":null,"environments":["en-other1"]}]`
+const connectedEnvironments = `[{"publicId":"en-prod11","name":"production","git":{"branch":"main","directory":null}},{"publicId":"en-stag11","name":"staging","git":{"branch":"develop","directory":null}}]`
+
+func TestResolveOrder(t *testing.T) {
+	cases := []struct {
+		name        string
+		arg, envVar string
+		file        string
+		remote      string
+		branch      string
+		tty         bool
+		stdin       string
+		want        string
+		wantErr     string
+	}{
+		{name: "argument ID", arg: "en-arg111", envVar: "en-env111", file: "main: en-file11\n", remote: "git@github.com:acme/site.git", branch: "main", want: "en-arg111"},
+		{name: "argument label", arg: "staging", file: "main: en-file11\nstaging: en-file22\n", branch: "main", want: "en-file22"},
+		{name: "unknown label", arg: "nope", file: "main: en-file11\n", wantErr: `no environment labelled "nope"`},
+		{name: "environment variable", envVar: "en-env111", file: "main: en-file11\n", branch: "main", want: "en-env111"},
+		{name: "file entry for branch", file: "develop: en-file22\nmain: en-file11\n", remote: "git@github.com:acme/site.git", branch: "main", want: "en-file11"},
+		{name: "server lookup", file: "other: en-file11\nmore: en-file22\n", remote: "git@github.com:ACME/site.git", branch: "develop", want: "en-stag11"},
+		{name: "only entry", file: "staging: en-file22\n", remote: "git@github.com:acme/unknown.git", branch: "feature", want: "en-file22"},
+		{name: "ask on a terminal", remote: "git@github.com:acme/site.git", branch: "feature", tty: true, stdin: "2\n", want: "en-stag11"},
+		{name: "no TTY fails", remote: "git@github.com:acme/site.git", branch: "feature", wantErr: "no environment for this checkout; run frbit link or pass the environment ID"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeEnvironments(t, dir, tc.file)
+			fake := &fakeAPI{apps: connectedApps, environments: connectedEnvironments}
+			out := &bytes.Buffer{}
+			resolver := Resolver{
+				Git:    fakeGit(tc.remote, tc.branch),
+				Getenv: func(name string) string { return map[string]string{"FORTRABBIT_ENVIRONMENT": tc.envVar}[name] },
+				In:     strings.NewReader(tc.stdin),
+				Out:    out,
+				IsTTY:  tc.tty,
+			}
+			got, err := resolver.Resolve(context.Background(), fake.client(t), dir, tc.arg)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveIDOutsideAccountSaysRunLink(t *testing.T) {
+	dir := t.TempDir()
+	writeEnvironments(t, dir, "main: en-fork11\n")
+	fake := &fakeAPI{apps: `[]`, environments: `[]`, missing: map[string]bool{"en-fork11": true}}
+	resolver := Resolver{Git: fakeGit("", "main"), Getenv: func(string) string { return "" }}
+	_, err := resolver.Resolve(context.Background(), fake.client(t), dir, "")
+	if err == nil || err.Error() != "en-fork11 is not in your account; run frbit link" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResolveDetachedHeadFallsThrough(t *testing.T) {
+	dir := t.TempDir()
+	writeEnvironments(t, dir, "main: en-file11\n")
+	fake := &fakeAPI{apps: connectedApps, environments: connectedEnvironments}
+	resolver := Resolver{Git: fakeGit("git@github.com:acme/site.git", ""), Getenv: func(string) string { return "" }}
+	got, err := resolver.Resolve(context.Background(), fake.client(t), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "en-file11" {
+		t.Fatalf("got %q", got)
+	}
+	for _, path := range fake.paths {
+		if path == "/v1/apps" {
+			t.Fatal("server lookup ran without a branch")
+		}
+	}
+}
+
+func TestResolveLegacyFileWithoutTTYNeedsMigration(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit"), []byte("app-env-id=en-old111\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeAPI{apps: `[]`, environments: `[]`}
+	resolver := Resolver{Git: fakeGit("", "main"), Getenv: func(string) string { return "" }}
+	_, err := resolver.Resolve(context.Background(), fake.client(t), dir, "")
+	if err == nil || !strings.Contains(err.Error(), "run frbit link on a terminal to migrate .fortrabbit") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFileKeepsOtherEntriesAndRejectsNesting(t *testing.T) {
+	dir := t.TempDir()
+	writeEnvironments(t, dir, "# environments of this project\nmain: en-file11\nstaging: \"en-file22\"\n")
+	entries, err := ReadFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := entries.Get("staging"); id != "en-file22" {
+		t.Fatalf("staging = %q", id)
+	}
+	entries.Set("main", "en-new111")
+	entries.Set("feature/x", "en-new222")
+	if err := WriteFile(dir, entries); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, ".fortrabbit", "environments.yml"))
+	want := "# environments of this project\nmain: en-new111\nstaging: \"en-file22\"\nfeature/x: en-new222\n"
+	if string(raw) != want {
+		t.Fatalf("file:\n%s", raw)
+	}
+
+	writeEnvironments(t, dir, "main:\n  id: en-file11\n")
+	if _, err := ReadFile(dir); err == nil || !strings.Contains(err.Error(), "label: en-xxxxxx") {
+		t.Fatalf("nested map accepted: %v", err)
+	}
+}

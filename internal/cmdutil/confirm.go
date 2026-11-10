@@ -61,3 +61,8 @@ func readAnswer(ctx context.Context, reader io.Reader, writer io.Writer, prompt 
 		return strings.TrimSpace(r.answer), nil
 	}
 }
+
+// AskContext prints prompt and returns the trimmed answer line; it gives up with ctx.Err() when ctx ends.
+func AskContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (string, error) {
+	return readAnswer(ctx, reader, writer, prompt)
+}

@@ -492,6 +492,27 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 `download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. The file is written with mode 0600 because a backup holds database dumps. An existing target file is not overwritten unless you pass `--force`. `--output -` may leave partial output on stdout when the transfer fails. The link expires; run the command again for a fresh one.
 
+## Link a local project
+
+```sh
+frbit link
+frbit link en-a1b2c3
+frbit link en-d4e5f6 --label staging
+```
+
+Commands that work on the environment of the current checkout find it in this order: the environment argument (an ID, or a label from `.fortrabbit/environments.yml`), `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the server lookup, the only entry in the file, else a list to pick from on a terminal.
+
+The server lookup matches the GitHub `origin` remote to the repository connected to an app, and the current branch to the environment that deploys it. On such a connected repository `frbit link` confirms the match and writes nothing.
+
+Without a connection, `frbit link <environment>` writes `.fortrabbit/environments.yml`, a flat map of label to environment ID. The label defaults to the current branch; `--label` sets another one. Other entries stay; commit the file. `.fortrabbit/deploy.yml` is never touched.
+
+```yaml
+main: en-a1b2c3
+staging: en-d4e5f6
+```
+
+An ID outside your account fails with `run frbit link`, for example in a fork of a template. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch.
+
 ## Deleting resources
 
 Apps, environments, domains, jobs, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
@@ -683,6 +704,7 @@ frbit --profile work auth logout
 | `frbit php-versions list` / `php-extensions list` / `php-settings list` / `node-versions list` | List the available PHP versions, PHP extensions, php.ini directives with accepted values, or Node.js versions. |
 | `frbit git repositories` | List repositories of the connected Git account. |
 | `frbit git branches <owner/repo>` | List the branches of a repository. |
+| `frbit link [environment]` | Link the checkout to an environment: confirm the connected repository, or write `.fortrabbit/environments.yml`. Accepts `--label`. |
 | `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |
 | `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
@@ -705,6 +727,7 @@ Global options:
 | Variable | Description |
 | --- | --- |
 | `FRBIT_TOKEN` | Public API token for the current command. Overrides a stored credential. |
+| `FORTRABBIT_ENVIRONMENT` | Environment of the current checkout, after an explicit argument. Set by the platform on every environment. |
 
 ## Troubleshooting
 
