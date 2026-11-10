@@ -239,7 +239,7 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 			if follow {
-				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), "/v1"+spec.Path+"/"+args[0], printJSON)
+				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), cmd.ErrOrStderr(), "/v1"+spec.Path+"/"+args[0], printJSON)
 			}
 			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0]+"/logs")
 			if err != nil {
@@ -258,40 +258,55 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 }
 
 // followDeploymentLogs prints each log line once and stops when the deployment is final and its logs are complete.
-func followDeploymentLogs(ctx context.Context, client *api.Client, out io.Writer, path string, asJSON bool) error {
+// Transient errors (429, 503, network) wait and retry.
+func followDeploymentLogs(ctx context.Context, client *api.Client, out, errOut io.Writer, path string, asJSON bool) error {
 	printed := 0
+	announced := false
 	for {
-		deployment, err := client.GetResource(ctx, path)
+		done, err := pollDeploymentLogs(ctx, client, out, path, &printed, asJSON)
+		wait := LogsPollInterval
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return err
-		}
-		response, err := client.GetResource(ctx, path+"/logs")
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
-		}
-		logs, _ := response.Resource["logs"].([]any)
-		if len(logs) > printed {
-			if err := writeLogLines(out, logs[printed:], asJSON); err != nil {
+			delay, transient := api.TransientDelay(err, LogsPollInterval)
+			if !transient {
 				return err
 			}
-			printed = len(logs)
-		}
-		ready, _ := response.Resource["ready"].(bool)
-		if ready && finalDeploymentStates[strings.ToLower(resourceValue(deployment.Resource["status"]))] {
+			wait = delay
+		} else if done {
 			return nil
+		} else if !announced && printed == 0 {
+			announced = true
+			_, _ = fmt.Fprintln(errOut, "waiting for logs…")
 		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(LogsPollInterval):
+		case <-time.After(wait):
 		}
 	}
+}
+
+func pollDeploymentLogs(ctx context.Context, client *api.Client, out io.Writer, path string, printed *int, asJSON bool) (bool, error) {
+	deployment, err := client.GetResource(ctx, path)
+	if err != nil {
+		return false, err
+	}
+	response, err := client.GetResource(ctx, path+"/logs")
+	if err != nil {
+		return false, err
+	}
+	logs, _ := response.Resource["logs"].([]any)
+	// The API returns lines in chronological order and only appends, so a count marks what was printed.
+	if len(logs) > *printed {
+		if err := writeLogLines(out, logs[*printed:], asJSON); err != nil {
+			return false, err
+		}
+		*printed = len(logs)
+	}
+	ready, _ := response.Resource["ready"].(bool)
+	return ready && finalDeploymentStates[strings.ToLower(resourceValue(deployment.Resource["status"]))], nil
 }
 
 func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {

@@ -95,3 +95,113 @@ func TestLogsPagesBackAndFilters(t *testing.T) {
 		t.Fatal("--status accepted for php")
 	}
 }
+
+func TestLogsFollowSurvivesTransientError(t *testing.T) {
+	fastPoll(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	failed := false
+	output, _, err := runContext(t, ctx, "", func(r request, w http.ResponseWriter) {
+		if !strings.Contains(r.query, "after=") {
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?after=c1>; rel="prev"`)
+			echo(w, 200, `[{"time":"t1","level":null,"message":"first"}]`)
+			return
+		}
+		if !failed {
+			failed = true
+			w.Header().Set("Retry-After", "0")
+			echo(w, 503, `{"title":"down"}`)
+			return
+		}
+		cancel()
+		echo(w, 200, `[]`)
+	}, "logs", "en-abc123", "--follow")
+	if err != nil || !failed || strings.Count(output, "first") != 1 {
+		t.Fatalf("failed=%v err=%v output=%q", failed, err, output)
+	}
+	if _, _, err := run(t, "", func(r request, w http.ResponseWriter) { echo(w, 404, `{"title":"nope"}`) }, "logs", "en-abc123"); err == nil {
+		t.Fatal("404 must stay fatal")
+	}
+}
+
+func TestLogsFollowPageWithoutCursorIsNotReprinted(t *testing.T) {
+	fastPoll(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	polls := 0
+	output, _, err := runContext(t, ctx, "", func(r request, w http.ResponseWriter) {
+		if !strings.Contains(r.query, "after=") {
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?after=c1>; rel="prev"`)
+			echo(w, 200, `[]`)
+			return
+		}
+		polls++
+		switch polls {
+		case 1: // entries but no prev link
+			echo(w, 200, `[{"time":"t2","level":null,"message":"b"},{"time":"t1","level":null,"message":"a"}]`)
+		case 2: // same cursor again, one more entry on top
+			echo(w, 200, `[{"time":"t3","level":null,"message":"c"},{"time":"t2","level":null,"message":"b"},{"time":"t1","level":null,"message":"a"}]`)
+		default:
+			cancel()
+			echo(w, 200, `[{"time":"t3","level":null,"message":"c"},{"time":"t2","level":null,"message":"b"},{"time":"t1","level":null,"message":"a"}]`)
+		}
+	}, "logs", "en-abc123", "--follow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "t1\t\ta\nt2\t\tb\nt3\t\tc\n" {
+		t.Fatalf("output %q", output)
+	}
+}
+
+func TestLogsFollowEmptyLogRequeriesWithoutCursor(t *testing.T) {
+	fastPoll(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	output, _, err := runContext(t, ctx, "", func(r request, w http.ResponseWriter) {
+		calls++
+		switch {
+		case calls < 3:
+			echo(w, 200, `[]`)
+		case calls == 3:
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?after=c1>; rel="prev"`)
+			echo(w, 200, `[{"time":"t1","level":null,"message":"hello"}]`)
+		default:
+			cancel()
+			echo(w, 200, `[]`)
+		}
+	}, "logs", "en-abc123", "--follow")
+	if err != nil || output != "t1\t\thello\n" {
+		t.Fatalf("err=%v output=%q", err, output)
+	}
+}
+
+func TestLogsJSONRawForOnePageMergedForMany(t *testing.T) {
+	one, _, err := run(t, "", func(r request, w http.ResponseWriter) {
+		echo(w, 200, `[{"time":"t1","level":null,"message":"a","extra":1}]`)
+	}, "logs", "en-abc123", "--json")
+	if err != nil || strings.TrimSpace(one) != `[{"time":"t1","level":null,"message":"a","extra":1}]` {
+		t.Fatalf("err=%v %q", err, one)
+	}
+	many, _, err := run(t, "", func(r request, w http.ResponseWriter) {
+		if !strings.Contains(r.query, "before=") {
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?before=b1>; rel="next"`)
+			echo(w, 200, `[{"time":"t2","level":null,"message":"b"}]`)
+			return
+		}
+		echo(w, 200, `[{"time":"t1","level":null,"message":"a"}]`)
+	}, "logs", "en-abc123", "--json")
+	if err != nil || !strings.HasPrefix(many, `[{"time":"t2"`) || !strings.Contains(many, `{"time":"t1"`) {
+		t.Fatalf("err=%v %q", err, many)
+	}
+}
+
+func TestLogsKeepTabsStripsOtherControl(t *testing.T) {
+	output, _, err := run(t, "", func(r request, w http.ResponseWriter) {
+		echo(w, 200, `[{"time":"t1","level":null,"message":"a\tb\u0007c"}]`)
+	}, "logs", "en-abc123")
+	if err != nil || !strings.Contains(output, "a\tbc") {
+		t.Fatalf("err=%v %q", err, output)
+	}
+}

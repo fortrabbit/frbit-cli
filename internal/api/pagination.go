@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // maxPages stops a server whose next links never end.
@@ -120,4 +123,26 @@ func LinkRel(header, wanted string) string {
 			}
 		}
 	}
+}
+
+// TransientDelay reports whether err is worth retrying (429, 503, a network error) and how long to wait first.
+func TransientDelay(err error, fallback time.Duration) (time.Duration, bool) {
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		if httpErr.Status != http.StatusTooManyRequests && httpErr.Status != http.StatusServiceUnavailable {
+			return 0, false
+		}
+		if httpErr.RetryAfter > 0 {
+			return httpErr.RetryAfter, true
+		}
+		return fallback, true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return 0, false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return fallback, true
+	}
+	return 0, false
 }

@@ -65,25 +65,31 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			}
 			path := "/v1/environments/" + args[0] + "/logs"
 			out := cmd.OutOrStdout()
-			entries, prev, err := fetchLogs(cmd.Context(), client, path, query, limit)
+			newest, raw, pages, prev, err := fetchLogs(cmd.Context(), client, path, query, limit)
 			if err != nil {
+				if follow && cmd.Context().Err() != nil {
+					return nil
+				}
 				return err
 			}
 			if !follow {
 				if printJSON {
-					raw, err := json.Marshal(entries)
+					if pages == 1 {
+						return writeRaw(cmd, raw)
+					}
+					merged, err := json.Marshal(newest)
 					if err != nil {
 						return err
 					}
-					return writeRaw(cmd, raw)
+					return writeRaw(cmd, merged)
 				}
-				if len(entries) == 0 {
+				if len(newest) == 0 {
 					_, err := fmt.Fprintln(out, "No log entries found.")
 					return err
 				}
-				return writeLogEntries(out, entries, printJSON)
+				return writeLogEntries(out, reversed(newest), false)
 			}
-			if err := writeLogEntries(out, entries, printJSON); err != nil {
+			if err := writeLogEntries(out, reversed(newest), printJSON); err != nil {
 				return err
 			}
 			return followLogs(cmd.Context(), client, out, path, query, prev, printJSON)
@@ -100,87 +106,115 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 }
 
 // fetchLogs reads up to limit entries, newest first, paging back through rel="next".
-// It returns the entries oldest first and the rel="prev" link of the first page.
-func fetchLogs(ctx context.Context, client *api.Client, path string, query url.Values, limit int) ([]logEntry, string, error) {
+// It returns them with the body of the first page, the page count and the rel="prev" link of the first page.
+func fetchLogs(ctx context.Context, client *api.Client, path string, query url.Values, limit int) ([]logEntry, []byte, int, string, error) {
 	var newest []logEntry
+	var firstBody []byte
 	prev := ""
+	pages := 0
 	query = cloneQuery(query)
 	query.Set("limit", fmt.Sprint(limit))
-	for page := 0; len(newest) < limit; page++ {
+	for len(newest) < limit {
 		body, link, err := client.GetWithLinks(ctx, path, query)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, 0, "", err
 		}
 		var batch []logEntry
 		if err := json.Unmarshal(body, &batch); err != nil {
-			return nil, "", fmt.Errorf("decode logs: %w", err)
+			return nil, nil, 0, "", fmt.Errorf("decode logs: %w", err)
 		}
-		if page == 0 {
+		if pages == 0 {
 			prev = api.LinkRel(link, "prev")
+			firstBody = body
 		}
+		pages++
 		newest = append(newest, batch...)
 		next := api.LinkRel(link, "next")
 		if next == "" || len(batch) == 0 {
 			break
 		}
 		if path, query, err = client.ResolveLink(next); err != nil {
-			return nil, "", err
+			return nil, nil, 0, "", err
 		}
 	}
 	if len(newest) > limit {
 		newest = newest[:limit]
+		pages = 2
 	}
-	return reversed(newest), prev, nil
+	return newest, firstBody, pages, prev, nil
 }
 
 // followLogs polls the rel="prev" cursor until the context ends; Ctrl-C is a clean stop.
+// Transient errors (429, 503, network) wait and retry.
 func followLogs(ctx context.Context, client *api.Client, out io.Writer, path string, query url.Values, prev string, asJSON bool) error {
+	skip := 0
 	for {
-		if prev == "" {
-			// An empty log has no cursor yet; ask again until the first entries arrive.
-			entries, cursor, err := fetchLogs(ctx, client, path, query, followPageLimit)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
+		err := pollLogs(ctx, client, out, path, query, &prev, &skip, asJSON)
+		wait := logsPollInterval
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			delay, transient := api.TransientDelay(err, logsPollInterval)
+			if !transient {
 				return err
 			}
-			if err := writeLogEntries(out, entries, asJSON); err != nil {
-				return err
-			}
-			prev = cursor
-		}
-		for prev != "" {
-			path, query, err := client.ResolveLink(prev)
-			if err != nil {
-				return err
-			}
-			query.Set("limit", fmt.Sprint(followPageLimit))
-			body, link, err := client.GetWithLinks(ctx, path, query)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
-			}
-			var batch []logEntry
-			if err := json.Unmarshal(body, &batch); err != nil {
-				return fmt.Errorf("decode logs: %w", err)
-			}
-			if next := api.LinkRel(link, "prev"); next != "" {
-				prev = next
-			}
-			if len(batch) == 0 {
-				break
-			}
-			if err := writeLogEntries(out, reversed(batch), asJSON); err != nil {
-				return err
-			}
+			wait = delay
 		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(logsPollInterval):
+		case <-time.After(wait):
+		}
+	}
+}
+
+// pollLogs drains the pages after the cursor. skip counts the lines already printed for the
+// current cursor, so a page without a newer cursor is never printed twice.
+func pollLogs(ctx context.Context, client *api.Client, out io.Writer, path string, query url.Values, prev *string, skip *int, asJSON bool) error {
+	if *prev == "" {
+		// An empty log has no cursor yet; ask again until the first entries arrive.
+		entries, _, _, cursor, err := fetchLogs(ctx, client, path, query, followPageLimit)
+		if err != nil {
+			return err
+		}
+		if err := writeLogEntries(out, reversed(entries), asJSON); err != nil {
+			return err
+		}
+		*prev, *skip = cursor, 0
+		return nil
+	}
+	for {
+		next, nextQuery, err := client.ResolveLink(*prev)
+		if err != nil {
+			return err
+		}
+		nextQuery.Set("limit", fmt.Sprint(followPageLimit))
+		body, link, err := client.GetWithLinks(ctx, next, nextQuery)
+		if err != nil {
+			return err
+		}
+		var batch []logEntry
+		if err := json.Unmarshal(body, &batch); err != nil {
+			return fmt.Errorf("decode logs: %w", err)
+		}
+		fresh := batch
+		if len(fresh) > *skip {
+			fresh = fresh[:len(fresh)-*skip]
+		} else {
+			fresh = nil
+		}
+		if err := writeLogEntries(out, reversed(fresh), asJSON); err != nil {
+			return err
+		}
+		cursor := api.LinkRel(link, "prev")
+		if cursor == "" {
+			*skip += len(fresh)
+			return nil
+		}
+		*prev, *skip = cursor, 0
+		if len(batch) == 0 {
+			return nil
 		}
 	}
 }
@@ -216,7 +250,7 @@ func writeLogEntries(out io.Writer, entries []logEntry, asJSON bool) error {
 
 func stripLogControl(value string) string {
 	return strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
+		if character != '\t' && unicode.IsControl(character) {
 			return -1
 		}
 		return character

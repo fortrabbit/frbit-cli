@@ -2,6 +2,7 @@ package resource
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,6 +85,7 @@ func TestDeploymentLogsFollowStopsOnFinalState(t *testing.T) {
 	root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().String("host", "", "")
 	root.SetOut(output)
+	root.SetErr(&bytes.Buffer{})
 	root.PersistentFlags().String("profile", app.DefaultProfile, "")
 	root.AddCommand(NewCmdGroup(factory, Spec{Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "x", Logs: true}))
 	root.SetArgs([]string{"--host", server.URL, "deployments", "logs", "dp-abc123", "--follow"})
@@ -100,5 +102,104 @@ func TestDeploymentLogsFollowStopsOnFinalState(t *testing.T) {
 	want := "t1\tbuild\nt2\t[2Jinstall\nt3\tdone\n"
 	if output.String() != want {
 		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+}
+
+// followDeployment runs `deployments logs dp-abc123 --follow` against handler and returns stdout and stderr.
+func followDeployment(t *testing.T, ctx context.Context, handler http.HandlerFunc) (string, string, error) {
+	t.Helper()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	LogsPollInterval = time.Millisecond
+	t.Cleanup(func() { LogsPollInterval = 2 * time.Second })
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	output, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	factory := &app.Factory{
+		IOStreams:       iostreams.IOStreams{In: strings.NewReader(""), Out: output, ErrOut: errOut},
+		ConfigStore:     configStore{},
+		CredentialStore: credentialStore{},
+		HTTPClient:      &http.Client{},
+		Version:         "test",
+	}
+	root := &cobra.Command{Use: "frbit", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().String("host", "", "")
+	root.PersistentFlags().String("profile", app.DefaultProfile, "")
+	root.SetOut(output)
+	root.SetErr(errOut)
+	root.AddCommand(NewCmdGroup(factory, Spec{Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "x", Logs: true}))
+	root.SetArgs([]string{"--host", server.URL, "deployments", "logs", "dp-abc123", "--follow"})
+	err := root.ExecuteContext(ctx)
+	return output.String(), errOut.String(), err
+}
+
+func TestDeploymentLogsFollowKeepsPollingWhenReadyButNotFinal(t *testing.T) {
+	var mu sync.Mutex
+	deploymentCalls := 0
+	out, errOut, err := followDeployment(t, context.Background(), func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/logs") {
+			_, _ = w.Write([]byte(`{"ready":true,"logs":[{"time":"t1","log":"build"}]}`))
+			return
+		}
+		deploymentCalls++
+		status := "building"
+		if deploymentCalls >= 3 {
+			status = "failed"
+		}
+		_, _ = w.Write([]byte(`{"status":"` + status + `"}`))
+	})
+	if err != nil || deploymentCalls != 3 || out != "t1\tbuild\n" || strings.Contains(errOut, "waiting for logs") {
+		t.Fatalf("err=%v calls=%d out=%q err=%q", err, deploymentCalls, out, errOut)
+	}
+}
+
+func TestDeploymentLogsFollowExitsZeroOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, errOut, err := followDeployment(t, ctx, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/logs") {
+			cancel()
+			_, _ = w.Write([]byte(`{"ready":false,"logs":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"building"}`))
+	})
+	if err != nil {
+		t.Fatalf("cancel must exit cleanly: %v %q", err, errOut)
+	}
+}
+
+func TestDeploymentLogsFollowSurvivesTransientErrorAndAnnouncesWaiting(t *testing.T) {
+	var mu sync.Mutex
+	logCalls := 0
+	out, errOut, err := followDeployment(t, context.Background(), func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/logs") {
+			logCalls++
+			switch logCalls {
+			case 1:
+				w.Header().Set("Retry-After", "0")
+				w.WriteHeader(503)
+				_, _ = w.Write([]byte(`{"title":"down"}`))
+			case 2:
+				_, _ = w.Write([]byte(`{"ready":false,"logs":[]}`))
+			default:
+				_, _ = w.Write([]byte(`{"ready":true,"logs":[{"time":"t1","log":"ok"}]}`))
+			}
+			return
+		}
+		status := "building"
+		if logCalls >= 2 {
+			status = "succeeded"
+		}
+		_, _ = w.Write([]byte(`{"status":"` + status + `"}`))
+	})
+	if err != nil || out != "t1\tok\n" || strings.Count(errOut, "waiting for logs") != 1 {
+		t.Fatalf("err=%v out=%q err=%q", err, out, errOut)
 	}
 }

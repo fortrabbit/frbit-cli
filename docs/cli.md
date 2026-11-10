@@ -371,7 +371,7 @@ frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
 frbit environments logs en-a1b2c3 --source php --follow
 ```
 
-Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. `--follow` polls every 2 seconds for new entries until Ctrl-C, which exits 0. Control characters are stripped. `--json` prints the entries as a JSON array, or one object per line with `--follow`.
+Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. `--follow` polls every 2 seconds for new entries until Ctrl-C, which exits 0. Control characters other than tabs are stripped. `--follow` retries after 429, 503 and network errors (waiting `Retry-After` when given). `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed, and one object per line with `--follow`.
 
 ## Deployments
 
@@ -385,7 +385,7 @@ frbit deployments logs dp-a1b2c3
 frbit deployments logs dp-a1b2c3 --follow
 ```
 
-`logs --follow` polls every 2 seconds, prints each line once and stops when the deployment is `succeeded`, `failed`, `canceled` or `unknown` and its logs are complete (`ready: true`). Without `--follow`, logs that are still being collected say so.
+`logs --follow` polls every 2 seconds, prints each line once and stops when the deployment is `succeeded`, `failed`, `canceled` or `unknown` and its logs are complete (`ready: true`). `--follow` retries after 429, 503 and network errors and prints `waiting for logs…` to stderr once while none have arrived. Without `--follow`, logs that are still being collected say so.
 
 ## Domains
 
