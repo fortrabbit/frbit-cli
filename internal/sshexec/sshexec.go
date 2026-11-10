@@ -75,9 +75,9 @@ func Check(name string) error {
 	return nil
 }
 
-// Options are the ssh options every caller uses; without a terminal BatchMode stops ssh from hanging on a password prompt.
+// Options are the ssh options every caller uses: no agent or X11 forwarding to the environment, and without a terminal BatchMode stops ssh from hanging on a password prompt.
 func Options(interactive bool) []string {
-	options := []string{"-T", "-o", "ConnectTimeout=10"}
+	options := []string{"-T", "-a", "-x", "-o", "ConnectTimeout=10"}
 	if !interactive {
 		options = append(options, "-o", "BatchMode=yes")
 	}

@@ -61,6 +61,9 @@ func TestArgsBatchModeWithoutTerminal(t *testing.T) {
 	if slices.Contains(Args("en-abc123@ssh.x", "uptime", true), "BatchMode=yes") {
 		t.Fatal("BatchMode on a terminal")
 	}
+	if !slices.Contains(batch, "-a") || !slices.Contains(batch, "-x") {
+		t.Fatalf("agent or X11 forwarding not disabled: %q", batch)
+	}
 	for _, arg := range batch {
 		if strings.Contains(arg, "StrictHostKeyChecking") {
 			t.Fatal("host key checking disabled")
