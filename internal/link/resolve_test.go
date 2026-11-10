@@ -161,6 +161,25 @@ func TestResolveOrder(t *testing.T) {
 	}
 }
 
+func TestResolveAmbiguousLookupNamesTheCandidates(t *testing.T) {
+	apps := `[{"publicId":"ap-eu1111","gitRepository":"acme/site","environments":["en-eu1111"]},{"publicId":"ap-us1111","gitRepository":"acme/site","environments":["en-us1111"]}]`
+	environments := `[{"publicId":"en-eu1111","name":"production","git":{"branch":"main"}},{"publicId":"en-us1111","name":"main","git":{"branch":"main"}}]`
+	resolver := Resolver{Git: fakeGit("git@github.com:acme/site.git", "main"), Getenv: func(string) string { return "" }}
+
+	dir := t.TempDir()
+	_, err := find(t, resolver, &fakeAPI{apps: apps, environments: environments}, dir, "")
+	want := "acme/site branch main deploys to more than one environment: en-eu1111 (production), en-us1111 (main); pass the environment ID or run frbit link <env-id>"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v", err)
+	}
+
+	writeEnvironments(t, dir, "staging: en-file22\n")
+	got, err := find(t, resolver, &fakeAPI{apps: apps, environments: environments}, dir, "")
+	if err != nil || got != "en-file22" {
+		t.Fatalf("only file entry: got %q, %v", got, err)
+	}
+}
+
 func TestResolveStaleFileEntryNamesTheFix(t *testing.T) {
 	dir := t.TempDir()
 	writeEnvironments(t, dir, "main: en-fork11\n")

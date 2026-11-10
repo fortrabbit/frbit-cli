@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 )
 
 // EnvVar is set by the platform on every environment, so frbit over SSH targets that environment.
@@ -105,6 +106,9 @@ func (r Resolver) Find(ctx context.Context, client *api.Client, dir string, arg 
 	}
 	if branch != "" {
 		match, found, err := r.Lookup(ctx, client, dir, branch)
+		if ambiguous := (AmbiguousError{}); errors.As(err, &ambiguous) && entries.Len() == 1 {
+			return fromFile(entries.Labels()[0])
+		}
 		if err != nil {
 			return Resolution{}, err
 		}
@@ -203,10 +207,25 @@ func (r Resolver) Lookup(ctx context.Context, client *api.Client, dir string, br
 		name, _ := environment["name"].(string)
 		matches = append(matches, Match{Repository: repository, Branch: branch, AppID: appOf[id], EnvironmentID: id, EnvironmentName: name})
 	}
-	if len(matches) != 1 {
+	if len(matches) > 1 {
+		return Match{}, false, AmbiguousError{Matches: matches}
+	}
+	if len(matches) == 0 {
 		return Match{}, false, nil
 	}
 	return matches[0], true, nil
+}
+
+// AmbiguousError means the branch of the connected repository deploys to more than one environment.
+type AmbiguousError struct{ Matches []Match }
+
+func (e AmbiguousError) Error() string {
+	candidates := make([]string, len(e.Matches))
+	for i, match := range e.Matches {
+		candidates[i] = fmt.Sprintf("%s (%s)", match.EnvironmentID, iostreams.StripControl(match.EnvironmentName))
+	}
+	first := e.Matches[0]
+	return fmt.Sprintf("%s branch %s deploys to more than one environment: %s; pass the environment ID or run frbit link <env-id>", first.Repository, first.Branch, strings.Join(candidates, ", "))
 }
 
 // Verify checks that id belongs to the account, so a fork of a template fails with a hint instead of a bare 404.

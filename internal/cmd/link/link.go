@@ -72,7 +72,7 @@ The file lives at the top of the git checkout, or in the current folder outside 
 				return err
 			}
 			match, connected, err := resolver.Lookup(ctx, client, dir, branch)
-			if err != nil {
+			if ambiguous := (envlink.AmbiguousError{}); err != nil && !errors.As(err, &ambiguous) {
 				return err
 			}
 			confirm := func() error {
