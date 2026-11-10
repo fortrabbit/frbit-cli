@@ -24,7 +24,7 @@ func TestTarget(t *testing.T) {
 		{api.Resource{"publicId": "en-abc123", "sshHost": "ssh.eu-w1a.frbit.app"}, "en-abc123@ssh.eu-w1a.frbit.app"},
 	}
 	for _, c := range cases {
-		got, err := Target(c.env)
+		got, err := Target(c.env, true)
 		if err != nil || got != c.want {
 			t.Fatalf("Target(%v) = %q, %v; want %q", c.env, got, err, c.want)
 		}
@@ -39,9 +39,16 @@ func TestTarget(t *testing.T) {
 		{"publicId": "en-abc123", "sshHost": "-oProxyCommand=x"},
 		{"publicId": "en-abc123", "sshHost": "en-abc123@ssh.x;id"},
 	} {
-		if _, err := Target(env); err == nil {
+		if _, err := Target(env, false); err == nil {
 			t.Fatalf("Target(%v) accepted", env)
 		}
+	}
+	other := api.Resource{"publicId": "en-abc123", "sshHost": "ssh.eu-w1.frbit.app.attacker.example"}
+	if _, err := Target(other, true); err == nil || !strings.Contains(err.Error(), "not a fortrabbit endpoint") {
+		t.Fatalf("unpinned host with the default API: %v", err)
+	}
+	if got, err := Target(other, false); err != nil || got != "en-abc123@ssh.eu-w1.frbit.app.attacker.example" {
+		t.Fatalf("unpinned host with another API: %q, %v", got, err)
 	}
 }
 

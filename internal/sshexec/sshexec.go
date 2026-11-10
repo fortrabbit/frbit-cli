@@ -47,7 +47,8 @@ func (System) Run(ctx context.Context, name string, args []string, stdin io.Read
 var destination = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9.-]*$`)
 
 // Target returns the SSH destination of an environment: sshHost as-is when it holds a user, else <publicId>@<sshHost>.
-func Target(env api.Resource) (string, error) {
+// With onlyPinned, as for the default API host, a host outside ssh.*.frbit.app is refused instead of connected to unpinned.
+func Target(env api.Resource, onlyPinned bool) (string, error) {
 	host, _ := env["sshHost"].(string)
 	host = strings.TrimSpace(host)
 	id, _ := env["publicId"].(string)
@@ -63,6 +64,9 @@ func Target(env api.Resource) (string, error) {
 	}
 	if !destination.MatchString(target) {
 		return "", fmt.Errorf("the API returned an invalid SSH destination %q", target)
+	}
+	if onlyPinned && !Pinned(target) {
+		return "", fmt.Errorf("the API returned the SSH host %q, which is not a fortrabbit endpoint; refusing to connect", host)
 	}
 	return target, nil
 }

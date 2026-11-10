@@ -174,7 +174,7 @@ func writeJSON(cmd *cobra.Command, client *api.Client, resolution envlink.Resolu
 		value.Repository, value.Branch, value.App = resolution.Match.Repository, resolution.Match.Branch, resolution.Match.AppID
 	}
 	value.Name, _ = env["name"].(string)
-	if target, err := sshexec.Target(env); err == nil {
+	if target, err := sshexec.Target(env, cmdutil.IsDefaultHost(client.Host())); err == nil {
 		value.SSHHost = target
 		value.Region = region(target)
 	}

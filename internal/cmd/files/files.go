@@ -213,7 +213,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	target, err := sshexec.Target(env)
+	target, err := sshexec.Target(env, cmdutil.IsDefaultHost(client.Host()))
 	if err != nil {
 		return err
 	}

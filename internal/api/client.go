@@ -159,6 +159,11 @@ func NewClientWithTokens(host string, tokens TokenSource, httpClient *http.Clien
 	return &Client{baseURL: baseURL, tokens: tokens, http: httpClient, userAgent: userAgent, warned: &sync.Map{}, sleep: sleepContext}, nil
 }
 
+// Host returns the API base URL.
+func (c *Client) Host() string {
+	return c.baseURL.String()
+}
+
 // Secure reports whether the API is reached over https.
 func (c *Client) Secure() bool {
 	return c.baseURL.Scheme == "https"

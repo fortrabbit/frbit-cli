@@ -103,14 +103,15 @@ func WriteProblemJSON(command *cobra.Command, err error, out io.Writer) bool {
 
 // WarnNonDefaultHost flags a host set by flag, environment or config, since a cloned repo can set FRBIT_HOST.
 func WarnNonDefaultHost(command *cobra.Command, host string) error {
-	if isDefaultHost(host) {
+	if IsDefaultHost(host) {
 		return nil
 	}
 	_, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: sending API credentials to non-default host %s. Verify this host before continuing.\n", host)
 	return err
 }
 
-func isDefaultHost(host string) bool {
+// IsDefaultHost reports whether host is the production API.
+func IsDefaultHost(host string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(host))
 	if err != nil {
 		return false

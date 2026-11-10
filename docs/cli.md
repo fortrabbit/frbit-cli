@@ -466,7 +466,7 @@ A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash
 
 The host key of fortrabbit's production SSH endpoints (`ssh.<region>.frbit.app`) ships with frbit: `ssh-ed25519`, fingerprint `SHA256:UB3p/YgtQSuK3WESB/0ra5dTDWkggrCOz0WkWe4Tvvg`. frbit writes it to `known_hosts` in its config folder (mode 0600, rewritten when it differs) and checks these hosts against that file alone, with `StrictHostKeyChecking=yes`. The first connection from an agent or CI needs no prompt and no entry in `~/.ssh/known_hosts`. Entries for these hosts in your own `known_hosts` files are not used, because ssh accepts a key found in any listed file. If the server shows another key, the command stops: do not accept the key by hand; update frbit, and contact fortrabbit support if it persists.
 
-Other hosts keep your ssh setup. When their host key is not in your `known_hosts` yet (`Host key verification failed`, common on the first connection without a terminal), the error says to run `ssh <target> exit` once in a terminal. This applies to `db push` and `files` too.
+With the default API host, an SSH host outside `ssh.*.frbit.app` is refused. Other hosts (with another `--host`) keep your ssh setup. When their host key is not in your `known_hosts` yet (`Host key verification failed`, common on the first connection without a terminal), the error says to run `ssh <target> exit` once in a terminal. This applies to `db push` and `files` too.
 
 ## Database push
 
