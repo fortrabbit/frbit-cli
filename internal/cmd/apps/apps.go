@@ -31,6 +31,18 @@ func NewCmdApps(factory *app.Factory) *cobra.Command {
 		},
 	})
 	command.AddCommand(newCmdCreate(factory), newCmdUpdate(factory))
+	for _, sub := range command.Commands() {
+		if sub.Name() == "list" {
+			run := sub.RunE
+			sub.RunE = func(cmd *cobra.Command, args []string) error {
+				if err := run(cmd, args); err != nil {
+					return err
+				}
+				cmdutil.SuggestClaudePlugin(cmd.ErrOrStderr())
+				return nil
+			}
+		}
+	}
 	return command
 }
 

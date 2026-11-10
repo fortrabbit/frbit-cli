@@ -497,7 +497,11 @@ func newCmdDeploy(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeResourceResponse(cmd, response, printJSON)
+			if err := writeResourceResponse(cmd, response, printJSON); err != nil {
+				return err
+			}
+			cmdutil.SuggestClaudePlugin(cmd.ErrOrStderr())
+			return nil
 		},
 	}
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")

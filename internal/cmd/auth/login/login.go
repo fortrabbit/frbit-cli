@@ -82,6 +82,14 @@ func NewCmdLogin(factory *app.Factory, runF func(*Options) error) *cobra.Command
 }
 
 func run(options *Options) error {
+	err := runLogin(options)
+	if err == nil {
+		cmdutil.SuggestClaudePlugin(options.Command.ErrOrStderr())
+	}
+	return err
+}
+
+func runLogin(options *Options) error {
 	if options.TokenStdin {
 		return runToken(options)
 	}
