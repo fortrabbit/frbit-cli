@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// maxRetryWait caps how long a create waits on Retry-After before its single retry.
+// maxRetryWait is the longest Retry-After a create waits out; a longer one fails at once.
 const maxRetryWait = 10 * time.Second
 
 const defaultRetryWait = time.Second
@@ -35,19 +35,16 @@ func newIdempotencyKey() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
-// doCreate retries a keyed create once on 429 or 5xx; the key makes the repeat safe.
+// doCreate retries a keyed create once on 429 only: the API stores no 5xx answer, so a repeat could create twice.
 func (c Client) doCreate(ctx context.Context, request call) (rawResponse, error) {
 	response, err := c.do(ctx, request)
 	var httpErr *HTTPError
-	if request.idempotencyKey == "" || !errors.As(err, &httpErr) || !retryable(httpErr.Status) {
+	if request.idempotencyKey == "" || !errors.As(err, &httpErr) || httpErr.Status != http.StatusTooManyRequests || httpErr.RetryAfter > maxRetryWait {
 		return response, err
 	}
 	wait := httpErr.RetryAfter
 	if wait <= 0 {
 		wait = defaultRetryWait
-	}
-	if wait > maxRetryWait {
-		wait = maxRetryWait
 	}
 	sleep := c.sleep
 	if sleep == nil {
@@ -57,14 +54,6 @@ func (c Client) doCreate(ctx context.Context, request call) (rawResponse, error)
 		return rawResponse{}, sleepErr
 	}
 	return c.do(ctx, request)
-}
-
-func retryable(status int) bool {
-	switch status {
-	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	}
-	return false
 }
 
 func sleepContext(ctx context.Context, wait time.Duration) error {

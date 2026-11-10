@@ -160,7 +160,7 @@ When the API rejects a request made with `--json`, the CLI prints the API's prob
 
 Deprecation notices from the API (`Warning`, `Deprecation` and `Sunset` headers) are printed to standard error as `warning: ...` lines, so they never mix with `--json` output.
 
-Create commands send an `Idempotency-Key` header. When the API answers a create with 429 or a 5xx error, the CLI retries it once with the same key, so the API never creates the resource twice.
+Create commands send an `Idempotency-Key` header. When the API answers a create with 429 and asks to wait 10 seconds or less, the CLI retries it once with the same key. It never retries a create after a 5xx error, because the resource may already exist: check with a list command before running it again.
 
 API responses can contain account data, personal information, payment metadata,
 environment-variable values, and application log output. Treat terminal captures and CI logs as sensitive,

@@ -88,7 +88,7 @@ func TestRetryAfterHTTPDate(t *testing.T) {
 
 func TestCreateCancelDuringRetryWaitReturnsCanceled(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
+		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer server.Close()
 	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")

@@ -331,9 +331,9 @@ func TestCreateSendsSameIdempotencyKeyOnRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		keys = append(keys, request.Header.Get("Idempotency-Key"))
 		if len(keys) == 1 {
-			writer.Header().Set("Retry-After", "3600")
-			writer.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = writer.Write([]byte(`{"title":"Service Unavailable","status":503,"detail":"try again"}`))
+			writer.Header().Set("Retry-After", "3")
+			writer.WriteHeader(http.StatusTooManyRequests)
+			_, _ = writer.Write([]byte(`{"title":"Too Many Requests","status":429,"detail":"try again"}`))
 			return
 		}
 		writer.WriteHeader(http.StatusCreated)
@@ -360,8 +360,38 @@ func TestCreateSendsSameIdempotencyKeyOnRetry(t *testing.T) {
 	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
 		t.Fatalf("idempotency keys = %#v, want the same non-empty key twice", keys)
 	}
-	if len(waited) != 1 || waited[0] != maxRetryWait {
-		t.Fatalf("waited = %v, want one capped wait of %s", waited, maxRetryWait)
+	if len(waited) != 1 || waited[0] != 3*time.Second {
+		t.Fatalf("waited = %v, want one wait of 3s", waited)
+	}
+}
+
+func TestCreateDoesNotRetry(t *testing.T) {
+	for name, respond := range map[string]func(http.ResponseWriter){
+		"5xx": func(writer http.ResponseWriter) { writer.WriteHeader(http.StatusBadGateway) },
+		"429 with a long Retry-After": func(writer http.ResponseWriter) {
+			writer.Header().Set("Retry-After", "3600")
+			writer.WriteHeader(http.StatusTooManyRequests)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls++
+				respond(writer)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.sleep = func(context.Context, time.Duration) error { return nil }
+			if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err == nil {
+				t.Fatal("expected an error")
+			}
+			if calls != 1 {
+				t.Fatalf("calls = %d, want 1", calls)
+			}
+		})
 	}
 }
 
