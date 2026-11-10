@@ -435,12 +435,20 @@ func newHTTPError(response *http.Response, body []byte) *HTTPError {
 	if message == "" {
 		message = validationMessage(payload.Errors, payload.Violations)
 	}
-	retryAfter := time.Duration(0)
-	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
-		retryAfter = time.Duration(seconds) * time.Second
-	}
+	retryAfter := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
 
 	return &HTTPError{Status: response.StatusCode, Message: message, RetryAfter: retryAfter, Problem: problem}
+}
+
+// parseRetryAfter reads Retry-After as seconds or as an HTTP date; 0 means none.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil && date.After(now) {
+		return date.Sub(now)
+	}
+	return 0
 }
 
 func validationMessage(errors map[string]any, violations []Violation) string {

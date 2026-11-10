@@ -54,7 +54,7 @@ func (c Client) doCreate(ctx context.Context, request call) (rawResponse, error)
 		sleep = sleepContext
 	}
 	if sleepErr := sleep(ctx, wait); sleepErr != nil {
-		return rawResponse{}, err
+		return rawResponse{}, sleepErr
 	}
 	return c.do(ctx, request)
 }

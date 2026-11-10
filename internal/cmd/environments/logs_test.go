@@ -205,3 +205,31 @@ func TestLogsKeepTabsStripsOtherControl(t *testing.T) {
 		t.Fatalf("err=%v %q", err, output)
 	}
 }
+
+func TestLogsFollowRetriesFirstRequestOn503(t *testing.T) {
+	fastPoll(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var mu sync.Mutex
+	calls := 0
+	output, _, err := runContext(t, ctx, "", func(r request, w http.ResponseWriter) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		switch calls {
+		case 1:
+			w.Header().Set("Retry-After", "0")
+			echo(w, 503, `{"title":"Service Unavailable"}`)
+		case 2:
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?source=php&after=c1>; rel="prev"`)
+			echo(w, 200, `[{"time":"t1","level":"info","message":"first"}]`)
+		default:
+			cancel()
+			w.Header().Set("Link", `</v1/environments/en-abc123/logs?source=php&after=c1>; rel="prev"`)
+			echo(w, 200, `[]`)
+		}
+	}, "logs", "en-abc123", "--follow")
+	if err != nil || !strings.Contains(output, "first") {
+		t.Fatalf("output %q, err %v", output, err)
+	}
+}

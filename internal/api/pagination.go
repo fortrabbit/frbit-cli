@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -129,7 +131,8 @@ func LinkRel(header, wanted string) string {
 	}
 }
 
-// TransientDelay reports whether err is worth retrying (429, 503, a network error) and how long to wait first.
+// TransientDelay reports whether err is worth retrying (429, 503, a timeout, a refused or reset connection, a response cut short) and how long to wait first.
+// TLS, DNS-not-found and redirect-policy failures do not heal by waiting, so they are permanent.
 func TransientDelay(err error, fallback time.Duration) (time.Duration, bool) {
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) {
@@ -141,12 +144,27 @@ func TransientDelay(err error, fallback time.Duration) (time.Duration, bool) {
 		}
 		return fallback, true
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return 0, false
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if transientNetwork(err) {
 		return fallback, true
 	}
 	return 0, false
+}
+
+func transientNetwork(err error) bool {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsTimeout || dnsErr.IsTemporary
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr) && (errors.Is(urlErr.Err, io.EOF) || errors.Is(urlErr.Err, io.ErrUnexpectedEOF))
 }

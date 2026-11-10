@@ -66,6 +66,17 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			path := "/v1/environments/" + url.PathEscape(args[0]) + "/logs"
 			out := cmd.OutOrStdout()
 			newest, raw, pages, prev, err := fetchLogs(cmd.Context(), client, path, query, limit)
+			for follow && err != nil && cmd.Context().Err() == nil {
+				delay, transient := api.TransientDelay(err, logsPollInterval)
+				if !transient {
+					break
+				}
+				select {
+				case <-cmd.Context().Done():
+				case <-time.After(delay):
+					newest, raw, pages, prev, err = fetchLogs(cmd.Context(), client, path, query, limit)
+				}
+			}
 			if err != nil {
 				if follow && cmd.Context().Err() != nil {
 					return nil
