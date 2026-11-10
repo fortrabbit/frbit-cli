@@ -395,7 +395,7 @@ frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 
 `jobs list <environment>` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers; the limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
 
-`create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. `--interval`, `--expression` and `--max-runtime` are rejected for a worker. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
+`create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`, which the CLI checks with `GET /v1/jobs/check-cron` before creating. For a worker, `--interval`, `--expression` and `--max-runtime` are ignored with a warning on stderr and not sent; so is `--expression` with an interval other than `custom`. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
 
 `update <job>` takes the same flags plus `--active`, and sends only the flags you pass. `delete <job>` stops and removes the job; it needs the job ID typed on a terminal or `--confirm <id>` without one. `--json` prints the raw API body.
 

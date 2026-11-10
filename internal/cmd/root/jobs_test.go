@@ -1,8 +1,10 @@
 package root
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -61,11 +63,36 @@ func TestJobsCreateCustomCronChecksExpression(t *testing.T) {
 	}
 }
 
-func TestJobsCreateWorkerRejectsCronFlags(t *testing.T) {
-	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") },
-		"jobs", "create", "en-abc123", "--name", "q", "--type", "worker", "--command", "php x", "--interval", "day")
-	if err == nil || !strings.Contains(err.Error(), "only applies to --type cron") {
-		t.Fatalf("err = %v", err)
+func TestJobsCreateWorkerWarnsAboutIgnoredFlags(t *testing.T) {
+	var posted map[string]any
+	var stderr bytes.Buffer
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&posted)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"publicId":"jo-abc123"}`))
+	}))
+	defer server.Close()
+	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+	command.SetErr(&stderr)
+	command.SetArgs([]string{"--host", server.URL, "jobs", "create", "en-abc123", "--name", "q", "--type", "worker", "--command", "php x", "--interval", "day", "--max-runtime", "300"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"warning: --interval is ignored for a worker", "warning: --max-runtime is ignored for a worker"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
+		}
+	}
+	if posted["name"] != "q" || posted["interval"] != nil || posted["maxRuntime"] != nil {
+		t.Fatalf("posted = %#v", posted)
+	}
+}
+
+func TestJobsListFooterWithoutHeaders(t *testing.T) {
+	output, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`[]`)) }, "jobs", "list", "en-abc123")
+	if err != nil || !strings.Contains(output, "Jobs: 0 of ?") {
+		t.Fatalf("err = %v\n%s", err, output)
 	}
 }
 
@@ -88,6 +115,10 @@ func TestJobsUpdateSendsOnlyChangedFlags(t *testing.T) {
 func TestJobsDeleteNeedsConfirm(t *testing.T) {
 	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") }, "jobs", "delete", "jo-abc123")
 	if err == nil || !strings.Contains(err.Error(), "--confirm jo-abc123") {
+		t.Fatalf("err = %v", err)
+	}
+	_, err = runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") }, "jobs", "delete", "jo-abc123", "--confirm", "jo-other")
+	if err == nil || !strings.Contains(err.Error(), "must exactly match") {
 		t.Fatalf("err = %v", err)
 	}
 	var deleted bool

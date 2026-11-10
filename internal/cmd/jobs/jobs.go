@@ -215,27 +215,28 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 				}
 			}
 			if body["type"] == "worker" {
-				for _, flag := range []string{"interval", "expression", "max-runtime"} {
-					if cmd.Flags().Changed(flag) {
-						return fmt.Errorf("--%s only applies to --type cron", flag)
-					}
-				}
+				ignoreFlags(cmd, body, "a worker", "interval", "expression", "max-runtime")
 			} else {
-				for _, required := range []string{"interval", "maxRuntime"} {
-					if _, ok := body[required]; !ok {
-						return fmt.Errorf("--%s is required for --type cron", map[string]string{"interval": "interval", "maxRuntime": "max-runtime"}[required])
-					}
+				if _, ok := body["interval"]; !ok {
+					return fmt.Errorf("--interval is required for --type cron")
 				}
-				if err := validateExpression(body, true); err != nil {
-					return err
+				if _, ok := body["maxRuntime"]; !ok {
+					return fmt.Errorf("--max-runtime is required for --type cron")
+				}
+				if body["interval"] == "custom" {
+					if _, ok := body["expression"]; !ok {
+						return fmt.Errorf("--expression is required with --interval custom")
+					}
+				} else {
+					ignoreFlags(cmd, body, "an interval other than custom", "expression")
 				}
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			if expression, ok := body["expression"].(string); ok {
-				if err := checkExpression(cmd, client, expression); err != nil {
+			if body["interval"] == "custom" {
+				if err := checkExpression(cmd, client, body["expression"].(string)); err != nil {
 					return err
 				}
 			}
@@ -251,17 +252,15 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-// validateExpression ties --expression to --interval custom; an update may rely on the stored expression.
-func validateExpression(body map[string]any, requireCustom bool) error {
-	interval, _ := body["interval"].(string)
-	_, hasExpression := body["expression"]
-	if hasExpression && interval != "" && interval != "custom" {
-		return fmt.Errorf("--expression only applies with --interval custom")
+// ignoreFlags warns about flags the API ignores for reason and drops them from body.
+func ignoreFlags(cmd *cobra.Command, body map[string]any, reason string, flags ...string) {
+	keys := map[string]string{"interval": "interval", "expression": "expression", "max-runtime": "maxRuntime"}
+	for _, flag := range flags {
+		if cmd.Flags().Changed(flag) {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: --%s is ignored for %s\n", flag, reason)
+			delete(body, keys[flag])
+		}
 	}
-	if requireCustom && interval == "custom" && !hasExpression {
-		return fmt.Errorf("--expression is required with --interval custom")
-	}
-	return nil
 }
 
 func newCmdUpdate(factory *app.Factory) *cobra.Command {
@@ -279,16 +278,18 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if len(body) == 0 {
 				return fmt.Errorf("pass at least one flag to change")
 			}
-			if err := validateExpression(body, false); err != nil {
-				return err
+			if body["interval"] != nil && body["interval"] != "custom" {
+				ignoreFlags(cmd, body, "an interval other than custom", "expression")
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			if expression, ok := body["expression"].(string); ok {
-				if err := checkExpression(cmd, client, expression); err != nil {
-					return err
+			if body["interval"] == "custom" {
+				if expression, ok := body["expression"].(string); ok {
+					if err := checkExpression(cmd, client, expression); err != nil {
+						return err
+					}
 				}
 			}
 			response, err := client.UpdateResource(cmd.Context(), "/v1/jobs/"+args[0], body)
