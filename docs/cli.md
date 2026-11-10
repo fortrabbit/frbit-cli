@@ -211,6 +211,19 @@ Pass `--deploy` to start the initial deployment as part of creation. It requires
 
 `apps create` and `environments create` first run the same request as a dry run, print the monthly price and the payment method, and ask `Create and start billing? [y/N]`. The price and the question go to stderr. Trial apps without a payment method cost nothing and are created without a question. Without a terminal the command fails with `billed change needs --yes`; pass `--yes` only after the person has seen the price. The dry run applies to `--file` bodies too and sends no idempotency key.
 
+`--dry-run` stops after that dry run: it prints the price to stdout, asks nothing, creates nothing and exits 0. It works with field flags and `--file`; with `--json` it prints the API response instead. Use it to show the price before asking the person, also on a trial account, where the real create asks nothing.
+
+```text
+$ frbit apps create --name shop --region eu-w1a --dry-run
+Monthly price: 24.00 EUR
+Payment method: default payment method
+Dry run: nothing was created.
+
+$ frbit apps create --name shop --region eu-w1a --dry-run   # trial account
+The app would be created as a trial at no cost until 2026-11-14T10:30:00+00:00.
+Dry run: nothing was created.
+```
+
 ### Update an app
 
 ```sh
@@ -748,11 +761,11 @@ frbit --profile work auth logout
 | `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
-| `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
+| `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
 | `frbit apps update <id>` | Update an app: name, payment method, software preset, technical contacts, deployment comments, repository connection. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
-| `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
+| `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
 | `frbit environments update <id>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
 | `frbit environments php-settings get <id>` / `update <id>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
 | `frbit environments basic-auth get <id>` / `update <id>` | Read or change basic auth; the password only via `--password-stdin`. |

@@ -1201,3 +1201,54 @@ func TestEnvironmentsCreateSendsRootPath(t *testing.T) {
 		t.Fatalf("payload = %#v", got)
 	}
 }
+
+func runCreateDryRun(t *testing.T, server *httptest.Server, args ...string) (string, string, error) {
+	t.Helper()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	errOut := &bytes.Buffer{}
+	factory.IOStreams.ErrOut = errOut
+	factory.IOStreams.In = strings.NewReader(`{"name":"store","region":"eu-w1a"}`)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs(append([]string{"--host", server.URL}, args...))
+	err := command.Execute()
+	return output.String(), errOut.String(), err
+}
+
+const trialPricing = `{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`
+
+func TestCreateDryRunCreatesNothing(t *testing.T) {
+	for _, args := range [][]string{
+		{"apps", "create", "--name", "store", "--region", "eu-w1a", "--dry-run"},
+		{"apps", "create", "--file", "-", "--dry-run"},
+		{"environments", "create", "--app", "ap-abc123", "--name", "staging", "--dry-run"},
+	} {
+		for name, pricing := range map[string]string{"billed": billedPricing, "trial": trialPricing} {
+			var calls []dryRunCall
+			server := billingServer(t, pricing, &calls)
+			stdout, _, err := runCreateDryRun(t, server, args...)
+			if err != nil {
+				t.Fatalf("%v %s: %v", args, name, err)
+			}
+			if len(calls) != 1 || !calls[0].dryRun || calls[0].method != http.MethodPost || calls[0].idempotencyKey != "" {
+				t.Fatalf("%v %s: calls = %#v", args, name, calls)
+			}
+			want := "Monthly price: 24.00 EUR\nPayment method: default payment method\nDry run: nothing was created.\n"
+			if name == "trial" {
+				want = "would be created as a trial at no cost until 2026-11-14T10:30:00+00:00.\nDry run: nothing was created.\n"
+			}
+			if !strings.HasSuffix(stdout, want) {
+				t.Fatalf("%v %s: stdout = %q", args, name, stdout)
+			}
+		}
+	}
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	stdout, _, err := runCreateDryRun(t, server, "apps", "create", "--name", "store", "--region", "eu-w1a", "--dry-run", "--json")
+	if err != nil || strings.TrimSpace(stdout) != billedPricing || len(calls) != 1 {
+		t.Fatalf("json: %q, %v, %#v", stdout, err, calls)
+	}
+}

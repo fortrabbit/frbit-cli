@@ -67,6 +67,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var paymentMethodID string
 	var printJSON bool
 	var yes bool
+	var dryRun bool
 
 	command := &cobra.Command{
 		Use:   "create",
@@ -80,6 +81,9 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
+			}
+			if dryRun {
+				return cmdutil.DryRunBilled(cmd, client, "/v1/apps", payload, "app", printJSON)
 			}
 			confirmed, err := cmdutil.ConfirmBilled(cmd, factory, client, "/v1/apps", payload, yes)
 			if err != nil {
@@ -119,6 +123,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "Payment method public ID")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show the monthly price and create nothing (with --json, the API response)")
 	return command
 }
 

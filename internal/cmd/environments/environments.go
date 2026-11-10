@@ -66,6 +66,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var environmentVariableValues []string
 	var printJSON bool
 	var yes bool
+	var dryRun bool
 
 	command := &cobra.Command{
 		Use:   "create",
@@ -79,6 +80,9 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
+			}
+			if dryRun {
+				return cmdutil.DryRunBilled(cmd, client, "/v1/environments", payload, "environment", printJSON)
 			}
 			confirmed, err := cmdutil.ConfirmBilled(cmd, factory, client, "/v1/environments", payload, yes)
 			if err != nil {
@@ -113,6 +117,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringArrayVar(&environmentVariableValues, "env", nil, "Environment variable as NAME=VALUE (repeatable)")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show the monthly price and create nothing (with --json, the API response)")
 	return command
 }
 
