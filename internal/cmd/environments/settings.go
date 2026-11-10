@@ -157,7 +157,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update <public-id>",
 		Short: "Enable, disable, or change basic auth",
-		Long:  "The password is read as one line from stdin with --password-stdin and is never accepted as a flag. Pipe it in: printf '%s\\n' \"$PASSWORD\" | frbit environments basic-auth update ... --password-stdin. A password typed on a terminal is echoed. Omit it to keep the current password.",
+		Long:  "The password is read as one line from stdin with --password-stdin and is never accepted as a flag. Pipe it in: printf '%s\\n' \"$PASSWORD\" | frbit environments basic-auth update ... --password-stdin. A password typed on a terminal is echoed. Omit it to keep the current password. --enabled and --username keep their current values when omitted.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload := map[string]any{}
@@ -185,7 +185,25 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.PutResource(cmd.Context(), "/v1/environments/"+url.PathEscape(args[0])+"/basic-auth", payload)
+			path := "/v1/environments/" + url.PathEscape(args[0]) + "/basic-auth"
+			// The PUT replaces the settings and needs enabled and username, so missing ones keep their current value.
+			if _, ok := payload["enabled"]; !ok || payload["username"] == nil {
+				current, err := client.GetResource(cmd.Context(), path)
+				if err != nil {
+					return err
+				}
+				if _, ok := payload["enabled"]; !ok {
+					payload["enabled"], _ = current.Resource["enabled"].(bool)
+				}
+				if payload["username"] == nil {
+					name, _ := current.Resource["username"].(string)
+					if name == "" {
+						return fmt.Errorf("basic auth has no username yet; pass --username")
+					}
+					payload["username"] = name
+				}
+			}
+			response, err := client.PutResource(cmd.Context(), path, payload)
 			if err != nil {
 				return err
 			}

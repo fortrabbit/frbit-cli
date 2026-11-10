@@ -114,11 +114,54 @@ func TestBasicAuthPasswordOnlyFromStdin(t *testing.T) {
 		t.Fatalf("empty stdin: err = %v, requests = %d", err, len(seen))
 	}
 
-	out, _, err = run(t, "s3cret\n", func(r request, w http.ResponseWriter) {
-		echo(w, 200, `{"enabled":true,"username":"preview"}`)
-	}, "basic-auth", "update", "en-a1b2c3", "--password-stdin", "--json")
+	out, seen, err = run(t, "s3cret\n", basicAuthAPI(`{"enabled":true,"username":"preview"}`), "basic-auth", "update", "en-a1b2c3", "--password-stdin", "--json")
 	if err != nil || strings.Contains(out, "s3cret") {
 		t.Fatalf("json output = %q, err = %v", out, err)
+	}
+	if body := seen[len(seen)-1].body; body["enabled"] != true || body["username"] != "preview" || body["password"] != "s3cret" {
+		t.Fatalf("rotate body = %v", body)
+	}
+}
+
+// basicAuthAPI answers GET with current and rejects a PUT without enabled and username, as the API does.
+func basicAuthAPI(current string) func(r request, w http.ResponseWriter) {
+	return func(r request, w http.ResponseWriter) {
+		if r.method == "GET" {
+			echo(w, 200, current)
+			return
+		}
+		_, hasEnabled := r.body["enabled"].(bool)
+		username, _ := r.body["username"].(string)
+		if !hasEnabled || username == "" {
+			echo(w, 422, `{"title":"Unprocessable Entity","detail":"enabled and username are required"}`)
+			return
+		}
+		echo(w, 200, `{"enabled":true,"username":"preview"}`)
+	}
+}
+
+func TestBasicAuthUpdateSendsFullBody(t *testing.T) {
+	_, seen, err := run(t, "", basicAuthAPI(`{"enabled":true,"username":"preview"}`), "basic-auth", "update", "en-a1b2c3", "--enabled=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen[0].method != "GET" || seen[1].method != "PUT" {
+		t.Fatalf("requests = %+v", seen)
+	}
+	if body := seen[1].body; body["enabled"] != false || body["username"] != "preview" || len(body) != 2 {
+		t.Fatalf("body = %v", body)
+	}
+
+	// Both fields given: no GET needed.
+	_, seen, err = run(t, "", basicAuthAPI(`{}`), "basic-auth", "update", "en-a1b2c3", "--enabled", "--username", "x")
+	if err != nil || len(seen) != 1 || seen[0].method != "PUT" {
+		t.Fatalf("err = %v, requests = %+v", err, seen)
+	}
+
+	// Never set up: no username to keep.
+	_, seen, err = run(t, "", basicAuthAPI(`{"enabled":false,"username":null}`), "basic-auth", "update", "en-a1b2c3", "--enabled")
+	if err == nil || !strings.Contains(err.Error(), "--username") || len(seen) != 1 {
+		t.Fatalf("err = %v, requests = %+v", err, seen)
 	}
 }
 
