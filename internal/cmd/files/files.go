@@ -59,9 +59,9 @@ Files named like the default outputs of db pull and backups download (en-*.sql.g
 
 A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
-The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`,
+The environment is an ID or a label from .fortrabbit/environments.yml passed with --environment (-e); without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit files pull web/uploads
-  frbit files pull web/uploads --env en-a1b2c3
+  frbit files pull web/uploads -e en-a1b2c3
   frbit files pull storage --dry-run --delete`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -83,13 +83,13 @@ Files named like the default outputs of db pull and backups download (en-*.sql.g
 
 A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
-The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`
-		command.Example = `  frbit files push web/uploads --env en-a1b2c3
+The environment is an ID or a label from .fortrabbit/environments.yml passed with --environment (-e); without one, the environment of the checkout is used (see frbit link).`
+		command.Example = `  frbit files push web/uploads -e en-a1b2c3
   frbit files push web/uploads --dry-run
-  frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3`
+  frbit files push web/uploads -e en-a1b2c3 --confirm en-a1b2c3`
 	}
 	command.Flags().StringVar(&opts.confirmation, "confirm", "", "Confirm by repeating the environment ID")
-	command.Flags().StringVar(&opts.env, "env", "", "Environment ID or label (default: the environment of the checkout)")
+	command.Flags().StringVarP(&opts.env, "environment", "e", "", "Environment ID or label (default: the environment of the checkout)")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "List what would change without copying")
 	command.Flags().BoolVar(&opts.delete, "delete", false, "Remove files on the receiving side that the sending side does not have")
 	return command
@@ -202,7 +202,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	id, err := link.ForStreams(factory.IOStreams).Resolve(ctx, client, dir, opts.env)
+	id, err := link.Target{Resolver: link.ForStreams(factory.IOStreams), Dir: dir, Stderr: stderr}.Resolve(ctx, client, opts.env)
 	if err != nil {
 		return err
 	}

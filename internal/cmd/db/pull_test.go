@@ -269,3 +269,23 @@ func TestDbPullOutputToMissingFolder(t *testing.T) {
 		t.Fatal("ran ssh")
 	}
 }
+
+func TestDbPullAnnouncesLabelOnStderr(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ".fortrabbit"), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit", "environments.yml"), []byte("production: en-abc123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "production", "--stdout")
+	if err != nil || !strings.Contains(stderr, "→ en-abc123 (production, from .fortrabbit/environments.yml)\n") || strings.Contains(stdout, "→") {
+		t.Fatalf("err %v, stderr %q", err, stderr)
+	}
+	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "--stdout")
+	if err != nil || !strings.Contains(stderr, "→ en-abc123 (production, from .fortrabbit/environments.yml)\n") {
+		t.Fatalf("implicit: err %v, stderr %q", err, stderr)
+	}
+	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--stdout")
+	if err != nil || strings.Contains(stderr, "→") {
+		t.Fatalf("ID: err %v, stderr %q", err, stderr)
+	}
+}

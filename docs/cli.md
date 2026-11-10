@@ -487,12 +487,12 @@ A failure or Ctrl-C after the backup says whether the database changed and print
 ## Files
 
 ```sh
-frbit files pull web/uploads --env en-a1b2c3 --dry-run
-frbit files pull storage --env en-a1b2c3 --delete --confirm en-a1b2c3
-frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
+frbit files pull web/uploads -e en-a1b2c3 --dry-run
+frbit files pull storage -e production --delete --confirm en-a1b2c3
+frbit files push web/uploads --environment en-a1b2c3 --confirm en-a1b2c3
 ```
 
-`files pull [path]` copies files from `/data/www/` on an environment into the current folder; `files push [path]` copies them the other way. Both run the local `rsync` over `ssh` with your own SSH key; the API token only resolves the environment and its SSH host. The environment comes from `--env` (ID or label) or from the checkout (see [Link a local project](#link-a-local-project)).
+`files pull [path]` copies files from `/data/www/` on an environment into the current folder; `files push [path]` copies them the other way. Both run the local `rsync` over `ssh` with your own SSH key; the API token only resolves the environment and its SSH host. The environment comes from `--environment`/`-e` (ID or label) or from the checkout (see [Link a local project](#link-a-local-project)).
 
 The path is relative to `/data/www/` and to the current folder; without one, all of `/data/www/` syncs with the current folder. A folder path syncs onto the same-named folder on the other side: `web/uploads` syncs `/data/www/web/uploads` with `./web/uploads`, not into `./web/uploads/uploads`. A file path syncs that file. Absolute paths, `..`, `~` and characters other than letters, digits and `. _ - + @ /` are refused before any request. On push, the parent folder of the path must exist on the environment.
 
@@ -787,7 +787,7 @@ frbit --profile work auth logout
 | `frbit mysql get <environment>` / `rotate-password <environment>` | Show host, port, user and database (never the password), or generate a new password; `rotate-password` needs `--confirm <environment>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
-| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.env` and `.env.*` alone. |
+| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--environment`/`-e`, `--dry-run`, `--delete`, `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.env` and `.env.*` alone. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

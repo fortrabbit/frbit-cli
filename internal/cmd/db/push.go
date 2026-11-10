@@ -80,7 +80,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if fromStdin {
 				resolver = link.Resolver{}
 			}
-			id, err := resolver.Resolve(ctx, client, dir, arg)
+			id, err := link.Target{Resolver: resolver, Dir: dir, Stderr: cmd.ErrOrStderr()}.Resolve(ctx, client, arg)
 			if err != nil {
 				return err
 			}

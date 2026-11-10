@@ -70,7 +70,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if len(args) == 1 {
 				arg = args[0]
 			}
-			id, err := link.ForStreams(factory.IOStreams).Resolve(ctx, client, dir, arg)
+			id, err := link.Target{Resolver: link.ForStreams(factory.IOStreams), Dir: dir, Stderr: cmd.ErrOrStderr()}.Resolve(ctx, client, arg)
 			if err != nil {
 				return err
 			}
