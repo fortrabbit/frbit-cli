@@ -290,3 +290,55 @@ func TestFileKeepsOtherEntriesAndRejectsNesting(t *testing.T) {
 		t.Fatalf("nested map accepted: %v", err)
 	}
 }
+
+func TestResolveReadsFileAtGitTopLevel(t *testing.T) {
+	top := t.TempDir()
+	sub := filepath.Join(top, "web", "uploads")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEnvironments(t, top, "production: en-file11\n")
+	git := func(ctx context.Context, dir string, args ...string) (string, error) {
+		if strings.Join(args, " ") == "rev-parse --show-toplevel" {
+			return top, nil
+		}
+		return fakeGit("", "main")(ctx, dir, args...)
+	}
+	resolver := Resolver{Git: git, Getenv: func(string) string { return "" }}
+	got, err := resolver.Find(context.Background(), (&fakeAPI{}).client(t), sub, "")
+	if err != nil || got.ID != "en-file11" || got.Source != SourceFile || got.Label != "production" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestFindReportsSource(t *testing.T) {
+	fake := &fakeAPI{apps: connectedApps, environments: connectedEnvironments}
+	dir := t.TempDir()
+	resolver := Resolver{Git: fakeGit("git@github.com:acme/site.git", "develop"), Getenv: func(string) string { return "en-env111" }}
+	if got, err := resolver.Find(context.Background(), fake.client(t), dir, ""); err != nil || got.Source != SourceEnv || got.ID != "en-env111" {
+		t.Fatalf("env: %+v, %v", got, err)
+	}
+	resolver.Getenv = func(string) string { return "" }
+	got, err := resolver.Find(context.Background(), fake.client(t), dir, "")
+	if err != nil || got.Source != SourceRepository || got.ID != "en-stag11" || got.Match.AppID != "ap-aaa111" {
+		t.Fatalf("repository: %+v, %v", got, err)
+	}
+	resolver.Git = fakeGit("", "feature")
+	if _, err := resolver.Find(context.Background(), fake.client(t), dir, ""); !errors.Is(err, ErrNoEnvironment) {
+		t.Fatalf("none: %v", err)
+	}
+}
+
+func TestLookupAndPickIgnoreInvalidIDs(t *testing.T) {
+	fake := &fakeAPI{
+		apps:         `[{"publicId":"ap-aaa111","gitRepository":"acme/site","environments":["../../x"]}]`,
+		environments: `[{"publicId":"../../x","name":"evil","git":{"branch":"main","directory":null}}]`,
+	}
+	resolver := Resolver{Git: fakeGit("git@github.com:acme/site.git", "main"), Getenv: func(string) string { return "" }, IsTTY: true, In: strings.NewReader("1\n")}
+	if _, found, err := resolver.Lookup(context.Background(), fake.client(t), t.TempDir(), "main"); err != nil || found {
+		t.Fatalf("lookup: found %v, %v", found, err)
+	}
+	if id, err := resolver.Pick(context.Background(), fake.client(t)); err == nil {
+		t.Fatalf("pick = %q", id)
+	}
+}

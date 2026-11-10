@@ -552,13 +552,24 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 ```sh
 frbit link
+frbit link --json
 frbit link en-a1b2c3
 frbit link en-d4e5f6 --label staging
 ```
 
-Commands that work on the environment of the current checkout find it in this order: the environment argument (an ID, or a label from `.fortrabbit/environments.yml`), `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the server lookup, the only entry in the file, else a list to pick from on a terminal.
+`frbit db pull|push` and `frbit files pull|push` work on the environment of the current checkout. They find it in this order: the environment argument (an ID, or a label from `.fortrabbit/environments.yml`), `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the server lookup, the only entry in the file, else a list to pick from on a terminal.
 
 The server lookup matches the GitHub `origin` remote to the repository connected to an app, and the current branch to the environment that deploys it. On such a connected repository `frbit link` confirms the match and writes nothing.
+
+Bare `frbit link` runs the same steps, except the argument and the list, and prints the environment and the step that found it. `--json` prints it as one JSON object:
+
+```json
+{"environment":"en-a1b2c3","source":"repository","repository":"acme/site","branch":"main","app":"ap-a1b2c3","name":"production","sshHost":"en-a1b2c3@ssh.eu-w1a.frbit.app","region":"eu-w1a"}
+```
+
+`source` is `env` (`FORTRABBIT_ENVIRONMENT`), `file` (with `label`) or `repository` (with `repository`, `branch` and `app`). `name`, `sshHost` and `region` come from the API. Without an environment, `--json` fails.
+
+`.fortrabbit/environments.yml` lives at the top of the git checkout, so every command finds it from any subfolder; outside git it is read from and written to the current folder.
 
 Without a connection, `frbit link <environment>` writes `.fortrabbit/environments.yml`, a flat map of label to environment ID. The label defaults to the current branch; `--label` sets another one. Other entries stay; commit the file. `.fortrabbit/deploy.yml` is never touched.
 
@@ -763,7 +774,7 @@ frbit --profile work auth logout
 | `frbit php-versions list` / `php-extensions list` / `php-settings list` / `node-versions list` | List the available PHP versions, PHP extensions, php.ini directives with accepted values, or Node.js versions. |
 | `frbit git repositories` | List repositories of the connected Git account. |
 | `frbit git branches <owner/repo>` | List the branches of a repository. |
-| `frbit link [environment]` | Link the checkout to an environment: confirm the connected repository, or write `.fortrabbit/environments.yml`. Accepts `--label`. |
+| `frbit link [environment]` | Show the environment of the checkout, or link it: confirm the connected repository, or write `.fortrabbit/environments.yml` at the git top level. Accepts `--label`, `--json` (without an environment). |
 | `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |
 | `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |

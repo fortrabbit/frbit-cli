@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -61,20 +62,52 @@ type Match struct {
 	EnvironmentName string
 }
 
+// Sources of a Resolution.
+const (
+	SourceArgument   = "argument"
+	SourceEnv        = "env"
+	SourceFile       = "file"
+	SourceRepository = "repository"
+	SourcePicked     = "picked"
+)
+
+// ErrNoEnvironment means nothing in the checkout names an environment.
+var ErrNoEnvironment = errors.New("no environment for this checkout; run frbit link or pass the environment ID")
+
+// Resolution is a resolved environment and the step that found it.
+type Resolution struct {
+	ID     string
+	Source string
+	// Label is the environments.yml entry for SourceFile.
+	Label string
+	// Match is set for SourceRepository.
+	Match Match
+}
+
 // Resolve tries arg (ID or label), FORTRABBIT_ENVIRONMENT, the file entry for the branch, the server lookup, the only file entry, then asks.
 func (r Resolver) Resolve(ctx context.Context, client *api.Client, dir string, arg string) (string, error) {
+	resolution, err := r.Find(ctx, client, dir, arg)
+	if errors.Is(err, ErrNoEnvironment) && r.IsTTY {
+		return r.Pick(ctx, client)
+	}
+	return resolution.ID, err
+}
+
+// Find runs the steps of Resolve except asking; it returns ErrNoEnvironment when none applies.
+func (r Resolver) Find(ctx context.Context, client *api.Client, dir string, arg string) (Resolution, error) {
 	arg = strings.TrimSpace(arg)
 	if IsID(arg) {
-		return arg, nil
+		return Resolution{ID: arg, Source: SourceArgument}, nil
 	}
 	if arg == "" {
 		if value := strings.TrimSpace(r.getenv(EnvVar)); value != "" {
 			if !IsID(value) {
-				return "", fmt.Errorf("%s=%q is not an environment ID", EnvVar, value)
+				return Resolution{}, fmt.Errorf("%s=%q is not an environment ID", EnvVar, value)
 			}
-			return value, nil
+			return Resolution{ID: value, Source: SourceEnv}, nil
 		}
 	}
+	dir = r.Root(ctx, dir)
 	branch := r.Branch(ctx, dir)
 	entries, err := r.Entries(ctx, dir, branch)
 	// Without a terminal a legacy file only fails when nothing else resolves, so CI on a connected repo keeps working.
@@ -85,41 +118,61 @@ func (r Resolver) Resolve(ctx context.Context, client *api.Client, dir string, a
 		legacyErr = nil
 	}
 	if err != nil {
-		return "", err
+		return Resolution{}, err
+	}
+	fromFile := func(label string) (Resolution, error) {
+		id, _ := entries.Get(label)
+		if _, err := Verify(ctx, client, id); err != nil {
+			return Resolution{}, err
+		}
+		return Resolution{ID: id, Source: SourceFile, Label: label}, nil
 	}
 	if arg != "" {
-		id, ok := entries.Get(arg)
+		_, ok := entries.Get(arg)
 		if !ok && legacyErr != nil {
-			return "", legacyErr
+			return Resolution{}, legacyErr
 		}
 		if !ok {
-			return "", fmt.Errorf("no environment labelled %q in %s; run frbit link", arg, FilePath)
+			return Resolution{}, fmt.Errorf("no environment labelled %q in %s; run frbit link", arg, FilePath)
 		}
-		return Verify(ctx, client, id)
+		return fromFile(arg)
 	}
-	if id, ok := entries.Get(branch); ok && branch != "" {
-		return Verify(ctx, client, id)
+	if _, ok := entries.Get(branch); ok && branch != "" {
+		return fromFile(branch)
 	}
 	if branch != "" {
 		match, found, err := r.Lookup(ctx, client, dir, branch)
 		if err != nil {
-			return "", err
+			return Resolution{}, err
 		}
 		if found {
-			return match.EnvironmentID, nil
+			return Resolution{ID: match.EnvironmentID, Source: SourceRepository, Match: match}, nil
 		}
 	}
 	if entries.Len() == 1 {
-		id, _ := entries.Get(entries.Labels()[0])
-		return Verify(ctx, client, id)
+		return fromFile(entries.Labels()[0])
 	}
 	if legacyErr != nil {
-		return "", legacyErr
+		return Resolution{}, legacyErr
 	}
-	if !r.IsTTY {
-		return "", errors.New("no environment for this checkout; run frbit link or pass the environment ID")
+	return Resolution{}, ErrNoEnvironment
+}
+
+// TopLevel returns the top folder of the git checkout holding dir.
+func (r Resolver) TopLevel(ctx context.Context, dir string) (string, bool) {
+	top, err := r.git()(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil || strings.TrimSpace(top) == "" {
+		return "", false
 	}
-	return r.Pick(ctx, client)
+	return filepath.Clean(strings.TrimSpace(top)), true
+}
+
+// Root is the folder that holds the link file: the git top level, or dir outside git.
+func (r Resolver) Root(ctx context.Context, dir string) string {
+	if top, ok := r.TopLevel(ctx, dir); ok {
+		return top
+	}
+	return dir
 }
 
 // Branch returns the checked-out branch, or "" on a detached HEAD or outside git.
@@ -195,7 +248,8 @@ func (r Resolver) Lookup(ctx context.Context, client *api.Client, dir string, br
 		appID, _ := app["publicId"].(string)
 		environments, _ := app["environments"].([]any)
 		for _, value := range environments {
-			if id, ok := value.(string); ok {
+			// IDs from the API end up in file names, so only well-formed ones count.
+			if id, ok := value.(string); ok && IsID(id) {
 				appOf[id] = appID
 				query.Add("publicId[]", id)
 			}
@@ -256,12 +310,19 @@ func (r Resolver) Pick(ctx context.Context, client *api.Client) (string, error) 
 		return "", errors.New("no environments in your account")
 	}
 	ids := make([]string, 0, len(environments.Resources))
+	names := map[string]string{}
+	for _, environment := range environments.Resources {
+		if id, _ := environment["publicId"].(string); IsID(id) {
+			ids = append(ids, id)
+			names[id], _ = environment["name"].(string)
+		}
+	}
+	if len(ids) == 0 {
+		return "", errors.New("no environments in your account")
+	}
 	fmt.Fprintln(r.out(), "Environments in your account:")
-	for i, environment := range environments.Resources {
-		id, _ := environment["publicId"].(string)
-		name, _ := environment["name"].(string)
-		ids = append(ids, id)
-		fmt.Fprintf(r.out(), "  %d) %s  %s\n", i+1, id, name)
+	for i, id := range ids {
+		fmt.Fprintf(r.out(), "  %d) %s  %s\n", i+1, id, names[id])
 	}
 	answer, err := cmdutil.AskContext(ctx, r.in(), r.out(), fmt.Sprintf("Pick an environment [1-%d]: ", len(ids)))
 	if err != nil {
