@@ -154,3 +154,24 @@ func TestAuthStatusJSONPrintsOneLineOnRejectedToken(t *testing.T) {
 		t.Fatalf("exit = %d, stdout = %q", code, stdout)
 	}
 }
+
+func TestDotSegmentInIDNeverReachesAnotherResource(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.EscapedPath())
+		_, _ = writer.Write([]byte(`{"publicId":"ap-000001","name":"shop"}`))
+	}))
+	defer server.Close()
+	for _, args := range [][]string{
+		{"domains", "delete", "../apps/ap-000001", "--confirm", "../apps/ap-000001"},
+		{"deployments", "get", "../environments/en-abc123/environment-variables"},
+		{"apps", "update", "../environments/en-abc123", "--name", "x"},
+		{"domains", "get", ".."},
+	} {
+		requests = nil
+		_, _, code := runRoot(t, append([]string{"--host", server.URL}, args...)...)
+		if code == 0 || len(requests) != 0 {
+			t.Fatalf("%v: exit = %d, requests = %v", args, code, requests)
+		}
+	}
+}

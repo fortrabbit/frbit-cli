@@ -271,7 +271,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+env, payload)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env), payload)
 			if err != nil {
 				return err
 			}
@@ -424,7 +424,7 @@ func newCmdVariablesGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+env+"/environment-variables")
+			response, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/environment-variables")
 			if err != nil {
 				return err
 			}
@@ -486,7 +486,7 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+env+"/environment-variables", payload)
+			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/environment-variables", payload)
 			if err != nil {
 				return err
 			}
@@ -518,7 +518,7 @@ func newCmdRestart(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+env+"/restart"); err != nil {
+			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/restart"); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restart requested for %s.\n", env)
@@ -542,7 +542,7 @@ func newCmdDeploy(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.PostAction(cmd.Context(), "/v1/environments/"+env+"/deployments")
+			response, err := client.PostAction(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/deployments")
 			if err != nil {
 				return err
 			}

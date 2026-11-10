@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -131,7 +132,7 @@ func newCmdBranches(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.ListResources(cmd.Context(), "/v1/git-repositories/"+owner+"/"+repo+"/branches", 0, nil, nil)
+			response, err := client.ListResources(cmd.Context(), "/v1/git-repositories/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/branches", 0, nil, nil)
 			if err != nil {
 				return err
 			}

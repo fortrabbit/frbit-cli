@@ -3,6 +3,7 @@ package apps
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
@@ -311,17 +312,17 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			}
 			var response api.ResourceResponse
 			if payload != nil {
-				if response, err = client.UpdateResource(cmd.Context(), "/v1/apps/"+publicID, payload); err != nil {
+				if response, err = client.UpdateResource(cmd.Context(), "/v1/apps/"+url.PathEscape(publicID), payload); err != nil {
 					return err
 				}
 			}
 			if repository != "" {
-				if response, err = client.PutResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository", map[string]any{"repository": repository}); err != nil {
+				if response, err = client.PutResource(cmd.Context(), "/v1/apps/"+url.PathEscape(publicID)+"/git-repository", map[string]any{"repository": repository}); err != nil {
 					return partialFailure(payload != nil, "connecting", err)
 				}
 			}
 			if disconnectRepository {
-				if response, err = client.DeleteForResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository"); err != nil {
+				if response, err = client.DeleteForResource(cmd.Context(), "/v1/apps/"+url.PathEscape(publicID)+"/git-repository"); err != nil {
 					return partialFailure(payload != nil, "disconnecting", err)
 				}
 			}

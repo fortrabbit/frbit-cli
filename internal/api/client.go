@@ -364,6 +364,9 @@ func (c Client) do(ctx context.Context, request call) (rawResponse, error) {
 }
 
 func (c Client) send(ctx context.Context, call call, token string) (rawResponse, error) {
+	if err := checkPath(call.path); err != nil {
+		return rawResponse{}, err
+	}
 	endpoint := c.baseURL.ResolveReference(&url.URL{Path: call.path, RawQuery: call.query.Encode()})
 	request, err := http.NewRequestWithContext(ctx, call.method, endpoint.String(), bytes.NewReader(call.body))
 	if err != nil {
@@ -395,6 +398,20 @@ func (c Client) send(ctx context.Context, call call, token string) (rawResponse,
 	}
 
 	return rawResponse{body: responseBody, header: response.Header}, nil
+}
+
+// checkPath refuses a "." or ".." segment, also an escaped one: the URL resolver would turn domains/../apps/x into apps/x.
+func checkPath(path string) error {
+	decoded, err := url.PathUnescape(path)
+	if err != nil {
+		return fmt.Errorf("invalid request path %q", path)
+	}
+	for _, segment := range strings.Split(decoded, "/") {
+		if segment == "." || segment == ".." {
+			return fmt.Errorf("invalid ID in request path %q", decoded)
+		}
+	}
+	return nil
 }
 
 // writeWarnings prints each distinct warning header value once per client.

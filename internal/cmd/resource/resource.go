@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -228,7 +229,7 @@ func newCmdGet(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0])
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(args[0]))
 			if err != nil {
 				return err
 			}
@@ -261,9 +262,9 @@ func newCmdLogs(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 			if follow {
-				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), cmd.ErrOrStderr(), "/v1"+spec.Path+"/"+args[0], printJSON)
+				return followDeploymentLogs(cmd.Context(), client, cmd.OutOrStdout(), cmd.ErrOrStderr(), "/v1"+spec.Path+"/"+url.PathEscape(args[0]), printJSON)
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+args[0]+"/logs")
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(args[0])+"/logs")
 			if err != nil {
 				return err
 			}
@@ -347,7 +348,7 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID)
+			response, err := client.GetResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(publicID))
 			if err != nil {
 				return err
 			}
@@ -363,7 +364,7 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 
-			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID); err != nil {
+			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+url.PathEscape(publicID)); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s %s.\n", spec.Singular, publicID)
