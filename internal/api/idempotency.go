@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// maxRetryWait is the longest Retry-After a create waits out; a longer one fails at once.
-const maxRetryWait = 10 * time.Second
+// maxRetryWait is the longest Retry-After the client waits out; a longer one fails at once.
+const maxRetryWait = time.Minute
 
 const defaultRetryWait = time.Second
 
@@ -22,16 +22,20 @@ func newIdempotencyKey() (string, error) {
 	return fmt.Sprintf("%x", value), nil
 }
 
-// doCreate retries a keyed create once on 429 only: the API stores no 5xx answer, so a repeat could create twice.
-func (c Client) doCreate(ctx context.Context, request call) (rawResponse, error) {
+// doRetry waits out one 429 on a GET or a keyed create; the API stores no 5xx answer, so a 5xx is never repeated.
+func (c Client) doRetry(ctx context.Context, request call) (rawResponse, error) {
 	response, err := c.do(ctx, request)
 	var httpErr *HTTPError
-	if request.idempotencyKey == "" || !errors.As(err, &httpErr) || httpErr.Status != http.StatusTooManyRequests || httpErr.RetryAfter > maxRetryWait {
+	safe := request.method == http.MethodGet || request.idempotencyKey != ""
+	if !safe || !errors.As(err, &httpErr) || httpErr.Status != http.StatusTooManyRequests || httpErr.RetryAfter > maxRetryWait {
 		return response, err
 	}
 	wait := httpErr.RetryAfter
 	if wait <= 0 {
 		wait = defaultRetryWait
+	}
+	if c.Warnings != nil {
+		_, _ = fmt.Fprintf(c.Warnings, "rate limited by the API; retrying in %s\n", wait)
 	}
 	sleep := c.sleep
 	if sleep == nil {

@@ -329,7 +329,7 @@ func (c Client) request(ctx context.Context, method string, path string, query u
 }
 
 func (c Client) requestWithAccept(ctx context.Context, method string, path string, query url.Values, body []byte, contentType string, accept string) ([]byte, error) {
-	response, err := c.do(ctx, call{method: method, path: path, query: query, body: body, contentType: contentType, accept: accept})
+	response, err := c.doRetry(ctx, call{method: method, path: path, query: query, body: body, contentType: contentType, accept: accept})
 	return response.body, err
 }
 

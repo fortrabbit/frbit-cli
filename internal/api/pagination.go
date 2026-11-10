@@ -28,7 +28,7 @@ func (c Client) ListAll(ctx context.Context, path string, query url.Values, limi
 		if page >= maxPages {
 			return ResourcesResponse{}, fmt.Errorf("stopped after %d pages", maxPages)
 		}
-		response, err := c.do(ctx, call{method: http.MethodGet, path: path, query: query, accept: "application/json"})
+		response, err := c.doRetry(ctx, call{method: http.MethodGet, path: path, query: query, accept: "application/json"})
 		if err != nil {
 			return ResourcesResponse{}, err
 		}
@@ -70,7 +70,7 @@ func (c Client) ListAll(ctx context.Context, path string, query url.Values, limi
 
 // GetWithLinks GETs path and returns the body with the Link header (all values joined).
 func (c Client) GetWithLinks(ctx context.Context, path string, query url.Values) ([]byte, string, error) {
-	response, err := c.do(ctx, call{method: http.MethodGet, path: path, query: query, accept: "application/json"})
+	response, err := c.doRetry(ctx, call{method: http.MethodGet, path: path, query: query, accept: "application/json"})
 	if err != nil {
 		return nil, "", err
 	}

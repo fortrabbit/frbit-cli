@@ -140,6 +140,7 @@ func TestAppsReturnsRetryAfterForRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
 	_, err = client.Apps(context.Background(), 1)
 	var httpError *HTTPError
 	if !errors.As(err, &httpError) {
@@ -392,6 +393,70 @@ func TestCreateDoesNotRetry(t *testing.T) {
 				t.Fatalf("calls = %d, want 1", calls)
 			}
 		})
+	}
+}
+
+func TestGetWaitsOutOneRateLimit(t *testing.T) {
+	cases := map[string]struct {
+		retryAfter string
+		wantCalls  int
+		wantWait   time.Duration
+	}{
+		"short Retry-After": {retryAfter: "13", wantCalls: 2, wantWait: 13 * time.Second},
+		"long Retry-After":  {retryAfter: "3600", wantCalls: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls++
+				if calls == 1 {
+					writer.Header().Set("Retry-After", tc.retryAfter)
+					writer.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				_, _ = writer.Write([]byte(`{"publicId":"en-abc123"}`))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stderr strings.Builder
+			client.Warnings = &stderr
+			var waited time.Duration
+			client.sleep = func(_ context.Context, wait time.Duration) error { waited = wait; return nil }
+			_, _ = client.GetResource(context.Background(), "/v1/environments/en-abc123")
+			if calls != tc.wantCalls || waited != tc.wantWait {
+				t.Fatalf("calls = %d, waited %s", calls, waited)
+			}
+			if tc.wantCalls == 2 && stderr.String() != "rate limited by the API; retrying in 13s\n" {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestPostWithoutKeyIsNotRetriedOnRateLimit(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.Header().Set("Retry-After", "1")
+		writer.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.UpdateResource(context.Background(), "/v1/environments/en-abc123", map[string]any{}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
 

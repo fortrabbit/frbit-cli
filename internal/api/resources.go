@@ -47,7 +47,7 @@ func (c Client) create(ctx context.Context, path string, payload any, keyed bool
 			return ResourceResponse{}, err
 		}
 	}
-	response, err := c.doCreate(ctx, request)
+	response, err := c.doRetry(ctx, request)
 	if err != nil {
 		return ResourceResponse{}, err
 	}
@@ -115,7 +115,7 @@ func (c Client) listResources(ctx context.Context, path string, page int, public
 	if includeTotal {
 		accept = "application/ld+json"
 	}
-	raw, err := c.do(ctx, call{method: http.MethodGet, path: path, query: query, accept: accept})
+	raw, err := c.doRetry(ctx, call{method: http.MethodGet, path: path, query: query, accept: accept})
 	body := raw.body
 	if err != nil {
 		return ResourcesResponse{}, err

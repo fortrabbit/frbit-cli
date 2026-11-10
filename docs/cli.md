@@ -160,7 +160,7 @@ When the API rejects a request made with `--json`, the CLI prints the API's prob
 
 Deprecation notices from the API (`Warning`, `Deprecation` and `Sunset` headers) are printed to standard error as `warning: ...` lines, so they never mix with `--json` output: `Warning` as sent, `Deprecation` as `this API route is deprecated; update frbit`, `Sunset` as `this API route stops working on <date>`.
 
-Create commands send an `Idempotency-Key` header. When the API answers a create with 429 and asks to wait 10 seconds or less, the CLI retries it once with the same key. It never retries a create after a 5xx error, because the resource may already exist: check with a list command before running it again.
+When the API answers 429 and asks to wait a minute or less, the CLI prints `rate limited by the API; retrying in …` to stderr and repeats the request once. That covers reads and creates; creates send an `Idempotency-Key` header and repeat with the same key. Updates and deletes are not repeated, and a create is never repeated after a 5xx error, because the resource may already exist: check with a list command before running it again.
 
 API responses can contain account data, personal information, payment metadata,
 environment-variable values, and application log output. Treat terminal captures and CI logs as sensitive,
