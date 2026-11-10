@@ -1,0 +1,117 @@
+package root
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+type recordedRequest struct {
+	method string
+	path   string
+	body   map[string]any
+}
+
+func runAppsUpdate(t *testing.T, tty bool, input string, args ...string) ([]recordedRequest, string, error) {
+	t.Helper()
+	var recorded []recordedRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		recorded = append(recorded, recordedRequest{request.Method, request.URL.Path, body})
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"shop","gitRepository":"acme/shop"}`))
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.IsTTY = tty
+	factory.IOStreams.In = strings.NewReader(input)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetArgs(append([]string{"--host", server.URL, "apps", "update", "ap-abc123"}, args...))
+	err := command.Execute()
+	return recorded, output.String(), err
+}
+
+func TestAppsUpdateConnectsRepository(t *testing.T) {
+	requests, output, err := runAppsUpdate(t, false, "", "--repository", "acme/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].method != http.MethodPut || requests[0].path != "/v1/apps/ap-abc123/git-repository" || requests[0].body["repository"] != "acme/shop" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	if !strings.Contains(output, "ap-abc123") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestAppsUpdateRepositoryAndNameInOneCall(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--repository", "acme/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 || requests[0].method != http.MethodPatch || requests[0].path != "/v1/apps/ap-abc123" || requests[0].body["name"] != "shop" ||
+		requests[1].method != http.MethodPut || requests[1].path != "/v1/apps/ap-abc123/git-repository" {
+		t.Fatalf("requests = %#v", requests)
+	}
+}
+
+func TestAppsUpdateGitDeployCommentsFalseIsSent(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--git-deploy-comments=false", "--software-preset", "laravel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].body["gitDeployComments"] != false || requests[0].body["softwarePresetName"] != "laravel" {
+		t.Fatalf("requests = %#v", requests)
+	}
+}
+
+func TestAppsUpdateTechnicalContacts(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--technical-contact", "pn-a1b2c3", "--technical-contact", "pn-d4e5f6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contacts, _ := requests[0].body["technicalContacts"].([]any)
+	if len(requests) != 1 || len(contacts) != 2 || contacts[0] != "pn-a1b2c3" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	requests, _, err = runAppsUpdate(t, false, "", "--clear-technical-contacts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contacts, ok := requests[0].body["technicalContacts"].([]any)
+	if !ok || len(contacts) != 0 {
+		t.Fatalf("clear payload = %#v", requests[0].body)
+	}
+	if _, _, err = runAppsUpdate(t, false, "", "--clear-technical-contacts", "--technical-contact", "pn-a1b2c3"); err == nil {
+		t.Fatal("expected error combining clear and contact")
+	}
+}
+
+func TestAppsUpdateDisconnectRepositoryNeedsConfirm(t *testing.T) {
+	requests, _, err := runAppsUpdate(t, false, "", "--disconnect-repository")
+	if err == nil || !strings.Contains(err.Error(), "pass --confirm ap-abc123") || len(requests) != 0 {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+	requests, _, err = runAppsUpdate(t, false, "", "--disconnect-repository", "--confirm", "ap-abc123")
+	if err != nil || len(requests) != 1 || requests[0].method != http.MethodDelete || requests[0].path != "/v1/apps/ap-abc123/git-repository" {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+}
+
+func TestAppsUpdateDisconnectRepositoryPromptsOnTTY(t *testing.T) {
+	requests, output, err := runAppsUpdate(t, true, "no\n", "--disconnect-repository")
+	if err != nil || len(requests) != 0 || !strings.Contains(output, "stops deployments") || !strings.Contains(output, "Aborted.") {
+		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
+	}
+}
+
+func TestAppsUpdateRejectsRepositoryWithDisconnect(t *testing.T) {
+	if _, _, err := runAppsUpdate(t, false, "", "--repository", "acme/shop", "--disconnect-repository", "--confirm", "ap-abc123"); err == nil {
+		t.Fatal("expected error")
+	}
+}

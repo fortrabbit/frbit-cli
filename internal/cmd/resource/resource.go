@@ -253,11 +253,8 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			publicID := args[0]
-			if confirmation != "" && confirmation != publicID {
-				return fmt.Errorf("--confirm must exactly match %s", publicID)
-			}
-			if confirmation == "" && !factory.IOStreams.IsTTY {
-				return fmt.Errorf("deletion requires interactive confirmation; pass --confirm %s for intentional non-interactive use", publicID)
+			if err := cmdutil.CheckDestructive(factory, "deletion", publicID, confirmation); err != nil {
+				return err
 			}
 
 			client, err := clientFor(cmd, factory)
@@ -272,20 +269,13 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 
-			if confirmation == "" {
-				confirmed, err := cmdutil.ConfirmExact(
-					factory.IOStreams.In,
-					cmd.OutOrStdout(),
-					fmt.Sprintf("Type %s to confirm: ", publicID),
-					publicID,
-				)
-				if err != nil {
-					return err
-				}
-				if !confirmed {
-					_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-					return err
-				}
+			confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.OutOrStdout(), "deletion", publicID, confirmation, "")
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				return err
 			}
 
 			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID); err != nil {

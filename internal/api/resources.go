@@ -56,6 +56,24 @@ func (c Client) UpdateResource(ctx context.Context, path string, payload any) (R
 	return decodeResourceResponse(body)
 }
 
+// PutResource PUTs payload and decodes the answered resource.
+func (c Client) PutResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
+	body, err := c.put(ctx, path, payload)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
+// DeleteForResource DELETEs path and decodes the resource the API answers with.
+func (c Client) DeleteForResource(ctx context.Context, path string) (ResourceResponse, error) {
+	body, err := c.delete(ctx, path)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
 func (c Client) DeleteResource(ctx context.Context, path string) error {
 	_, err := c.delete(ctx, path)
 	return err

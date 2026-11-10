@@ -294,6 +294,14 @@ func (c Client) patch(ctx context.Context, path string, payload any) ([]byte, er
 	return c.request(ctx, http.MethodPatch, path, nil, body, "application/merge-patch+json")
 }
 
+func (c Client) put(ctx context.Context, path string, payload any) ([]byte, error) {
+	body, err := marshalPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	return c.request(ctx, http.MethodPut, path, nil, body, "application/json")
+}
+
 func (c Client) delete(ctx context.Context, path string) ([]byte, error) {
 	return c.request(ctx, http.MethodDelete, path, nil, nil, "")
 }

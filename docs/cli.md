@@ -216,7 +216,18 @@ Pass `--deploy` to start the initial deployment as part of creation. It requires
 ```sh
 frbit apps update ap-a1b2c3 --name renamed-shop
 frbit apps update ap-a1b2c3 --payment-method pm-a1b2c3
+frbit apps update ap-a1b2c3 --software-preset laravel --git-deploy-comments=false
+frbit apps update ap-a1b2c3 --technical-contact pn-a1b2c3 --technical-contact pn-d4e5f6
+frbit apps update ap-a1b2c3 --clear-technical-contacts
+frbit apps update ap-a1b2c3 --repository acme/shop
+frbit apps update ap-a1b2c3 --disconnect-repository --confirm ap-a1b2c3
 ```
+
+- `--software-preset` resets the software version of every environment to the preset default.
+- `--technical-contact` (repeatable) replaces the list with the given person public IDs; `--clear-technical-contacts` empties it.
+- `--git-deploy-comments=true|false` toggles deployment comments on GitHub pull requests.
+- `--repository OWNER/REPOSITORY` connects a GitHub repository (`PUT /v1/apps/{id}/git-repository`) and resets the branches of all environments; set them again with `environments update`. Combined with other flags, the app is updated first, then the repository connected.
+- `--disconnect-repository` removes the connection and stops deployments until a repository is connected again. It asks you to type the app ID; without a terminal pass `--confirm <app-id>`.
 
 ## Environments
 
@@ -544,7 +555,7 @@ frbit --profile work auth logout
 | `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
-| `frbit apps update <id>` | Update an app name or payment method. Accepts field flags or `--file`. |
+| `frbit apps update <id>` | Update an app: name, payment method, software preset, technical contacts, deployment comments, repository connection. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |

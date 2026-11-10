@@ -3,6 +3,7 @@ package apps
 import (
 	"fmt"
 
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
@@ -190,15 +191,24 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	var file string
 	var name string
 	var paymentMethodID string
+	var softwarePreset string
+	var gitDeployComments bool
+	var technicalContacts []string
+	var clearTechnicalContacts bool
+	var repository string
+	var disconnectRepository bool
+	var confirmation string
 	var printJSON bool
 	command := &cobra.Command{
 		Use:   "update <public-id>",
 		Short: "Update an app",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			publicID := args[0]
+			fieldFlags := []string{"name", "payment-method", "software-preset", "git-deploy-comments", "technical-contact", "clear-technical-contacts"}
 			var payload any
 			if file != "" {
-				if cmdutil.AnyFlagChanged(cmd, "name", "payment-method") {
+				if cmdutil.AnyFlagChanged(cmd, append(fieldFlags, "repository", "disconnect-repository")...) {
 					return fmt.Errorf("--file cannot be combined with request field flags")
 				}
 				input, err := cmdutil.ReadJSONObject(file, factory.IOStreams.In)
@@ -207,6 +217,12 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 				}
 				payload = input
 			} else {
+				if repository != "" && disconnectRepository {
+					return fmt.Errorf("--repository cannot be combined with --disconnect-repository")
+				}
+				if clearTechnicalContacts && len(technicalContacts) > 0 {
+					return fmt.Errorf("--clear-technical-contacts cannot be combined with --technical-contact")
+				}
 				fields := map[string]any{}
 				if cmd.Flags().Changed("name") {
 					fields["name"] = name
@@ -214,18 +230,59 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 				if cmd.Flags().Changed("payment-method") {
 					fields["paymentMethodId"] = paymentMethodID
 				}
-				if len(fields) == 0 {
-					return fmt.Errorf("provide --name, --payment-method, or --file")
+				if cmd.Flags().Changed("software-preset") {
+					fields["softwarePresetName"] = softwarePreset
 				}
-				payload = fields
+				if cmd.Flags().Changed("git-deploy-comments") {
+					fields["gitDeployComments"] = gitDeployComments
+				}
+				if clearTechnicalContacts {
+					fields["technicalContacts"] = []string{}
+				} else if len(technicalContacts) > 0 {
+					fields["technicalContacts"] = technicalContacts
+				}
+				if len(fields) == 0 && repository == "" && !disconnectRepository {
+					return fmt.Errorf("provide an update flag such as --name, --repository or --software-preset, or --file")
+				}
+				if len(fields) > 0 {
+					payload = fields
+				}
+			}
+			if disconnectRepository {
+				if err := cmdutil.CheckDestructive(factory, "disconnecting the repository", publicID, confirmation); err != nil {
+					return err
+				}
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/apps/"+args[0], payload)
-			if err != nil {
-				return err
+			if disconnectRepository {
+				confirmed, err := cmdutil.ConfirmDestructive(factory, cmd.OutOrStdout(), "disconnecting the repository", publicID, confirmation,
+					"Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again.")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					_, err := fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+					return err
+				}
+			}
+			var response api.ResourceResponse
+			if payload != nil {
+				if response, err = client.UpdateResource(cmd.Context(), "/v1/apps/"+publicID, payload); err != nil {
+					return err
+				}
+			}
+			if repository != "" {
+				if response, err = client.PutResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository", map[string]any{"repository": repository}); err != nil {
+					return err
+				}
+			}
+			if disconnectRepository {
+				if response, err = client.DeleteForResource(cmd.Context(), "/v1/apps/"+publicID+"/git-repository"); err != nil {
+					return err
+				}
 			}
 			if printJSON {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", response.Raw)
@@ -237,6 +294,13 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
 	command.Flags().StringVar(&name, "name", "", "New app name")
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "New payment method public ID")
+	command.Flags().StringVar(&softwarePreset, "software-preset", "", "Software preset slug; resets the software version of every environment to the preset default")
+	command.Flags().BoolVar(&gitDeployComments, "git-deploy-comments", false, "Comment on GitHub pull requests with the deployment (true or false)")
+	command.Flags().StringArrayVar(&technicalContacts, "technical-contact", nil, "Technical contact person public ID, replaces the list (repeatable)")
+	command.Flags().BoolVar(&clearTechnicalContacts, "clear-technical-contacts", false, "Remove all technical contacts")
+	command.Flags().StringVar(&repository, "repository", "", "Connect a GitHub repository in OWNER/REPOSITORY form; resets environment branches")
+	command.Flags().BoolVar(&disconnectRepository, "disconnect-repository", false, "Disconnect the GitHub repository; stops deployments until one is connected again")
+	command.Flags().StringVar(&confirmation, "confirm", "", "App public ID to confirm --disconnect-repository without a prompt")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }
