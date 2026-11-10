@@ -349,7 +349,7 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 
 	fake := &fakeRunner{version: rsync3}
 	_, stderr, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "storage", "--env", "en-abc123", "--delete"}})
-	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Local files under ./storage that are not on en-abc123 are deleted") {
+	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Local files under "+filepath.Join(dir, "storage")+" that are not on en-abc123 are deleted") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
 	}
 
@@ -391,7 +391,7 @@ func TestFilesPullWithoutPathRequiresConfirm(t *testing.T) {
 	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
 	}
-	for _, want := range []string{"Local files under the current folder are overwritten by the copies on en-abc123.", "Type en-abc123 to confirm:"} {
+	for _, want := range []string{"Local files under " + dir + " are overwritten by the copies on en-abc123.", "Type en-abc123 to confirm:"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr lacks %q: %q", want, stderr)
 		}
@@ -440,5 +440,57 @@ func TestExcludesKeepDumpsAndTempFilesOutOfAPush(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dst, name)); err == nil {
 			t.Errorf("%s copied", name)
 		}
+	}
+}
+
+func TestFilesRefusesWrongLocalRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, args := range [][]string{
+		{"files", "push", "--env", "en-abc123", "--confirm", "en-abc123"},
+		{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123", "--dry-run"},
+		{"files", "pull", "web", "--delete", "--env", "en-abc123", "--confirm", "en-abc123"},
+	} {
+		fake := &fakeRunner{version: rsync3}
+		requests := []string{}
+		_, _, err := execute(t, home, invocation{runner: fake, requests: &requests, args: args})
+		if err == nil || !strings.Contains(err.Error(), "home folder") || len(requests) != 0 || len(fake.syncs) != 0 {
+			t.Fatalf("%v: %v, %q, %q", args, err, requests, fake.syncs)
+		}
+	}
+
+	top := t.TempDir()
+	sub := filepath.Join(top, "public")
+	if err := os.MkdirAll(filepath.Join(sub, "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	previous := git
+	git = func(_ context.Context, _ string, args ...string) (string, error) {
+		if strings.Join(args, " ") == "rev-parse --show-toplevel" {
+			return top, nil
+		}
+		return "", errors.New("git failed")
+	}
+	t.Cleanup(func() { git = previous })
+	for _, args := range [][]string{
+		{"files", "push", "--env", "en-abc123", "--confirm", "en-abc123"},
+		{"files", "push", "web", "--delete", "--env", "en-abc123", "--confirm", "en-abc123"},
+	} {
+		fake := &fakeRunner{version: rsync3}
+		_, _, err := execute(t, sub, invocation{runner: fake, args: args})
+		if err == nil || !strings.Contains(err.Error(), "run from the project root "+top) || len(fake.syncs) != 0 {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	// A path sync without --delete is relative to the current folder and allowed anywhere.
+	fake := &fakeRunner{version: rsync3}
+	if _, _, err := execute(t, sub, invocation{runner: fake, args: []string{"files", "push", "web", "--env", "en-abc123", "--confirm", "en-abc123"}}); err != nil || len(fake.syncs) != 1 {
+		t.Fatalf("path push: %v, %q", err, fake.syncs)
+	}
+	// From the top level the whole-folder sync runs, and the prompt names the local folder.
+	fake = &fakeRunner{version: rsync3}
+	_, stderr, err := execute(t, top, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "--env", "en-abc123"}})
+	if err != nil || !strings.Contains(stderr, top) {
+		t.Fatalf("top: %v, %q", err, stderr)
 	}
 }

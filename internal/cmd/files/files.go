@@ -2,10 +2,12 @@ package files
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,10 +21,11 @@ import (
 
 const remoteRoot = "/data/www/"
 
-// runner and checkTool are replaced in tests.
+// runner, checkTool and git are replaced in tests.
 var (
 	runner    sshexec.Runner = sshexec.System{}
 	checkTool                = sshexec.Check
+	git       link.GitRunner = link.SystemGit
 )
 
 // segment allows only characters no remote shell interprets, since older rsync passes the remote path through it unquoted.
@@ -54,6 +57,8 @@ Files that changed are overwritten locally. --delete also removes local files th
 
 Without a path, .git/, .fortrabbit/, .env, .env.*, the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
 
+A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
+
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit files pull web/uploads
   frbit files pull web/uploads --env en-a1b2c3
@@ -75,6 +80,8 @@ Files that changed are overwritten on the environment. --delete also removes fil
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. A dry run needs no confirmation.
 
 Without a path, .git/, .fortrabbit/, .env, .env.*, the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
+
+A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`
 		command.Example = `  frbit files push web/uploads --env en-a1b2c3
@@ -170,14 +177,19 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 			return fmt.Errorf("nothing to push: %w", err)
 		}
 	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if rel == "." || opts.delete {
+		if err := checkRoot(ctx, dir); err != nil {
+			return err
+		}
+	}
 	for _, tool := range []string{"rsync", "ssh"} {
 		if err := checkTool(tool); err != nil {
 			return err
 		}
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
 	}
 	client, err := cmdutil.APIClient(cmd, factory)
 	if err != nil {
@@ -213,15 +225,16 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 		remotePath += rel
 	}
 	if destructive {
-		warning := fmt.Sprintf("Local files under %s that are not on %s are deleted.", localPath(rel), id)
+		local := filepath.Join(dir, rel)
+		warning := fmt.Sprintf("Local files under %s that are not on %s are deleted.", local, id)
 		if rel == "." {
-			warning = fmt.Sprintf("Local files under the current folder are overwritten by the copies on %s.", id)
+			warning = fmt.Sprintf("Local files under %s are overwritten by the copies on %s.", local, id)
 			if opts.delete {
 				warning += fmt.Sprintf(" Local files there that are not on %s are deleted.", id)
 			}
 		}
 		if push {
-			warning = fmt.Sprintf("Files under %s on %s are overwritten by the local copies.", remotePath, id)
+			warning = fmt.Sprintf("Files under %s on %s are overwritten by the local copies from %s.", remotePath, id, local)
 			if opts.delete {
 				warning += " Files there that do not exist locally are deleted."
 			}
@@ -274,9 +287,25 @@ func gitBranch(env map[string]any) string {
 	return branch
 }
 
-func localPath(rel string) string {
-	if rel == "." {
-		return "./"
+// checkRoot refuses a whole-folder sync or a --delete from a folder that cannot be the project: / , the home folder, or a subfolder of a git checkout.
+func checkRoot(ctx context.Context, dir string) error {
+	real := resolved(dir)
+	if real == filepath.Dir(real) {
+		return fmt.Errorf("refusing to sync the root folder %s; run frbit files from the project folder", dir)
 	}
-	return "./" + rel
+	if home, err := os.UserHomeDir(); err == nil && home != "" && real == resolved(home) {
+		return fmt.Errorf("refusing to sync your home folder %s; run frbit files from the project folder", dir)
+	}
+	if top, ok := (link.Resolver{Git: git}).TopLevel(ctx, dir); ok && resolved(top) != real {
+		return fmt.Errorf("%s is a subfolder of the git checkout; run from the project root %s", dir, top)
+	}
+	return nil
+}
+
+// resolved returns path with symlinks resolved, or the cleaned path when that fails.
+func resolved(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return filepath.Clean(path)
 }
