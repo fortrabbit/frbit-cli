@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,6 +34,9 @@ func (System) Run(ctx context.Context, name string, args []string, stdin io.Read
 	return command.Run()
 }
 
+// destination is user@host with neither part starting with "-", so a host from the API can never become an ssh option.
+var destination = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9.-]*$`)
+
 // Target returns the SSH destination of an environment: sshHost as-is when it holds a user, else <publicId>@<sshHost>.
 func Target(env api.Resource) (string, error) {
 	host, _ := env["sshHost"].(string)
@@ -41,13 +45,17 @@ func Target(env api.Resource) (string, error) {
 	if host == "" {
 		return "", fmt.Errorf("the API returned no SSH host for %s", id)
 	}
-	if strings.Contains(host, "@") {
-		return host, nil
+	target := host
+	if !strings.Contains(host, "@") {
+		if id == "" {
+			return "", errors.New("the API returned no environment ID for the SSH host")
+		}
+		target = id + "@" + host
 	}
-	if id == "" {
-		return "", errors.New("the API returned no environment ID for the SSH host")
+	if !destination.MatchString(target) {
+		return "", fmt.Errorf("the API returned an invalid SSH destination %q", target)
 	}
-	return id + "@" + host, nil
+	return target, nil
 }
 
 var installHints = map[string]string{
@@ -67,21 +75,31 @@ func Check(name string) error {
 	return nil
 }
 
-// Args builds the ssh arguments; without a terminal BatchMode stops ssh from hanging on a password prompt.
-func Args(target, remote string, interactive bool) []string {
-	args := []string{"-T", "-o", "ConnectTimeout=10"}
+// Options are the ssh options every caller uses; without a terminal BatchMode stops ssh from hanging on a password prompt.
+func Options(interactive bool) []string {
+	options := []string{"-T", "-o", "ConnectTimeout=10"}
 	if !interactive {
-		args = append(args, "-o", "BatchMode=yes")
+		options = append(options, "-o", "BatchMode=yes")
 	}
-	return append(args, target, remote)
+	return options
 }
 
-// Run runs remote on target over ssh; ssh's own exit code 255 becomes an error pointing at the SSH key page.
+// Args builds the ssh arguments; "--" ends the options before the destination.
+func Args(target, remote string, interactive bool) []string {
+	return append(Options(interactive), "--", target, remote)
+}
+
+// Run runs remote on target over ssh and maps the exit as MapExit does.
 func Run(ctx context.Context, runner Runner, target, remote string, interactive bool, stdin io.Reader, stdout, stderr io.Writer) error {
 	err := runner.Run(ctx, "ssh", Args(target, remote, interactive), stdin, stdout, stderr)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
+	return MapExit(target, err)
+}
+
+// MapExit turns ssh's own exit code 255 into an error pointing at the SSH key page; other errors pass through.
+func MapExit(target string, err error) error {
 	if ExitCode(err) == 255 {
 		return &keyError{target: target, err: err}
 	}
@@ -94,7 +112,7 @@ type keyError struct {
 }
 
 func (e *keyError) Error() string {
-	return fmt.Sprintf("ssh to %s failed: the SSH key was rejected or the connection failed; add your public key at %s, or check the network", e.target, KeyURL)
+	return fmt.Sprintf("ssh to %s failed: the SSH key was rejected, the connection failed, or the host key is unknown or changed; add your public key at %s, or check the network and ~/.ssh/known_hosts", e.target, KeyURL)
 }
 
 func (e *keyError) Unwrap() error { return e.err }

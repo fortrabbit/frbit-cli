@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
@@ -88,6 +89,11 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			path := output
 			if info, statErr := os.Stat(output); output == "" || (statErr == nil && info.IsDir()) {
 				path = filepath.Join(output, id+".sql.gz")
+			} else if strings.HasSuffix(output, "/") || strings.HasSuffix(output, string(filepath.Separator)) {
+				return fmt.Errorf("folder %s does not exist", output)
+			}
+			if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+				return fmt.Errorf("folder %s does not exist", filepath.Dir(path))
 			}
 			if !force {
 				if info, err := os.Stat(path); err == nil && !info.IsDir() {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,10 +46,15 @@ type fakeRunner struct {
 	stdout    []byte
 	err       error
 	realCheck bool
+	onRun     func(stdout io.Writer)
+	ctx       context.Context
 }
 
 func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ io.Reader, stdout, _ io.Writer) error {
 	f.name, f.args = name, args
+	if f.onRun != nil {
+		f.onRun(stdout)
+	}
 	if _, err := stdout.Write(f.stdout); err != nil {
 		return err
 	}
@@ -108,7 +114,11 @@ func run(t *testing.T, dir string, fake *fakeRunner, args ...string) (string, st
 	root.SetErr(stderr)
 	root.AddCommand(NewCmdDb(factory))
 	root.SetArgs(append([]string{"--host", server.URL, "db", "pull"}, args...))
-	err := root.ExecuteContext(context.Background())
+	ctx := fake.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := root.ExecuteContext(ctx)
 	return stdout.String(), stderr.String(), err
 }
 
@@ -132,7 +142,7 @@ func TestDbPullRunsExpectedSSHCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-T", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "en-abc123@ssh.us-e1a.frbit.app", `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip`}
+	want := []string{"-T", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "--", "en-abc123@ssh.us-e1a.frbit.app", `set -o pipefail; mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces "$FORTRABBIT_DB_NAME" | gzip`}
 	if fake.name != "ssh" || !slices.Equal(fake.args, want) {
 		t.Fatalf("ran %s %q", fake.name, fake.args)
 	}
@@ -205,5 +215,34 @@ func TestDbPullMissingSSHBinary(t *testing.T) {
 	}
 	if fake.name != "" {
 		t.Fatal("ran without ssh")
+	}
+}
+
+func TestDbPullCtrlCRemovesTempFile(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fake := &fakeRunner{ctx: ctx, err: errors.New("signal: killed"), onRun: func(stdout io.Writer) {
+		_, _ = stdout.Write(gzipped(t, dump))
+		cancel()
+	}}
+	_, _, err := run(t, dir, fake, "en-abc123")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Ctrl-C: %v", err)
+	}
+	if got := entries(t, dir); len(got) != 0 {
+		t.Fatalf("left %v", got)
+	}
+}
+
+func TestDbPullOutputToMissingFolder(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeRunner{stdout: gzipped(t, dump)}
+	_, _, err := run(t, dir, fake, "en-abc123", "--output", "nope/")
+	if err == nil || err.Error() != "folder nope/ does not exist" {
+		t.Fatalf("missing folder: %v", err)
+	}
+	if fake.name != "" {
+		t.Fatal("ran ssh")
 	}
 }
