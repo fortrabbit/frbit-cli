@@ -75,6 +75,10 @@ func run(t *testing.T, dir, remote, branch string, tty bool, stdin string, args 
 			_, _ = w.Write([]byte(environments))
 		case strings.HasPrefix(r.URL.Path, "/v1/environments/"):
 			id := strings.TrimPrefix(r.URL.Path, "/v1/environments/")
+			if id == "en-gone11" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			_, _ = w.Write([]byte(`{"publicId":"` + id + `","name":"production","sshHost":"` + id + `@ssh.eu-w1a.frbit.app"}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -246,5 +250,25 @@ func TestLinkJSON(t *testing.T) {
 	}
 	if _, err := run(t, t.TempDir(), "", "main", false, "", "--json"); err == nil {
 		t.Fatal("expected an error without an environment")
+	}
+}
+
+func TestLinkStaleEntryNamesTheFix(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".fortrabbit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit", "environments.yml"), []byte("main: en-gone11\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{}, {"--json"}, {"main"}} {
+		_, err := run(t, dir, "", "main", false, "", args...)
+		if err == nil || !strings.Contains(err.Error(), "relink with frbit link <env-id> --label main, or edit .fortrabbit/environments.yml") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	_, err := run(t, dir, "", "main", false, "", "en-gone11")
+	if err == nil || !strings.Contains(err.Error(), "frbit environments list") || strings.Contains(err.Error(), "run frbit link") {
+		t.Fatalf("ID argument: %v", err)
 	}
 }

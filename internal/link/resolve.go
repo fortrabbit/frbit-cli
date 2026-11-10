@@ -123,7 +123,7 @@ func (r Resolver) Find(ctx context.Context, client *api.Client, dir string, arg 
 	fromFile := func(label string) (Resolution, error) {
 		id, _ := entries.Get(label)
 		if _, err := Verify(ctx, client, id); err != nil {
-			return Resolution{}, err
+			return Resolution{}, StaleEntry(err, label)
 		}
 		return Resolution{ID: id, Source: SourceFile, Label: label}, nil
 	}
@@ -293,11 +293,27 @@ func Environment(ctx context.Context, client *api.Client, id string) (api.Resour
 	if err != nil {
 		var httpErr *api.HTTPError
 		if errors.As(err, &httpErr) && (httpErr.Status == http.StatusNotFound || httpErr.Status == http.StatusForbidden) {
-			return nil, fmt.Errorf("%s is not in your account; run frbit link", id)
+			return nil, &NotInAccountError{ID: id}
 		}
 		return nil, err
 	}
 	return response.Resource, nil
+}
+
+// NotInAccountError means the API does not know the environment for this account, for example in a fork of a template.
+type NotInAccountError struct{ ID string }
+
+func (e *NotInAccountError) Error() string {
+	return e.ID + " is not in your account; check the ID with frbit environments list"
+}
+
+// StaleEntry names the fix when the environment of a file entry is not in the account.
+func StaleEntry(err error, label string) error {
+	var missing *NotInAccountError
+	if !errors.As(err, &missing) {
+		return err
+	}
+	return fmt.Errorf("%s (entry %q in %s) is not in your account; relink with frbit link <env-id> --label %s, or edit %s", missing.ID, label, FilePath, label, FilePath)
 }
 
 // Pick lists the environments of the account and lets the person choose one by number or ID.

@@ -580,7 +580,7 @@ main: en-a1b2c3
 staging: en-d4e5f6
 ```
 
-An ID outside your account fails with `run frbit link`, for example in a fork of a template. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch. Without a terminal, commands still find the environment through the connected repository and fail with the migration hint only when nothing resolves.
+An ID outside your account fails, for example in a fork of a template. When it comes from an entry in `.fortrabbit/environments.yml`, every command (`link`, `link --json`, `db`, `files`) names the entry and the fix: relink with `frbit link <env-id> --label <label>`, or edit the file. An ID passed directly points to `frbit environments list`. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch. Without a terminal, commands still find the environment through the connected repository and fail with the migration hint only when nothing resolves.
 
 ## Deleting resources
 

@@ -196,7 +196,7 @@ func TestDbPullRunsExpectedSSHCommand(t *testing.T) {
 		t.Fatalf("--stdout = %q, %v", stdout, err)
 	}
 
-	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-zzz999"); err == nil || !strings.Contains(err.Error(), "en-zzz999 is not in your account; run frbit link") {
+	if _, _, err := run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-zzz999"); err == nil || !strings.Contains(err.Error(), "en-zzz999 is not in your account; check the ID with frbit environments list") {
 		t.Fatalf("foreign env: %v", err)
 	}
 }

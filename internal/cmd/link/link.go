@@ -89,9 +89,11 @@ The file lives at the top of the git checkout, or in the current folder outside 
 					if !ok {
 						return fmt.Errorf("no environment labelled %q in %s; pass the environment ID", id, envlink.FilePath)
 					}
+					if _, err := envlink.Verify(ctx, client, found); err != nil {
+						return envlink.StaleEntry(err, id)
+					}
 					id = found
-				}
-				if _, err := envlink.Verify(ctx, client, id); err != nil {
+				} else if _, err := envlink.Verify(ctx, client, id); err != nil {
 					return err
 				}
 			case connected && label == "":

@@ -162,14 +162,24 @@ func TestResolveOrder(t *testing.T) {
 	}
 }
 
-func TestResolveIDOutsideAccountSaysRunLink(t *testing.T) {
+func TestResolveStaleFileEntryNamesTheFix(t *testing.T) {
 	dir := t.TempDir()
 	writeEnvironments(t, dir, "main: en-fork11\n")
 	fake := &fakeAPI{apps: `[]`, environments: `[]`, missing: map[string]bool{"en-fork11": true}}
 	resolver := Resolver{Git: fakeGit("", "main"), Getenv: func(string) string { return "" }}
-	_, err := resolver.Resolve(context.Background(), fake.client(t), dir, "")
-	if err == nil || err.Error() != "en-fork11 is not in your account; run frbit link" {
-		t.Fatalf("err = %v", err)
+	for _, arg := range []string{"", "main"} {
+		_, err := resolver.Resolve(context.Background(), fake.client(t), dir, arg)
+		want := `en-fork11 (entry "main" in .fortrabbit/environments.yml) is not in your account; relink with frbit link <env-id> --label main, or edit .fortrabbit/environments.yml`
+		if err == nil || err.Error() != want {
+			t.Fatalf("arg %q: err = %v", arg, err)
+		}
+	}
+	_, err := resolver.Resolve(context.Background(), fake.client(t), dir, "en-fork11")
+	if err != nil {
+		t.Fatalf("an ID argument is not verified here: %v", err)
+	}
+	if _, err := Environment(context.Background(), fake.client(t), "en-fork11"); !errors.As(err, new(*NotInAccountError)) || strings.Contains(err.Error(), "run frbit link <") {
+		t.Fatalf("Environment: %v", err)
 	}
 }
 
