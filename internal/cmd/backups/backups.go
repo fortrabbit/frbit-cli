@@ -188,6 +188,14 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 	return command
 }
 
+// DownloadTransport returns the transport for storage downloads; it never carries the API token. Tests replace it.
+var DownloadTransport = func() *http.Transport {
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		return base.Clone()
+	}
+	return &http.Transport{Proxy: http.ProxyFromEnvironment}
+}
+
 func newCmdDownload(factory *app.Factory) *cobra.Command {
 	var downloadType, output string
 	var force bool
@@ -217,7 +225,7 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 			if link == "" {
 				return errors.New("the API returned no download link")
 			}
-			name, err := download(cmd.Context(), cmd.OutOrStdout(), link, id+"-"+downloadType, output, force)
+			name, err := download(cmd.Context(), cmd.OutOrStdout(), link, client.Secure(), id+"-"+downloadType, output, force)
 			if err != nil {
 				return err
 			}
@@ -234,22 +242,32 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 }
 
 // download streams the signed link to a temp file next to the target and renames it on success. The link carries its own authorisation, so no API token is sent.
-func download(ctx context.Context, stdout io.Writer, link, baseName, output string, force bool) (string, error) {
+// With secure set, as for an https API, the link and every redirect must be https, so the signed link never travels in clear text.
+func download(ctx context.Context, stdout io.Writer, link string, secure bool, baseName, output string, force bool) (string, error) {
 	parsed, err := url.Parse(link)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return "", errors.New("the API returned an invalid download link")
+	}
+	if secure && parsed.Scheme != "https" {
+		return "", errors.New("the backup link is not https; refusing to download")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	// No overall timeout: backups are large, the context ends the transfer.
-	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
-	if base, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = base.Clone()
-	}
+	transport := DownloadTransport()
 	transport.ResponseHeaderTimeout = 30 * time.Second
-	response, err := (&http.Client{Transport: transport}).Do(request)
+	client := &http.Client{Transport: transport, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if secure && next.URL.Scheme != "https" {
+			return errors.New("the download redirected to plain http; refusing")
+		}
+		return nil
+	}}
+	response, err := client.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("download backup: %w", withoutURL(err))
 	}
