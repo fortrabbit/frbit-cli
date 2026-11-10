@@ -325,3 +325,163 @@ func TestResourceWritesUseExpectedMethodsAndContentTypes(t *testing.T) {
 		t.Fatalf("delete resource: %v", err)
 	}
 }
+
+func TestCreateSendsSameIdempotencyKeyOnRetry(t *testing.T) {
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		keys = append(keys, request.Header.Get("Idempotency-Key"))
+		if len(keys) == 1 {
+			writer.Header().Set("Retry-After", "3600")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = writer.Write([]byte(`{"title":"Service Unavailable","status":503,"detail":"try again"}`))
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waited []time.Duration
+	client.sleep = func(ctx context.Context, wait time.Duration) error {
+		waited = append(waited, wait)
+		return nil
+	}
+	response, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{"name": "Store"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Resource["publicId"] != "ap-abc123" {
+		t.Fatalf("resource = %#v", response.Resource)
+	}
+	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("idempotency keys = %#v, want the same non-empty key twice", keys)
+	}
+	if len(waited) != 1 || waited[0] != maxRetryWait {
+		t.Fatalf("waited = %v, want one capped wait of %s", waited, maxRetryWait)
+	}
+}
+
+func TestCreateRetriesOnlyOnce(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestCreateWithoutIdempotencyKeySendsNoKeyAndDoesNotRetry(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if key := request.Header.Get("Idempotency-Key"); key != "" {
+			t.Fatalf("idempotency key = %q, want none", key)
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}, WithoutIdempotencyKey()); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestIdempotencyKeyIsUUIDv4(t *testing.T) {
+	key, err := newIdempotencyKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(key) != 36 || key[14] != '4' || !strings.ContainsRune("89ab", rune(key[19])) {
+		t.Fatalf("key = %q, want UUID v4", key)
+	}
+	other, _ := newIdempotencyKey()
+	if other == key {
+		t.Fatal("keys repeat")
+	}
+}
+
+func TestWarningHeadersGoToStderr(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Add("Warning", `299 - "gitRepository filter is deprecated"`)
+		writer.Header().Set("Deprecation", "@1767225600")
+		writer.Header().Set("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := &bytes.Buffer{}
+	client.Warnings = stderr
+	if _, err := client.GetResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetResource(context.Background(), "/v1/apps/ap-abc123"); err != nil {
+		t.Fatal(err)
+	}
+	want := "warning: 299 - \"gitRepository filter is deprecated\"\nwarning: @1767225600\nwarning: Wed, 01 Jul 2026 00:00:00 GMT\n"
+	if stderr.String() != want {
+		t.Fatalf("warnings = %q, want %q", stderr.String(), want)
+	}
+}
+
+type rotatingTestToken struct{ refreshed bool }
+
+func (s *rotatingTestToken) Token(context.Context) (string, error) { return "old", nil }
+
+func (s *rotatingTestToken) Refresh(context.Context, string) (string, error) {
+	s.refreshed = true
+	return "new", nil
+}
+
+func TestCreateReusesIdempotencyKeyAfterTokenRefresh(t *testing.T) {
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		keys = append(keys, request.Header.Get("Idempotency-Key"))
+		if request.Header.Get("Authorization") != "Bearer new" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+
+	tokens := &rotatingTestToken{}
+	client, err := NewClientWithTokens(server.URL, tokens, server.Client(), "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateResource(context.Background(), "/v1/apps", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if !tokens.refreshed || len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("refreshed = %v, keys = %#v", tokens.refreshed, keys)
+	}
+}

@@ -63,6 +63,8 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 
 func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	var page int
+	var limit int
+	var all bool
 	var publicIDs []string
 	var printJSON bool
 	filterValues := make(map[string]*string, len(spec.QueryFilters))
@@ -74,13 +76,14 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if spec.SupportsPage && page < 1 {
 				return fmt.Errorf("--page must be at least 1")
 			}
-			client, err := clientFor(cmd, factory)
-			if err != nil {
-				return err
+			if all && cmd.Flags().Changed("page") {
+				return fmt.Errorf("--all cannot be combined with --page")
 			}
-			listResources := client.ListResourcesWithTotal
-			if printJSON {
-				listResources = client.ListResources
+			if all && cmd.Flags().Changed("limit") {
+				return fmt.Errorf("--all cannot be combined with --limit")
+			}
+			if cmd.Flags().Changed("limit") && limit < 1 {
+				return fmt.Errorf("--limit must be at least 1")
 			}
 			filters := make(map[string]string, len(filterValues))
 			for name, value := range filterValues {
@@ -89,7 +92,24 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 				}
 				filters[name] = *value
 			}
-			response, err := listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
+			client, err := clientFor(cmd, factory)
+			if err != nil {
+				return err
+			}
+			var response api.ResourcesResponse
+			if all || limit > 0 {
+				startPage := 0
+				if cmd.Flags().Changed("page") {
+					startPage = page
+				}
+				response, err = client.ListAll(cmd.Context(), "/v1"+spec.Path, api.ListQuery(startPage, publicIDs, filters), limit)
+			} else {
+				listResources := client.ListResourcesWithTotal
+				if printJSON {
+					listResources = client.ListResources
+				}
+				response, err = listResources(cmd.Context(), "/v1"+spec.Path, page, publicIDs, filters)
+			}
 			if err != nil {
 				return err
 			}
@@ -103,6 +123,8 @@ func newCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	if spec.SupportsPage {
 		command.Flags().IntVar(&page, "page", 1, "Page number")
 	}
+	command.Flags().IntVar(&limit, "limit", 0, "Return at most N "+resourceLabel(spec.Use)+", following further pages as needed")
+	command.Flags().BoolVar(&all, "all", false, "Return every page")
 	if spec.SupportsFilter {
 		command.Flags().StringSliceVar(&publicIDs, "id", nil, "Filter by public ID (repeatable)")
 	}

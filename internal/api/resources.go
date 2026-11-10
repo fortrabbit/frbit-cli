@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 )
@@ -24,12 +25,27 @@ type ResourceResponse struct {
 	Raw      []byte
 }
 
-func (c Client) CreateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
-	body, err := c.post(ctx, path, payload)
+// CreateResource POSTs payload with a fresh Idempotency-Key, reused on the token-refresh retry and on one 429/5xx retry.
+func (c Client) CreateResource(ctx context.Context, path string, payload any, opts ...CreateOption) (ResourceResponse, error) {
+	var options createOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	body, err := marshalPayload(payload)
 	if err != nil {
 		return ResourceResponse{}, err
 	}
-	return decodeResourceResponse(body)
+	request := call{method: http.MethodPost, path: path, body: body, contentType: "application/json", accept: "application/json"}
+	if !options.withoutKey {
+		if request.idempotencyKey, err = newIdempotencyKey(); err != nil {
+			return ResourceResponse{}, err
+		}
+	}
+	response, err := c.doCreate(ctx, request)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(response.body)
 }
 
 func (c Client) UpdateResource(ctx context.Context, path string, payload any) (ResourceResponse, error) {
@@ -69,18 +85,7 @@ func (c Client) ListResourcesWithTotal(ctx context.Context, path string, page in
 }
 
 func (c Client) listResources(ctx context.Context, path string, page int, publicIDs []string, filters map[string]string, includeTotal bool) (ResourcesResponse, error) {
-	query := url.Values{}
-	if page > 0 {
-		query.Set("page", strconv.Itoa(page))
-	}
-	for _, publicID := range publicIDs {
-		query.Add("publicId[]", publicID)
-	}
-	for name, value := range filters {
-		if value != "" {
-			query.Set(name, value)
-		}
-	}
+	query := ListQuery(page, publicIDs, filters)
 
 	var body []byte
 	var err error
@@ -97,6 +102,23 @@ func (c Client) listResources(ctx context.Context, path string, page int, public
 		return ResourcesResponse{}, err
 	}
 	return ResourcesResponse{Resources: resources, TotalItems: totalItems, Raw: body}, nil
+}
+
+// ListQuery builds the query of a collection request; page 0 leaves the page to the API.
+func ListQuery(page int, publicIDs []string, filters map[string]string) url.Values {
+	query := url.Values{}
+	if page > 0 {
+		query.Set("page", strconv.Itoa(page))
+	}
+	for _, publicID := range publicIDs {
+		query.Add("publicId[]", publicID)
+	}
+	for name, value := range filters {
+		if value != "" {
+			query.Set(name, value)
+		}
+	}
+	return query
 }
 
 func (c Client) GetResource(ctx context.Context, path string) (ResourceResponse, error) {

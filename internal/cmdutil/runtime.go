@@ -2,7 +2,9 @@ package cmdutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 
@@ -71,7 +73,29 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 	if err != nil {
 		return nil, err
 	}
-	return CredentialClient(factory, host, profile, credential)
+	client, err := CredentialClient(factory, host, profile, credential)
+	if err != nil {
+		return nil, err
+	}
+	client.Warnings = command.ErrOrStderr()
+	return client, nil
+}
+
+// WriteProblemJSON prints the problem document of an API error to out when command ran with --json.
+func WriteProblemJSON(command *cobra.Command, err error, out io.Writer) bool {
+	if command == nil {
+		return false
+	}
+	flag := command.Flags().Lookup("json")
+	if flag == nil || flag.Value.String() != "true" {
+		return false
+	}
+	var httpErr *api.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Problem == nil {
+		return false
+	}
+	_, writeErr := fmt.Fprintf(out, "%s\n", httpErr.Problem.Raw)
+	return writeErr == nil
 }
 
 // WarnNonDefaultHost flags a host set by flag, environment or config, since a cloned repo can set FRBIT_HOST.

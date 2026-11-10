@@ -15,6 +15,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/spf13/cobra"
 )
 
@@ -57,6 +58,19 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 	)
 
 	return command
+}
+
+// Execute runs the CLI with args and returns the process exit code.
+func Execute(factory *app.Factory, args []string) int {
+	command := NewCmdRoot(factory)
+	command.SetArgs(args)
+	executed, err := command.ExecuteC()
+	if err == nil {
+		return 0
+	}
+	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
+	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", err)
+	return 1
 }
 
 func notifyUpdate(command *cobra.Command, factory *app.Factory) {

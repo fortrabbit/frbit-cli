@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -16,9 +15,5 @@ var (
 
 func main() {
 	factory := app.NewFactory(version, commit, date)
-	command := root.NewCmdRoot(factory)
-	if err := command.Execute(); err != nil {
-		fmt.Fprintln(factory.IOStreams.ErrOut, "error:", err)
-		os.Exit(1)
-	}
+	os.Exit(root.Execute(factory, os.Args[1:]))
 }

@@ -122,6 +122,15 @@ Request a specific page of results. Pages start at `1`.
 frbit apps list --page 2
 ```
 
+`--limit N` returns at most N apps and fetches further pages until it has them. `--all` returns every page. Both work on every `list` command. `--all` cannot be combined with `--page` or `--limit`.
+
+```sh
+frbit apps list --limit 50
+frbit apps list --all --json
+```
+
+With `--limit` or `--all`, `--json` prints one JSON array of the returned resources instead of the API response of a single page.
+
 #### Filter by public ID
 
 Use `--id` once or repeatedly to return a known set of apps:
@@ -146,6 +155,12 @@ frbit apps list --json | jq '(."hydra:member" // .member // .)[] | .name'
 ```
 
 `--json` is available on resource reads and on commands that return a created or updated resource. It prints the API response unchanged.
+
+When the API rejects a request made with `--json`, the CLI prints the API's problem document (`title`, `detail`, `violations`) to standard output and exits non-zero. Without `--json` the error goes to standard error, one line per rejected field.
+
+Deprecation notices from the API (`Warning`, `Deprecation` and `Sunset` headers) are printed to standard error as `warning: ...` lines, so they never mix with `--json` output.
+
+Create commands send an `Idempotency-Key` header. When the API answers a create with 429 or a 5xx error, the CLI retries it once with the same key, so the API never creates the resource twice.
 
 API responses can contain account data, personal information, payment metadata,
 environment-variable values, and application log output. Treat terminal captures and CI logs as sensitive,
@@ -471,12 +486,12 @@ frbit --profile work auth logout
 | `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--signup`, `--name`, and `--token-stdin` for a personal API token. |
 | `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
 | `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
-| `frbit apps list` | List apps. Accepts `--page`, repeatable `--id`, and `--json`. |
+| `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |
 | `frbit apps update <id>` | Update an app name or payment method. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
-| `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page` and repeatable `--id`. |
+| `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. |
 | `frbit environments update <id>` | Update an environment and its deployment configuration. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
@@ -484,11 +499,11 @@ frbit --profile work auth logout
 | `frbit environments variables update <id>` | Set or delete custom environment variables. |
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page` and `--environment`. |
-| `frbit domains list` / `get <id>` / `delete <id>` | List, get, or delete domains. |
-| `frbit people list` / `get <id>` | List or get people. `list` accepts repeatable `--id`. |
-| `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. |
-| `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
+| `frbit domains list` / `get <id>` / `delete <id>` | List, get, or delete domains. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
+| `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
+| `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
+| `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
 | `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |
 | `frbit setup agent` | Register the remote MCP server and install skills for detected agents. Accepts repeatable `--agent`; `--remove` undoes it and signs out. |
 | `frbit mcp install` | Register or update the named fortrabbit MCP entry. Accepts repeatable `--agent`. |
