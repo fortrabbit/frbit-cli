@@ -578,7 +578,7 @@ func currentCurrency(current api.Resource) string {
 	return "EUR"
 }
 
-// componentChangeSummary shows old and new price per named component and the signed monthly delta; an unknown slug or size is an error.
+// componentChangeSummary shows old and new price per named component and the signed monthly delta; an unknown slug, size or price is an error.
 func componentChangeSummary(current api.Resource, plans []api.Resource, components map[string]string) (string, error) {
 	type booked struct {
 		size  string
@@ -602,7 +602,6 @@ func componentChangeSummary(current api.Resource, plans []api.Resource, componen
 	currency := currentCurrency(current)
 	var lines []string
 	var delta float64
-	deltaKnown := true
 	for _, slug := range slugs {
 		size := components[slug]
 		old, isBooked := bookedPlans[slug]
@@ -626,25 +625,24 @@ func componentChangeSummary(current api.Resource, plans []api.Resource, componen
 				if entryCurrency, _ := entry["currency"].(string); entryCurrency != "" && entryCurrency != currency {
 					return "", fmt.Errorf("catalog prices %s in %s but the environment is billed in %s", slug, entryCurrency, currency)
 				}
-				deltaKnown = deltaKnown && known && old.known
+				// A billed change never goes through on a price nobody has seen, as with billed creates.
+				if !old.known {
+					return "", unknownPrice(slug, old.size)
+				}
+				if !known {
+					return "", unknownPrice(slug, size)
+				}
 				delta += cents - old.cents
-				lines = append(lines, fmt.Sprintf("%s: %s (%s) -> %s (%s)", slug, old.size, price(old.cents, old.known, currency), size, price(cents, known, currency)))
+				lines = append(lines, fmt.Sprintf("%s: %s (%.2f %s) -> %s (%.2f %s)", slug, old.size, old.cents/100, currency, size, cents/100, currency))
 			}
 		}
 		if !found {
 			return "", fmt.Errorf("component %s has no size %q in the catalog; see 'frbit plans list'", slug, size)
 		}
 	}
-	if !deltaKnown {
-		return strings.Join(lines, "\n") + "\nMonthly change: unknown", nil
-	}
 	return fmt.Sprintf("%s\nMonthly change: %+.2f %s", strings.Join(lines, "\n"), delta/100, currency), nil
 }
 
-// price formats cents; a missing price is "unknown" so it never reads as free. "off" has no price and costs nothing.
-func price(cents float64, known bool, currency string) string {
-	if !known {
-		return "unknown"
-	}
-	return fmt.Sprintf("%.2f %s", cents/100, currency)
+func unknownPrice(slug, size string) error {
+	return fmt.Errorf("price for %s %s unknown; check frbit plans list or change it in the dashboard", slug, size)
 }

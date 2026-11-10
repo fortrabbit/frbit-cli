@@ -50,6 +50,17 @@ func runContext(t *testing.T, ctx context.Context, stdin string, handler func(r 
 // runStreams returns stdout and stderr separately.
 func runStreams(t *testing.T, ctx context.Context, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, string, []request, error) {
 	t.Helper()
+	return runStreamsWith(t, ctx, false, stdin, handler, args...)
+}
+
+// runStreamsTTY is runStreams on a terminal when tty is set.
+func runStreamsTTY(t *testing.T, tty bool, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, string, []request, error) {
+	t.Helper()
+	return runStreamsWith(t, context.Background(), tty, stdin, handler, args...)
+}
+
+func runStreamsWith(t *testing.T, ctx context.Context, tty bool, stdin string, handler func(r request, w http.ResponseWriter), args ...string) (string, string, []request, error) {
+	t.Helper()
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	var seen []request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +74,7 @@ func runStreams(t *testing.T, ctx context.Context, stdin string, handler func(r 
 	t.Cleanup(server.Close)
 	output, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := &app.Factory{
-		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: stderr},
+		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: stderr, IsTTY: tty},
 		ConfigStore:     configStore{},
 		CredentialStore: credentialStore{},
 		HTTPClient:      &http.Client{},
@@ -321,6 +332,16 @@ func TestEnvironmentUpdateVersions(t *testing.T) {
 	}
 }
 
+// changedAnything reports a request other than a read.
+func changedAnything(seen []request) bool {
+	for _, r := range seen {
+		if r.method != "GET" {
+			return true
+		}
+	}
+	return false
+}
+
 func patched(seen []request) bool {
 	for _, r := range seen {
 		if r.method == "PATCH" {
@@ -381,15 +402,37 @@ func TestComponentChangeSummaryRejectsCurrencyMismatch(t *testing.T) {
 	}
 }
 
-func TestComponentChangeSummaryMissingPriceIsUnknown(t *testing.T) {
+func TestComponentChangeSummaryMissingPriceFails(t *testing.T) {
 	var plans []api.Resource
 	_ = json.Unmarshal([]byte(`[{"slug":"php","sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"xl","priceInCents":null,"currency":"EUR"}]}]`), &plans)
 	var currentResource api.Resource
 	_ = json.Unmarshal([]byte(current), &currentResource)
-	summary, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "xl"})
-	for _, want := range []string{"php: sm (12.00 EUR) -> xl (unknown)", "Monthly change: unknown"} {
-		if err != nil || !strings.Contains(summary, want) {
-			t.Fatalf("summary = %q, err = %v, want %q", summary, err, want)
+	_, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "xl"})
+	if err == nil || err.Error() != "price for php xl unknown; check frbit plans list or change it in the dashboard" {
+		t.Fatalf("err = %v", err)
+	}
+	_ = json.Unmarshal([]byte(`{"components":[{"slug":"php","size":"md","priceInCents":null,"currency":"EUR"}]}`), &currentResource)
+	if _, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "sm"}); err == nil || err.Error() != "price for php md unknown; check frbit plans list or change it in the dashboard" {
+		t.Fatalf("booked: %v", err)
+	}
+}
+
+func TestComponentsUpdateRefusesUnknownPrice(t *testing.T) {
+	handler := func(r request, w http.ResponseWriter) {
+		if r.path == "/v1/catalog/component-plans" {
+			echo(w, 200, `[{"slug":"php","optional":false,"sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"md","priceInCents":null,"currency":"EUR"}]}]`)
+			return
+		}
+		componentsHandler(r, w)
+	}
+	for name, tty := range map[string]bool{"--yes": false, "terminal": true} {
+		args := []string{"components", "update", "en-a1b2c3", "--component", "php=md"}
+		if !tty {
+			args = append(args, "--yes")
+		}
+		_, stderr, seen, err := runStreamsTTY(t, tty, "y\n", handler, args...)
+		if err == nil || err.Error() != "price for php md unknown; check frbit plans list or change it in the dashboard" || changedAnything(seen) || strings.Contains(stderr, "[y/N]") {
+			t.Fatalf("%s: err %v, stderr %q, seen %+v", name, err, stderr, seen)
 		}
 	}
 }
