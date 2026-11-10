@@ -9,9 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -208,8 +206,9 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 			if !slices.Contains(downloadTypes, downloadType) {
 				return fmt.Errorf("--type must be one of %s", strings.Join(downloadTypes, ", "))
 			}
-			if output != "" && output != "-" && !force {
-				if err := refuseOverwrite(output); err != nil {
+			// Fail before the API request; the name from the storage answer is checked again after it.
+			if output != "" && output != "-" {
+				if _, err := cmdutil.OutputPath(output, id, force); err != nil {
 					return err
 				}
 			}
@@ -280,32 +279,14 @@ func download(ctx context.Context, stdout io.Writer, link string, secure bool, b
 		return "", err
 	}
 
-	target := output
-	if info, statErr := os.Stat(output); output == "" || (statErr == nil && info.IsDir()) {
-		target = filepath.Join(output, baseName+extension(response.Header.Get("Content-Disposition"), parsed.Path))
-	}
-	if !force {
-		if err := refuseOverwrite(target); err != nil {
-			return "", err
-		}
-	}
-	file, err := os.CreateTemp(filepath.Dir(target), ".frbit-download-*")
+	target, err := cmdutil.OutputPath(output, baseName+extension(response.Header.Get("Content-Disposition"), parsed.Path), force)
 	if err != nil {
-		return "", fmt.Errorf("create temporary file: %w", err)
+		return "", err
 	}
-	tmp := file.Name()
-	_, err = io.Copy(file, response.Body)
-	if err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(tmp, target)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
+	if err := cmdutil.WriteFileAtomic(target, 0o600, func(out io.Writer) error {
+		_, err := io.Copy(out, response.Body)
+		return err
+	}); err != nil {
 		return "", fmt.Errorf("download backup: %w", err)
 	}
 	return target, nil
@@ -318,13 +299,6 @@ func withoutURL(err error) error {
 		return urlErr.Err
 	}
 	return err
-}
-
-func refuseOverwrite(target string) error {
-	if info, err := os.Stat(target); err == nil && !info.IsDir() {
-		return fmt.Errorf("%s exists; pass --force to overwrite", target)
-	}
-	return nil
 }
 
 // extension takes the file extension from Content-Disposition, else from the link path.

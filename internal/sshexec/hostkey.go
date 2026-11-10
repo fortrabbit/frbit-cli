@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 )
 
 // PinnedHostKey is the host key of fortrabbit's production SSH endpoints (SHA256:UB3p/YgtQSuK3WESB/0ra5dTDWkggrCOz0WkWe4Tvvg).
@@ -77,22 +80,10 @@ func writeKnownHosts(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".known_hosts-*")
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	_, err = tmp.Write(content)
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Chmod(tmp.Name(), 0o600)
-	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), path)
-	}
-	if err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := cmdutil.WriteFileAtomic(path, 0o600, func(out io.Writer) error {
+		_, err := out.Write(content)
+		return err
+	}); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

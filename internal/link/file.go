@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 )
 
 const (
@@ -168,23 +171,10 @@ func WriteFile(dir string, entries *Entries) error {
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	temp, err := os.CreateTemp(folder, ".environments-*.yml")
-	if err != nil {
-		return fmt.Errorf("write %s: %w", FilePath, err)
-	}
-	defer os.Remove(temp.Name())
-	if _, err := temp.WriteString(content); err != nil {
-		temp.Close()
-		return fmt.Errorf("write %s: %w", FilePath, err)
-	}
-	if err := temp.Chmod(0o644); err != nil {
-		temp.Close()
-		return fmt.Errorf("write %s: %w", FilePath, err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("write %s: %w", FilePath, err)
-	}
-	if err := os.Rename(temp.Name(), filepath.Join(folder, FileName)); err != nil {
+	if err := cmdutil.WriteFileAtomic(filepath.Join(folder, FileName), 0o644, func(out io.Writer) error {
+		_, err := io.WriteString(out, content)
+		return err
+	}); err != nil {
 		return fmt.Errorf("write %s: %w", FilePath, err)
 	}
 	return nil
