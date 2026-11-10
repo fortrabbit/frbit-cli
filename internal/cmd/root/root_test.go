@@ -854,7 +854,7 @@ func TestCreateCommandsLeaveCloudDomainToTheAPIUnlessOptedOut(t *testing.T) {
 		{name: "app opts out", args: []string{"apps", "create", "--name", "store", "--region", "eu-w1a", "--no-cloud-domain"}, optedOut: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 				var body map[string]any
 				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 					t.Fatal(err)
@@ -1006,5 +1006,68 @@ func answerDryRun(next http.HandlerFunc) http.HandlerFunc {
 		}
 		request.Body = io.NopCloser(bytes.NewReader(raw))
 		next(writer, request)
+	}
+}
+
+func TestAppsCreateRefusesWithoutPrice(t *testing.T) {
+	for name, pricing := range map[string]string{
+		"empty":       `{}`,
+		"non-numeric": `{"pricing":{"monthlyPriceInCents":"24","currency":"EUR","billed":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []dryRunCall
+			server := billingServer(t, pricing, &calls)
+			_, err := runAppsCreate(t, server, false, "", "--yes")
+			if err == nil || !strings.Contains(err.Error(), "dry run returned no price; refusing to create") {
+				t.Fatalf("err = %v", err)
+			}
+			if len(calls) != 1 || !calls[0].dryRun {
+				t.Fatalf("calls = %#v", calls)
+			}
+		})
+	}
+}
+
+func TestAppsCreateUnbilledPriceDependsOnTrial(t *testing.T) {
+	var calls []dryRunCall
+	trial := billingServer(t, `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`, &calls)
+	if _, err := runAppsCreate(t, trial, false, ""); err != nil {
+		t.Fatalf("trial: %v", err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("trial calls = %#v", calls)
+	}
+
+	calls = nil
+	noTrial := billingServer(t, `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":null,"components":[]}}`, &calls)
+	_, err := runAppsCreate(t, noTrial, false, "")
+	if err == nil || !strings.Contains(err.Error(), "billed change needs --yes") {
+		t.Fatalf("no trial: err = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("no trial calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateJSONKeepsStdoutForTheResponse(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	output := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.ErrOut = errOut
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs([]string{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a", "--yes", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(output.String()); got != `{"publicId":"ap-abc123","name":"store"}` {
+		t.Fatalf("stdout = %q", got)
+	}
+	if !strings.Contains(errOut.String(), "Monthly price: 24.00 EUR") {
+		t.Fatalf("stderr = %q", errOut.String())
 	}
 }

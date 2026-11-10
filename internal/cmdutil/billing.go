@@ -21,13 +21,16 @@ func ConfirmBilled(cmd *cobra.Command, f *app.Factory, client *api.Client, path 
 		return false, err
 	}
 	pricing, ok := response.Resource["pricing"].(map[string]any)
-	if !ok {
-		return true, nil
+	cents, isNumber := float64(0), false
+	if ok {
+		cents, isNumber = pricing["monthlyPriceInCents"].(float64)
 	}
-	cents, _ := pricing["monthlyPriceInCents"].(float64)
+	if !ok || !isNumber {
+		return false, fmt.Errorf("dry run returned no price; refusing to create")
+	}
 	currency, _ := pricing["currency"].(string)
 	billed, billedKnown := pricing["billed"].(bool)
-	if billedKnown && !billed || cents == 0 {
+	if cents == 0 || billedKnown && !billed && pricing["trialEndsAt"] != nil {
 		return true, nil
 	}
 	summary := fmt.Sprintf("Monthly price: %.2f %s\nPayment method: %s", cents/100, currency, paymentMethodLabel(body))
