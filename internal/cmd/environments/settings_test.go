@@ -380,3 +380,16 @@ func TestComponentChangeSummaryRejectsCurrencyMismatch(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestComponentChangeSummaryMissingPriceIsUnknown(t *testing.T) {
+	var plans []api.Resource
+	_ = json.Unmarshal([]byte(`[{"slug":"php","sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"xl","priceInCents":null,"currency":"EUR"}]}]`), &plans)
+	var currentResource api.Resource
+	_ = json.Unmarshal([]byte(current), &currentResource)
+	summary, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "xl"})
+	for _, want := range []string{"php: sm (12.00 EUR) -> xl (unknown)", "Monthly change: unknown"} {
+		if err != nil || !strings.Contains(summary, want) {
+			t.Fatalf("summary = %q, err = %v, want %q", summary, err, want)
+		}
+	}
+}
