@@ -1,12 +1,16 @@
 package root
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBackupsRestoreWithoutTTYRequiresConfirm(t *testing.T) {
@@ -87,5 +91,46 @@ func TestBackupsDownloadToStdout(t *testing.T) {
 	}), "backups", "download", "ba-abc123", "--output", "-")
 	if err != nil || output != "zipbytes" {
 		t.Fatalf("output = %q, err = %v", output, err)
+	}
+}
+
+func TestBackupsDownloadCancelledLeavesNothing(t *testing.T) {
+	dir := t.TempDir()
+	server := httptest.NewServer(downloadHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		for i := 0; i < 200; i++ {
+			time.Sleep(10 * time.Millisecond)
+			if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+	command.SetArgs([]string{"--host", server.URL, "backups", "download", "ba-abc123", "--output", dir})
+	if err := command.ExecuteContext(ctx); err == nil {
+		t.Fatal("expected an error")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("leftover files: %v", entries)
+	}
+}
+
+func TestBackupsDownloadRefusesExistingFile(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "out.zip")
+	_ = os.WriteFile(target, []byte("old"), 0o644)
+	calls := 0
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { calls++ }, "backups", "download", "ba-abc123", "--output", target)
+	if err == nil || !strings.Contains(err.Error(), "pass --force") || calls != 0 {
+		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }

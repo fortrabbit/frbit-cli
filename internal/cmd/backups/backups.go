@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
@@ -137,7 +138,8 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Backup: %s (environment %s)\n\n", id, environment)
 			warning := "Restoring overwrites the live data of the environment: its database and its files are replaced by the state of this backup. Changes made since are lost. This cannot be undone."
-			confirmed, err := cmdutil.ConfirmDestructive(factory, out, "restore", id, confirmation, warning)
+			_, _ = fmt.Fprintln(out, warning)
+			confirmed, err := cmdutil.ConfirmDestructive(factory, out, "restore", id, confirmation, "")
 			if err != nil {
 				return err
 			}
@@ -158,6 +160,7 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 
 func newCmdDownload(factory *app.Factory) *cobra.Command {
 	var downloadType, output string
+	var force bool
 	command := &cobra.Command{
 		Use:   "download <backup>",
 		Short: "Download the files or the database of a backup",
@@ -166,6 +169,11 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 			id := args[0]
 			if !slices.Contains(downloadTypes, downloadType) {
 				return fmt.Errorf("--type must be one of %s", strings.Join(downloadTypes, ", "))
+			}
+			if output != "" && output != "-" && !force {
+				if err := refuseOverwrite(output); err != nil {
+					return err
+				}
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
@@ -179,7 +187,7 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 			if link == "" {
 				return errors.New("the API returned no download link")
 			}
-			name, err := download(cmd.Context(), cmd.OutOrStdout(), link, id+"-"+downloadType, output)
+			name, err := download(cmd.Context(), cmd.OutOrStdout(), link, id+"-"+downloadType, output, force)
 			if err != nil {
 				return err
 			}
@@ -190,12 +198,13 @@ func newCmdDownload(factory *app.Factory) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&downloadType, "type", "files", "What to download: database or files")
+	command.Flags().BoolVar(&force, "force", false, "Overwrite an existing file")
 	command.Flags().StringVar(&output, "output", "", `File or folder to write to; "-" writes to stdout`)
 	return command
 }
 
 // download streams the signed link to a temp file next to the target and renames it on success. The link carries its own authorisation, so no API token is sent.
-func download(ctx context.Context, stdout io.Writer, link, baseName, output string) (string, error) {
+func download(ctx context.Context, stdout io.Writer, link, baseName, output string, force bool) (string, error) {
 	parsed, err := url.Parse(link)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return "", errors.New("the API returned an invalid download link")
@@ -205,7 +214,9 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	// No overall timeout: backups are large, the context ends the transfer.
-	response, err := (&http.Client{}).Do(request)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	response, err := (&http.Client{Transport: transport}).Do(request)
 	if err != nil {
 		return "", fmt.Errorf("download backup: %w", err)
 	}
@@ -222,17 +233,22 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 	if info, statErr := os.Stat(output); output == "" || (statErr == nil && info.IsDir()) {
 		target = filepath.Join(output, baseName+extension(response.Header.Get("Content-Disposition"), parsed.Path))
 	}
+	if !force {
+		if err := refuseOverwrite(target); err != nil {
+			return "", err
+		}
+	}
 	file, err := os.CreateTemp(filepath.Dir(target), ".frbit-download-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary file: %w", err)
 	}
 	tmp := file.Name()
 	_, err = io.Copy(file, response.Body)
+	if err == nil {
+		err = file.Sync()
+	}
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
-	}
-	if err == nil {
-		err = os.Chmod(tmp, 0o644)
 	}
 	if err == nil {
 		err = os.Rename(tmp, target)
@@ -242,6 +258,13 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 		return "", fmt.Errorf("download backup: %w", err)
 	}
 	return target, nil
+}
+
+func refuseOverwrite(target string) error {
+	if info, err := os.Stat(target); err == nil && !info.IsDir() {
+		return fmt.Errorf("%s exists; pass --force to overwrite", target)
+	}
+	return nil
 }
 
 // extension takes the file extension from Content-Disposition, else from the link path.

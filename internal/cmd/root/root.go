@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -71,7 +73,9 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 func Execute(factory *app.Factory, args []string) int {
 	command := NewCmdRoot(factory)
 	command.SetArgs(args)
-	executed, err := command.ExecuteC()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	executed, err := command.ExecuteContextC(ctx)
 	if err == nil {
 		return 0
 	}
