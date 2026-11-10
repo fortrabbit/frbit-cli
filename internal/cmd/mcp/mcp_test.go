@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+
 	"github.com/fortrabbit/frbit-cli/internal/agentmcp"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
@@ -72,7 +74,7 @@ func executeMCP(t *testing.T, runner agentmcp.Runner, input *strings.Reader, arg
 	command.SetOut(output)
 	command.SetErr(output)
 	command.SetArgs(arguments)
-	if err := command.Execute(); err != nil {
+	if err := command.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatalf("frbit mcp %s: %v", strings.Join(arguments, " "), err)
 	}
 	return output.String()

@@ -155,8 +155,7 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(stderr, "Aborted.")
-				return err
+				return cmdutil.Aborted(stderr)
 			}
 			if _, err := client.CreateResource(cmd.Context(), "/v1/backups/"+url.PathEscape(id)+"/restore", map[string]any{}); err != nil {
 				return err

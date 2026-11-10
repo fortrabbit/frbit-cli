@@ -123,8 +123,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-				return err
+				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 			response, err := client.CreateResource(cmd.Context(), "/v1/environments", payload)
 			if err != nil {

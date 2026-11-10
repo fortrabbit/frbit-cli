@@ -646,6 +646,19 @@ frbit apps delete ap-a1b2c3 --confirm ap-a1b2c3
 
 Deleting an app or environment permanently erases its files and database contents. Deleting a payment method or team can also delete connected apps and environments.
 
+### Exit codes for confirmations
+
+Every confirmation works the same way, for deletes, billed creates and changes, `apps update`, `db push`, `files`, `mysql rotate-password`, `backups restore`, and the agent removals (`uninstall`, `setup agent --remove`, `mcp remove`, `skills remove`):
+
+| Outcome | Output | Exit code |
+|---|---|---|
+| Confirmed, or the matching `--confirm`/`--yes` | the command's result | 0 |
+| Declined: `n`, an empty answer, or a wrong ID typed | `Aborted.` on stderr, no error line | 1 |
+| No terminal and no `--confirm`/`--yes` | `error: …` naming the flag to pass | 1 |
+| Ctrl-C at the prompt | `interrupted` | 130 |
+
+A script can therefore test the exit code: `frbit backups restore ba-… && ./notify.sh` runs the second command only after a restore was started.
+
 ## Agent setup
 
 Set up the complete fortrabbit agent integration with one command:

@@ -3,6 +3,7 @@ package cmdutil
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -65,4 +66,15 @@ func readAnswer(ctx context.Context, reader io.Reader, writer io.Writer, prompt 
 // AskContext prints prompt and returns the trimmed answer line; it gives up with ctx.Err() when ctx ends.
 func AskContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (string, error) {
 	return readAnswer(ctx, reader, writer, prompt)
+}
+
+// ErrAborted ends a command whose confirmation was declined; it exits 1 without an error line.
+var ErrAborted = errors.New("aborted")
+
+// Aborted prints "Aborted." to out and returns ErrAborted.
+func Aborted(out io.Writer) error {
+	if _, err := fmt.Fprintln(out, "Aborted."); err != nil {
+		return err
+	}
+	return ErrAborted
 }

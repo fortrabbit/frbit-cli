@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"time"
 )
 
@@ -132,7 +134,7 @@ func TestDbPushPromptsOnTTY(t *testing.T) {
 	writeFile(t, dir, "dump.sql", []byte(dump))
 	fake := &pushRunner{}
 	_, stderr, err := push(t, dir, fake, invocation{tty: true, stdin: strings.NewReader("nope\n"), args: []string{"dump.sql", "en-abc123"}})
-	if err != nil || len(fake.calls) != 0 || !strings.Contains(stderr, "Aborted.") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(fake.calls) != 0 || !strings.Contains(stderr, "Aborted.") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.remotes(), stderr)
 	}
 

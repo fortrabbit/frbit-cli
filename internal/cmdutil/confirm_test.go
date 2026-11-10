@@ -2,6 +2,7 @@ package cmdutil
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -31,5 +32,13 @@ func TestConfirmExactRequiresExactValue(t *testing.T) {
 				t.Fatalf("prompt = %q", output.String())
 			}
 		})
+	}
+}
+
+func TestAbortedPrintsAndReturnsSentinel(t *testing.T) {
+	var out bytes.Buffer
+	err := Aborted(&out)
+	if !errors.Is(err, ErrAborted) || out.String() != "Aborted.\n" {
+		t.Fatalf("err %v, out %q", err, out.String())
 	}
 }

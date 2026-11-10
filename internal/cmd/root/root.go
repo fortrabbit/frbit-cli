@@ -99,6 +99,9 @@ func Execute(factory *app.Factory, args []string) int {
 		_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "interrupted")
 		return 130
 	}
+	if errors.Is(err, cmdutil.ErrAborted) {
+		return 1
+	}
 	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
 	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", err)
 	return 1

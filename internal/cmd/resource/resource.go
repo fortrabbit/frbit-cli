@@ -360,8 +360,7 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-				return err
+				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 
 			if err := client.DeleteResource(cmd.Context(), "/v1"+spec.Path+"/"+publicID); err != nil {

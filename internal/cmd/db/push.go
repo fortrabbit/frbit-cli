@@ -104,8 +104,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(stderr, "Aborted.")
-				return err
+				return cmdutil.Aborted(stderr)
 			}
 			p := pusher{
 				id:          id,

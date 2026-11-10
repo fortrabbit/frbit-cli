@@ -179,8 +179,7 @@ func newCmdRemove(factory *app.Factory, service *agentskills.Service) *cobra.Com
 					return err
 				}
 				if !confirmed {
-					_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-					return err
+					return cmdutil.Aborted(cmd.ErrOrStderr())
 				}
 			}
 			if err := service.Remove(removals); err != nil {

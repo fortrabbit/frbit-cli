@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
@@ -266,7 +268,7 @@ func TestFilesPushPromptsOnTTY(t *testing.T) {
 	}
 	fake := &fakeRunner{version: rsync3}
 	_, stderr, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("nope\n"), args: []string{"files", "push", "web/uploads", "--environment", "en-abc123", "--delete"}})
-	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
 	}
 	for _, want := range []string{"/data/www/web/uploads", "en-abc123", "overwritten", "deleted", "Type en-abc123 to confirm:"} {
@@ -291,7 +293,7 @@ func TestFilesPushWarnsOnConnectedRepo(t *testing.T) {
 	fake := &fakeRunner{version: rsync3}
 	env := `{"publicId":"en-abc123","sshHost":"en-abc123@ssh.us-e1a.frbit.app","git":{"branch":"main","directory":null}}`
 	_, stderr, err := execute(t, dir, invocation{runner: fake, env: env, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "push", "--environment", "en-abc123"}})
-	if err != nil || len(fake.syncs) != 0 {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(fake.syncs) != 0 {
 		t.Fatalf("%v, %q", err, fake.syncs)
 	}
 	if !strings.Contains(stderr, "next deployment") || !strings.Contains(stderr, "main") {
@@ -355,7 +357,7 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 
 	fake := &fakeRunner{version: rsync3}
 	_, stderr, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "storage", "--environment", "en-abc123", "--delete"}})
-	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Local files under "+filepath.Join(dir, "storage")+" that are not on en-abc123 are deleted") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(fake.syncs) != 0 || !strings.Contains(stderr, "Local files under "+filepath.Join(dir, "storage")+" that are not on en-abc123 are deleted") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
 	}
 
@@ -394,7 +396,7 @@ func TestFilesPullWithoutPathRequiresConfirm(t *testing.T) {
 
 	fake := &fakeRunner{version: rsync3}
 	_, stderr, err := execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "--environment", "en-abc123"}})
-	if err != nil || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(fake.syncs) != 0 || !strings.Contains(stderr, "Aborted.") {
 		t.Fatalf("declined: %v, %q, %q", err, fake.syncs, stderr)
 	}
 	for _, want := range []string{"Local files under " + dir + " are overwritten by the copies on en-abc123.", "Type en-abc123 to confirm:"} {
@@ -496,7 +498,7 @@ func TestFilesRefusesWrongLocalRoot(t *testing.T) {
 	// From the top level the whole-folder sync runs, and the prompt names the local folder.
 	fake = &fakeRunner{version: rsync3}
 	_, stderr, err := execute(t, top, invocation{runner: fake, tty: true, stdin: strings.NewReader("no\n"), args: []string{"files", "pull", "--environment", "en-abc123"}})
-	if err != nil || !strings.Contains(stderr, top) {
+	if !errors.Is(err, cmdutil.ErrAborted) || !strings.Contains(stderr, top) {
 		t.Fatalf("top: %v, %q", err, stderr)
 	}
 }

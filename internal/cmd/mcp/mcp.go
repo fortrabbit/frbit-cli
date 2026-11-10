@@ -135,8 +135,7 @@ func newCmdRemove(factory *app.Factory, service *agentmcp.Service) *cobra.Comman
 					return err
 				}
 				if !confirmed {
-					_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-					return err
+					return cmdutil.Aborted(cmd.ErrOrStderr())
 				}
 			}
 			results, err := service.Remove(cmd.Context(), installed)

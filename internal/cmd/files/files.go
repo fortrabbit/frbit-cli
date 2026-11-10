@@ -254,8 +254,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 			return err
 		}
 		if !confirmed {
-			_, err = fmt.Fprintln(stderr, "Aborted.")
-			return err
+			return cmdutil.Aborted(stderr)
 		}
 	}
 	if !push && !opts.dryRun && path.Dir(rel) != "." {

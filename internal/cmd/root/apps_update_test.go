@@ -3,10 +3,13 @@ package root
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 )
 
 type recordedRequest struct {
@@ -106,7 +109,7 @@ func TestAppsUpdateDisconnectRepositoryNeedsConfirm(t *testing.T) {
 
 func TestAppsUpdateDisconnectRepositoryPromptsOnTTY(t *testing.T) {
 	requests, output, err := runAppsUpdate(t, true, "no\n", "--disconnect-repository")
-	if err != nil || len(requests) != 0 || !strings.Contains(output, "stops deployments") || !strings.Contains(output, "Aborted.") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(requests) != 0 || !strings.Contains(output, "stops deployments") || !strings.Contains(output, "Aborted.") {
 		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
 	}
 }
@@ -178,7 +181,7 @@ func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
 
 func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
 	requests, output, err := runAppsUpdate(t, true, "no\n", "--repository", "acme/shop", "--software-preset", "laravel")
-	if err != nil || len(requests) != 0 || !strings.Contains(output, "Aborted.") {
+	if !errors.Is(err, cmdutil.ErrAborted) || len(requests) != 0 || !strings.Contains(output, "Aborted.") {
 		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
 	}
 	for _, want := range []string{"Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again.", "Changing the software preset sets the software version of every environment of this app to the preset default and clears pinned versions. The next deployment uses that version."} {

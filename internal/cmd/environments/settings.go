@@ -374,8 +374,7 @@ func newCmdFirewallDelete(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-				return err
+				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
@@ -502,8 +501,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
-				return err
+				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
 			payload := make(map[string]any, len(components))
 			for slug, size := range components {

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -308,7 +311,7 @@ func executeSkills(t *testing.T, factory *app.Factory, service *agentskills.Serv
 	command.SetOut(output)
 	command.SetErr(output)
 	command.SetArgs(arguments)
-	if err := command.Execute(); err != nil {
+	if err := command.Execute(); err != nil && !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatalf("frbit skills %s: %v", strings.Join(arguments, " "), err)
 	}
 	return output.String()

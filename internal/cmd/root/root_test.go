@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -416,7 +419,7 @@ func TestDeleteAbortsWhenInteractiveConfirmationDoesNotMatch(t *testing.T) {
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	command := NewCmdRoot(factory)
 	command.SetArgs([]string{"--host", server.URL, "apps", "delete", "ap-abc123"})
-	if err := command.Execute(); err != nil {
+	if err := command.Execute(); !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	if requests != 1 || output.Len() != 0 || !strings.Contains(stderr.String(), "Type ap-abc123 to confirm:") || !strings.Contains(stderr.String(), "Aborted.") {
@@ -948,7 +951,7 @@ func TestAppsCreateShowsPriceAndAsks(t *testing.T) {
 	}
 
 	calls = nil
-	if _, err := runAppsCreate(t, server, true, "n\n"); err != nil {
+	if _, err := runAppsCreate(t, server, true, "n\n"); !errors.Is(err, cmdutil.ErrAborted) {
 		t.Fatal(err)
 	}
 	if len(calls) != 1 || !calls[0].dryRun {

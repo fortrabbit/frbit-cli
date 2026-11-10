@@ -285,8 +285,7 @@ func confirmRemoval(ctx context.Context, factory *app.Factory, writer io.Writer,
 	if err != nil || confirmed {
 		return confirmed, err
 	}
-	_, err = fmt.Fprintln(writer, "Aborted.")
-	return false, err
+	return false, cmdutil.Aborted(writer)
 }
 
 func removeAgentSetup(cmd *cobra.Command, factory *app.Factory, mcp mcpService, skills skillsService, agents []agent.Agent, yes bool) error {

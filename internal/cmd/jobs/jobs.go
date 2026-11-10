@@ -353,8 +353,7 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if !confirmed {
-				_, err = fmt.Fprintln(stderr, "Aborted.")
-				return err
+				return cmdutil.Aborted(stderr)
 			}
 			if err := client.DeleteResource(cmd.Context(), "/v1/jobs/"+url.PathEscape(id)); err != nil {
 				return err
