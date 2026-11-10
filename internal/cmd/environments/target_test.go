@@ -68,7 +68,7 @@ var targetCases = []targetCase{
 	{args: []string{"deploy"}, write: true},
 	{args: []string{"php-settings", "update"}, flags: []string{"--set", "memory_limit=256M"}, write: true},
 	{args: []string{"basic-auth", "update"}, flags: []string{"--enabled=false"}, write: true},
-	{args: []string{"firewall-rules", "add"}, flags: []string{"--description", "x", "--port", "8080"}, write: true},
+	{args: []string{"firewall-rules", "create"}, flags: []string{"--description", "x", "--port", "8080"}, write: true},
 	{args: []string{"components", "update"}, flags: []string{"--component", "php=md", "--yes"}, write: true, handler: componentsHandler},
 }
 

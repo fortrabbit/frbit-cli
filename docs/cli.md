@@ -355,7 +355,7 @@ frbit environments basic-auth get en-a1b2c3
 printf '%s\n' "$PASSWORD" | frbit environments basic-auth update en-a1b2c3 --enabled --username preview --password-stdin
 
 frbit environments firewall-rules list en-a1b2c3
-frbit environments firewall-rules add en-a1b2c3 --description "Metrics exporter" --port 8080-8090
+frbit environments firewall-rules create en-a1b2c3 --description "Metrics exporter" --port 8080-8090
 frbit environments firewall-rules delete fr-a1b2c3 --confirm fr-a1b2c3
 
 frbit environments components get en-a1b2c3
@@ -575,7 +575,7 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`) or a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)).
 
 - Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file. When none applies, they fail with `no environment for this checkout; pass the environment ID or run frbit link <env-id>`, on a terminal too.
-- Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`add` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one, or with an empty one, they fail with `name the environment: frbit <command> <env-id|label>`.
+- Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`create` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one, or with an empty one, they fail with `name the environment: frbit <command> <env-id|label>`.
 - `deployments list -e` takes an ID or a label; without `-e` it lists every deployment and never reads the checkout.
 - `db push` and `files pull|push` keep using the checkout, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path.
 - `--confirm` and the typed confirmation always compare with the resolved `en-` ID, never the label.
@@ -805,7 +805,7 @@ frbit --profile work auth logout
 | `frbit environments update <environment>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
 | `frbit environments php-settings get [environment]` / `update <environment>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
 | `frbit environments basic-auth get [environment]` / `update <environment>` | Read or change basic auth; the password only via `--password-stdin`. |
-| `frbit environments firewall-rules list [environment]` / `add <environment>` / `delete <id>` | Manage opened ports; `add` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit environments firewall-rules list [environment]` / `create <environment>` / `delete <id>` | Manage opened ports; `create` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit environments components get [environment]` / `update <environment>` | Read or change component sizes (`--component SLUG=SIZE`); update shows prices and needs `--yes` without a terminal. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get [environment]` | Get custom and platform-injected environment variables. |

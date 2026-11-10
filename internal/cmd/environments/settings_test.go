@@ -184,7 +184,7 @@ func TestFirewallRulePortRange(t *testing.T) {
 	for port, want := range cases {
 		_, seen, err := run(t, "", func(r request, w http.ResponseWriter) {
 			echo(w, 201, `{"publicId":"fr-a1b2c3","description":"x","portStart":8080,"portEnd":8080}`)
-		}, "firewall-rules", "add", "en-a1b2c3", "--description", "x", "--port", port)
+		}, "firewall-rules", "create", "en-a1b2c3", "--description", "x", "--port", port)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -195,7 +195,7 @@ func TestFirewallRulePortRange(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"web", "80-x"} {
-		_, seen, err := run(t, "", func(request, http.ResponseWriter) {}, "firewall-rules", "add", "en-a1b2c3", "--description", "x", "--port", bad)
+		_, seen, err := run(t, "", func(request, http.ResponseWriter) {}, "firewall-rules", "create", "en-a1b2c3", "--description", "x", "--port", bad)
 		if err == nil || len(seen) != 0 {
 			t.Fatalf("port %q: err = %v, requests = %d", bad, err, len(seen))
 		}

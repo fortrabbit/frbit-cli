@@ -236,7 +236,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 
 func newCmdFirewallRules(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "firewall-rules", Short: "Open extra ports of an environment", Args: cobra.NoArgs}
-	command.AddCommand(link.Documented(newCmdFirewallList(factory), false), link.Documented(newCmdFirewallAdd(factory), true), newCmdFirewallDelete(factory))
+	command.AddCommand(link.Documented(newCmdFirewallList(factory), false), link.Documented(newCmdFirewallCreate(factory), true), newCmdFirewallDelete(factory))
 	return command
 }
 
@@ -308,11 +308,11 @@ func parsePortRange(value string) (int, any, error) {
 	return start, end, nil
 }
 
-func newCmdFirewallAdd(factory *app.Factory) *cobra.Command {
+func newCmdFirewallCreate(factory *app.Factory) *cobra.Command {
 	var description, port string
 	var printJSON bool
 	command := &cobra.Command{
-		Use:   "add <environment> --description D --port N[-M]",
+		Use:   "create <environment> --description D --port N[-M]",
 		Short: "Open a port or port range",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
