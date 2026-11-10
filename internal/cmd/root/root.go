@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/apps"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/auth"
@@ -27,6 +28,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	envlink "github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/spf13/cobra"
 )
 
@@ -122,10 +124,15 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 	)
 }
 
+// deploymentsEnvironment narrows deployments list to the named environment or the checkout's; without either it lists all.
+func deploymentsEnvironment(cmd *cobra.Command, client *api.Client, value string) (string, error) {
+	return envlink.OptionalEnvironment(cmd, client, value)
+}
+
 func deploymentSpec() resource.Spec {
 	return resource.Spec{
 		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments, newest first", Logs: true, SupportsPage: true,
-		QueryFilters: []resource.QueryFilter{{Name: "environment", Usage: "Filter by environment public ID, e.g. en-a1b2c3"}},
+		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID or a label (default: the environment of the checkout, if any)", Resolve: deploymentsEnvironment}},
 		Fields:       []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "CREATED", Key: "createdAt"}},
 	}
 }

@@ -187,3 +187,8 @@ func Documented(command *cobra.Command, write bool) *cobra.Command {
 	command.Long = long + "\n\n" + help
 	return command
 }
+
+// OptionalEnvironment resolves an optional environment filter: the value given, else the checkout's without asking, else "".
+func OptionalEnvironment(cmd *cobra.Command, client *api.Client, arg string) (string, error) {
+	return Target{Stderr: cmd.ErrOrStderr()}.Optional(cmd.Context(), client, arg)
+}

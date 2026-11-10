@@ -129,3 +129,49 @@ func TestDomainsCreateTakesLabelAndNeedsEnvironment(t *testing.T) {
 		t.Fatalf("omitted: %v, %v", err, paths)
 	}
 }
+
+func TestDeploymentsListEnvironmentFilter(t *testing.T) {
+	query := func(args ...string) (string, string, string) {
+		t.Helper()
+		var raw string
+		dir := t.TempDir()
+		_ = os.MkdirAll(filepath.Join(dir, ".fortrabbit"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, ".fortrabbit", "environments.yml"), []byte("production: en-abc123\nstaging: en-def456\n"), 0o644)
+		t.Chdir(dir)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/deployments" {
+				raw = r.URL.RawQuery
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"publicId":"en-abc123"}`))
+		}))
+		defer server.Close()
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+		factory := testFactory(out)
+		command := NewCmdRoot(factory)
+		command.SetOut(out)
+		command.SetErr(errOut)
+		command.SetArgs(append([]string{"--host", server.URL, "deployments", "list"}, args...))
+		if err := command.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return raw, out.String(), errOut.String()
+	}
+	t.Setenv("FORTRABBIT_ENVIRONMENT", "")
+	if raw, _, stderr := query("-e", "production", "--json"); raw != "environment=en-abc123&page=1" || !strings.Contains(stderr, rootViaLabel) {
+		t.Fatalf("label: %q, %q", raw, stderr)
+	}
+	if raw, _, stderr := query("--environment", "en-zzz999"); raw != "environment=en-zzz999&page=1" || strings.Contains(stderr, "→") {
+		t.Fatalf("ID: %q, %q", raw, stderr)
+	}
+	// Two entries and no branch: nothing resolves, so every deployment is listed.
+	if raw, _, stderr := query(); raw != "page=1" || strings.Contains(stderr, "→") {
+		t.Fatalf("none: %q, %q", raw, stderr)
+	}
+	t.Setenv("FORTRABBIT_ENVIRONMENT", "en-abc123")
+	if raw, stdout, stderr := query("--json"); raw != "environment=en-abc123&page=1" || !strings.Contains(stderr, "→ en-abc123 (from FORTRABBIT_ENVIRONMENT)") || strings.Contains(stdout, "→") {
+		t.Fatalf("implicit: %q, %q, %q", raw, stdout, stderr)
+	}
+}

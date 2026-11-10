@@ -28,8 +28,11 @@ type Field struct {
 
 // QueryFilter is a list flag sent as a query parameter of the same name.
 type QueryFilter struct {
-	Name  string
-	Usage string
+	Name      string
+	Shorthand string
+	Usage     string
+	// Resolve turns the flag value, possibly empty, into the value sent; "" sends nothing.
+	Resolve func(cmd *cobra.Command, client *api.Client, value string) (string, error)
 }
 
 // ClientFilter is a list flag applied after the fetch: it keeps resources whose Key field equals the flag value.
@@ -132,6 +135,14 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			for _, filter := range spec.QueryFilters {
+				if filter.Resolve == nil {
+					continue
+				}
+				if filters[filter.Name], err = filter.Resolve(cmd, client, filters[filter.Name]); err != nil {
+					return err
+				}
+			}
 			var response api.ResourcesResponse
 			if all || limit > 0 {
 				fetchLimit := limit
@@ -185,7 +196,7 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 		command.Flags().StringSliceVar(&publicIDs, "id", nil, "Filter by public ID (repeatable)")
 	}
 	for _, filter := range spec.QueryFilters {
-		filterValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
+		filterValues[filter.Name] = command.Flags().StringP(filter.Name, filter.Shorthand, "", filter.Usage)
 	}
 	for _, filter := range spec.ClientFilters {
 		clientValues[filter.Name] = command.Flags().String(filter.Name, "", filter.Usage)
