@@ -127,12 +127,7 @@ func Run(ctx context.Context, runner Runner, target, remote string, interactive 
 	return MapOutput(target, err, tail.String())
 }
 
-// MapExit turns ssh's own exit code 255 into an error pointing at the SSH key page; other errors pass through.
-func MapExit(target string, err error) error {
-	return MapOutput(target, err, "")
-}
-
-// MapOutput is MapExit that also reads what ssh printed, to name the fix for a host key it could not verify.
+// MapOutput turns ssh's own exit code 255 into an error pointing at the SSH key page, and reads what ssh printed to name the fix for a host key it could not verify; other errors pass through.
 func MapOutput(target string, err error, stderr string) error {
 	// rsync may report a failed ssh with its own exit code, so the ssh message counts on any failure.
 	if err != nil && strings.Contains(stderr, "Host key verification failed") {

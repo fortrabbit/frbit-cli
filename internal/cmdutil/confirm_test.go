@@ -2,6 +2,7 @@ package cmdutil
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ func TestConfirmExactRequiresExactValue(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := &bytes.Buffer{}
-			confirmed, err := ConfirmExact(strings.NewReader(test.input), output, "Type the ID: ", test.expected)
+			confirmed, err := ConfirmExactContext(context.Background(), strings.NewReader(test.input), output, "Type the ID: ", test.expected)
 			if err != nil {
 				t.Fatal(err)
 			}

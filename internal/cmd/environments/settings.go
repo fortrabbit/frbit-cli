@@ -486,7 +486,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			confirmed, err := cmdutil.AskBilledWith(cmd, factory, summary, "Change component plans? [y/N] ", yes)
+			confirmed, err := cmdutil.AskBilled(cmd, factory, summary, "Change component plans? [y/N] ", yes)
 			if err != nil {
 				return err
 			}

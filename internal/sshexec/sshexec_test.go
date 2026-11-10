@@ -107,14 +107,14 @@ func TestRunExit255PointsToDashboard(t *testing.T) {
 	}
 }
 
-func TestMapExit(t *testing.T) {
-	if MapExit("t", nil) != nil {
+func TestMapOutputExitCodes(t *testing.T) {
+	if MapOutput("t", nil, "") != nil {
 		t.Fatal("nil")
 	}
-	if err := MapExit("en-abc123@ssh.x", exitError(255)); !strings.Contains(err.Error(), KeyURL) {
+	if err := MapOutput("en-abc123@ssh.x", exitError(255), ""); !strings.Contains(err.Error(), KeyURL) {
 		t.Fatalf("255: %v", err)
 	}
-	if err := MapExit("en-abc123@ssh.x", exitError(12)); ExitCode(err) != 12 || strings.Contains(err.Error(), KeyURL) {
+	if err := MapOutput("en-abc123@ssh.x", exitError(12), ""); ExitCode(err) != 12 || strings.Contains(err.Error(), KeyURL) {
 		t.Fatalf("12: %v", err)
 	}
 }

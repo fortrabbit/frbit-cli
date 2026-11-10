@@ -19,7 +19,7 @@ func ConfirmBilled(cmd *cobra.Command, f *app.Factory, client *api.Client, path 
 	if quote.cents == 0 || quote.trial {
 		return true, nil
 	}
-	return AskBilled(cmd, f, quote.summary(), yes)
+	return AskBilled(cmd, f, quote.summary(), "Create and start billing? [y/N] ", yes)
 }
 
 // DryRunBilled sends only the dry-run POST and prints the price, or the API response with asJSON; noun names what would be created.
@@ -91,13 +91,8 @@ func priceQuote(cmd *cobra.Command, client *api.Client, path string, payload any
 	}, nil
 }
 
-// AskBilled prints summary and gets consent: --yes, a y/N answer on a terminal, else an error.
-func AskBilled(cmd *cobra.Command, f *app.Factory, summary string, yes bool) (bool, error) {
-	return AskBilledWith(cmd, f, summary, "Create and start billing? [y/N] ", yes)
-}
-
-// AskBilledWith is AskBilled with a custom y/N prompt.
-func AskBilledWith(cmd *cobra.Command, f *app.Factory, summary, prompt string, yes bool) (bool, error) {
+// AskBilled prints summary and gets consent: --yes, a y/N answer to prompt on a terminal, else an error.
+func AskBilled(cmd *cobra.Command, f *app.Factory, summary, prompt string, yes bool) (bool, error) {
 	out := cmd.ErrOrStderr()
 	if _, err := fmt.Fprintln(out, summary); err != nil {
 		return false, err

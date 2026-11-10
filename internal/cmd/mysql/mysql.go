@@ -84,9 +84,6 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cmdutil.CheckDestructive(factory, "password rotation", id, confirmation); err != nil {
-				return err
-			}
 			out := cmd.OutOrStdout()
 			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, cmd.ErrOrStderr(), "password rotation", id, confirmation, rotateWarning)
 			if err != nil {

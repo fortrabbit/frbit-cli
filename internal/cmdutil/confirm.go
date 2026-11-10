@@ -9,11 +9,7 @@ import (
 	"strings"
 )
 
-func Confirm(reader io.Reader, writer io.Writer, prompt string) (bool, error) {
-	return ConfirmContext(context.Background(), reader, writer, prompt)
-}
-
-// ConfirmContext is Confirm that gives up with ctx.Err() when ctx ends while waiting for input.
+// ConfirmContext asks a y/N question; it gives up with ctx.Err() when ctx ends while waiting for input.
 func ConfirmContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (bool, error) {
 	answer, err := readAnswer(ctx, reader, writer, prompt)
 	if err != nil {
@@ -23,11 +19,7 @@ func ConfirmContext(ctx context.Context, reader io.Reader, writer io.Writer, pro
 	return answer == "y" || answer == "yes", nil
 }
 
-func ConfirmExact(reader io.Reader, writer io.Writer, prompt string, expected string) (bool, error) {
-	return ConfirmExactContext(context.Background(), reader, writer, prompt, expected)
-}
-
-// ConfirmExactContext is ConfirmExact that gives up with ctx.Err() when ctx ends while waiting for input.
+// ConfirmExactContext reports whether the answer equals expected; it gives up with ctx.Err() when ctx ends while waiting for input.
 func ConfirmExactContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string, expected string) (bool, error) {
 	answer, err := readAnswer(ctx, reader, writer, prompt)
 	if err != nil {
@@ -61,11 +53,6 @@ func readAnswer(ctx context.Context, reader io.Reader, writer io.Writer, prompt 
 		}
 		return strings.TrimSpace(r.answer), nil
 	}
-}
-
-// AskContext prints prompt and returns the trimmed answer line; it gives up with ctx.Err() when ctx ends.
-func AskContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (string, error) {
-	return readAnswer(ctx, reader, writer, prompt)
 }
 
 // ErrAborted ends a command whose confirmation was declined; it exits 1 without an error line.

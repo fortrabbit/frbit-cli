@@ -19,7 +19,7 @@ func billedCommand(errOut *bytes.Buffer) *cobra.Command {
 func TestAskBilledYesSkipsQuestion(t *testing.T) {
 	errOut := &bytes.Buffer{}
 	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader(""), IsTTY: false}}
-	ok, err := AskBilled(billedCommand(errOut), factory, "Monthly price: 24.00 EUR", true)
+	ok, err := AskBilled(billedCommand(errOut), factory, "Monthly price: 24.00 EUR", "Create and start billing? [y/N] ", true)
 	if err != nil || !ok {
 		t.Fatalf("ok = %v, err = %v", ok, err)
 	}
@@ -30,7 +30,7 @@ func TestAskBilledYesSkipsQuestion(t *testing.T) {
 
 func TestAskBilledWithoutTTYRequiresYes(t *testing.T) {
 	factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader("y\n"), IsTTY: false}}
-	ok, err := AskBilled(billedCommand(&bytes.Buffer{}), factory, "Monthly price: 24.00 EUR", false)
+	ok, err := AskBilled(billedCommand(&bytes.Buffer{}), factory, "Monthly price: 24.00 EUR", "Create and start billing? [y/N] ", false)
 	if ok || err == nil || err.Error() != "billed change needs --yes" {
 		t.Fatalf("ok = %v, err = %v", ok, err)
 	}
@@ -40,7 +40,7 @@ func TestAskBilledOnTTYAnswers(t *testing.T) {
 	for answer, want := range map[string]bool{"y\n": true, "yes\n": true, "n\n": false, "\n": false} {
 		errOut := &bytes.Buffer{}
 		factory := &app.Factory{IOStreams: iostreams.IOStreams{In: strings.NewReader(answer), IsTTY: true}}
-		ok, err := AskBilled(billedCommand(errOut), factory, "Monthly price: 24.00 EUR", false)
+		ok, err := AskBilled(billedCommand(errOut), factory, "Monthly price: 24.00 EUR", "Create and start billing? [y/N] ", false)
 		if err != nil || ok != want {
 			t.Fatalf("answer %q: ok = %v, err = %v", answer, ok, err)
 		}
