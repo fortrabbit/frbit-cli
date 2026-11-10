@@ -291,6 +291,7 @@ frbit environments update en-a1b2c3 --exclude-pattern /storage --cached-director
 frbit environments update en-a1b2c3 --clear-exclude-patterns
 frbit environments update en-a1b2c3 --trigger manual --permission connectedDevelopers
 frbit environments update en-a1b2c3 --node-version 24 --deploy-hook
+frbit environments update en-a1b2c3 --software-version 11 --php-version 8.4   # --php-version stops automatic PHP updates
 ```
 
 | Flag | Values |
@@ -326,6 +327,31 @@ frbit environments deploy en-a1b2c3
 ```
 
 The `apps create`, `apps update`, `environments create`, `environments update`, and `environments variables update` commands accept `--file`. Request field flags and `--file` cannot be combined.
+
+### PHP settings, access and components
+
+```sh
+frbit php-settings list                  # valid directives and values
+frbit php-extensions list
+frbit environments php-settings get en-a1b2c3
+frbit environments php-settings update en-a1b2c3 --set max_execution_time=120 --set upload_max_filesize=256M --extension apcu=on
+
+frbit environments basic-auth get en-a1b2c3
+printf '%s\n' "$PASSWORD" | frbit environments basic-auth update en-a1b2c3 --enabled --username preview --password-stdin
+
+frbit environments firewall-rules list en-a1b2c3
+frbit environments firewall-rules add en-a1b2c3 --description "Metrics exporter" --port 8080-8090
+frbit environments firewall-rules delete fr-a1b2c3 --confirm fr-a1b2c3
+
+frbit environments components get en-a1b2c3
+frbit environments components update en-a1b2c3 --component php=md --component database=off --yes
+```
+
+- Directives and extensions you do not name stay unchanged. Numeric `--set` values are sent as numbers.
+- The basic auth password is read as one line from stdin and is never a flag or part of any output. Pipe it in; a password typed on a terminal is echoed. Omit `--password-stdin` to keep the current password.
+- `--port N` opens one port, `--port N-M` a range of at most 1000 ports.
+- `firewall-rules delete` needs the exact rule ID: typed on a terminal, or `--confirm <id>` without one.
+- `components update` looks up each size in the catalog first (an unknown size is an error before any request), prints the monthly price per new plan and their total to stderr, and asks `[y/N]`, also for a downsize. Without a terminal it fails with `billed change needs --yes`. The change is applied asynchronously (202).
 
 ## Deployments
 
@@ -559,7 +585,11 @@ frbit --profile work auth logout
 | `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
-| `frbit environments update <id>` | Update an environment and its deployment configuration. |
+| `frbit environments update <id>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
+| `frbit environments php-settings get <id>` / `update <id>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
+| `frbit environments basic-auth get <id>` / `update <id>` | Read or change basic auth; the password only via `--password-stdin`. |
+| `frbit environments firewall-rules list <env>` / `add <env>` / `delete <id>` | Manage opened ports; `add` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit environments components get <id>` / `update <id>` | Read or change component sizes (`--component SLUG=SIZE`); update shows prices and needs `--yes` without a terminal. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get <id>` | Get custom and platform-injected environment variables. |
 | `frbit environments variables update <id>` | Set or delete custom environment variables. |
@@ -572,7 +602,7 @@ frbit --profile work auth logout
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
 | `frbit regions list` / `presets list` / `software list` | List regions, software presets, or software with versions. |
 | `frbit plans list` | List component plans with sizes and prices. Accepts `--region`, `--currency`, and `--component`. |
-| `frbit php-versions list` / `php-extensions list` / `node-versions list` | List the available PHP versions, PHP extensions, or Node.js versions. |
+| `frbit php-versions list` / `php-extensions list` / `php-settings list` / `node-versions list` | List the available PHP versions, PHP extensions, php.ini directives with accepted values, or Node.js versions. |
 | `frbit git repositories` | List repositories of the connected Git account. |
 | `frbit git branches <owner/repo>` | List the branches of a repository. |
 | `frbit uninstall` | Remove the agent setup, the Claude Code plugin, the sign-in, the config and cache folders and the binary after confirmation. Accepts `--yes`. |

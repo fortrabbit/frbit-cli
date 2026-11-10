@@ -101,6 +101,7 @@ func TestCatalogCommandsListTheirEndpoints(t *testing.T) {
 		"software list":       "/v1/catalog/software",
 		"php-versions list":   "/v1/catalog/php-versions",
 		"php-extensions list": "/v1/catalog/php-extensions",
+		"php-settings list":   "/v1/catalog/php-settings",
 		"node-versions list":  "/v1/catalog/node-versions",
 		"git repositories":    "/v1/git-repositories",
 	}

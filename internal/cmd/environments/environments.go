@@ -35,6 +35,10 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		newCmdCreate(factory),
 		newCmdUpdate(factory),
 		newCmdVariables(factory),
+		newCmdPhpSettings(factory),
+		newCmdBasicAuth(factory),
+		newCmdFirewallRules(factory),
+		newCmdComponents(factory),
 		newCmdRestart(factory),
 		newCmdDeploy(factory),
 	)
@@ -201,6 +205,8 @@ type updateOptions struct {
 	trigger                 string
 	permission              string
 	nodeVersion             string
+	softwareVersion         string
+	phpVersion              string
 	deployHook              bool
 }
 
@@ -248,6 +254,8 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	flags.StringVar(&opts.trigger, "trigger", "", "What starts a deployment: push, manual, or hook")
 	flags.StringVar(&opts.permission, "permission", "", "Who may deploy: connectedDevelopers or repositoryAccess")
 	flags.StringVar(&opts.nodeVersion, "node-version", "", "Node.js version, see 'frbit node-versions list'")
+	flags.StringVar(&opts.softwareVersion, "software-version", "", "Major software version")
+	flags.StringVar(&opts.phpVersion, "php-version", "", "PHP runtime version (stops automatic PHP updates)")
 	flags.BoolVar(&opts.deployHook, "deploy-hook", false, "Enable the deploy hook (--deploy-hook=false disables it)")
 	flags.BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
@@ -262,7 +270,7 @@ type listSetting struct {
 }
 
 func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, opts updateOptions) (any, error) {
-	inputFlags := []string{"name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "clear-build-commands", "clear-post-deploy-commands", "strategy", "exclude-pattern", "clear-exclude-patterns", "replace-pattern", "clear-replace-patterns", "cached-directory", "clear-cached-directories", "trigger", "permission", "node-version", "deploy-hook"}
+	inputFlags := []string{"name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "clear-build-commands", "clear-post-deploy-commands", "strategy", "exclude-pattern", "clear-exclude-patterns", "replace-pattern", "clear-replace-patterns", "cached-directory", "clear-cached-directories", "trigger", "permission", "node-version", "deploy-hook", "software-version", "php-version"}
 	if opts.file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -285,6 +293,12 @@ func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, opts
 	}
 	if command.Flags().Changed("root-path") {
 		payload["rootPath"] = opts.rootPath
+	}
+	if command.Flags().Changed("software-version") {
+		payload["softwareVersion"] = opts.softwareVersion
+	}
+	if command.Flags().Changed("php-version") {
+		payload["phpVersion"] = opts.phpVersion
 	}
 	if command.Flags().Changed("branch") {
 		git := map[string]any{"branch": opts.branch}

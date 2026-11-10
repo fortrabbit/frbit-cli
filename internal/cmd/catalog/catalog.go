@@ -49,6 +49,10 @@ func specs() []resource.Spec {
 			Fields: []resource.Field{{Header: "NAME", Key: "name"}, {Header: "DEFAULT ENABLED", Key: "defaultEnabled"}},
 		},
 		{
+			Use: "php-settings", Singular: "PHP setting", Path: "/catalog/php-settings", Short: "List the php.ini directives and their accepted values", NoGet: true,
+			Fields: []resource.Field{{Header: "NAME", Key: "name"}, {Header: "DEFAULT", Key: "default"}, {Header: "VALUES", Key: "values"}},
+		},
+		{
 			Use: "node-versions", Singular: "Node.js version", Path: "/catalog/node-versions", Short: "List the available Node.js versions", NoGet: true,
 			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}},
 		},
