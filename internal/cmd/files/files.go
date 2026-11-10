@@ -1,7 +1,6 @@
 package files
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -31,13 +29,18 @@ var (
 // segment allows only characters no remote shell interprets, since older rsync passes the remote path through it unquoted.
 var segment = regexp.MustCompile(`^[A-Za-z0-9._@+-]+$`)
 
-var rsyncVersion = regexp.MustCompile(`version v?(\d+)\.(\d+)`)
-
 func NewCmdFiles(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "files", Short: "Sync files between an environment and the current folder", Args: cobra.NoArgs}
 	command.AddCommand(newCmdSync(factory, false), newCmdSync(factory, true))
 	return command
 }
+
+// sharedHelp ends the long help of pull and push.
+const sharedHelp = `Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database*, ba-*-files*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
+
+A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
+
+The environment is an ID or a label from .fortrabbit/environments.yml passed with --environment (-e); without one, the environment of the checkout is used (see frbit link).`
 
 type options struct {
 	env, confirmation string
@@ -51,15 +54,11 @@ func newCmdSync(factory *app.Factory, push bool) *cobra.Command {
 		Short: "Copy files from an environment to the current folder",
 		Long: `Copy files from /data/www/ on an environment to the current folder with rsync over SSH, using your own SSH key.
 
-The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .. and characters outside letters, digits and . _ - + @ / are refused.
+The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .., a path into .git or .fortrabbit, and characters outside letters, digits and . _ - + @ / are refused.
 
 Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment. Without a path, and with --delete, it asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
 
-Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
-
-A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
-
-The environment is an ID or a label from .fortrabbit/environments.yml passed with --environment (-e); without one, the environment of the checkout is used (see frbit link).`,
+` + sharedHelp,
 		Example: `  frbit files pull web/uploads
   frbit files pull web/uploads -e en-a1b2c3
   frbit files pull storage --dry-run --delete`,
@@ -73,17 +72,13 @@ The environment is an ID or a label from .fortrabbit/environments.yml passed wit
 		command.Short = "Copy files from the current folder to an environment"
 		command.Long = `Copy files from the current folder to /data/www/ on an environment with rsync over SSH, using your own SSH key.
 
-The path is relative to the current folder and to /data/www/; without one, the whole current folder is synced onto /data/www/. A folder path syncs that folder onto the same-named remote folder, whose parent must exist on the environment. Absolute paths, .. and characters outside letters, digits and . _ - + @ / are refused.
+The path is relative to the current folder and to /data/www/; without one, the whole current folder is synced onto /data/www/. A folder path syncs that folder onto the same-named remote folder, whose parent must exist on the environment. Absolute paths, .., a path into .git or .fortrabbit, and characters outside letters, digits and . _ - + @ / are refused.
 
 Files that changed are overwritten on the environment. --delete also removes files on the environment that do not exist locally; --dry-run lists what would change. When the environment deploys from a Git repository, the next deployment overwrites code you push this way.
 
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. A dry run needs no confirmation.
 
-Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
-
-A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
-
-The environment is an ID or a label from .fortrabbit/environments.yml passed with --environment (-e); without one, the environment of the checkout is used (see frbit link).`
+` + sharedHelp
 		command.Example = `  frbit files push web/uploads -e en-a1b2c3
   frbit files push web/uploads --dry-run
   frbit files push web/uploads -e en-a1b2c3 --confirm en-a1b2c3`
@@ -115,29 +110,24 @@ func cleanPath(raw string) (string, error) {
 			return "", fmt.Errorf("%s contains characters other than letters, digits and . _ - + @ /", raw)
 		}
 	}
-	return path.Clean("./" + raw), nil
-}
-
-// progressFlag picks --info=progress2 for rsync 3.1 and later; older rsync and openrsync only know --progress.
-func progressFlag(version string) string {
-	match := rsyncVersion.FindStringSubmatch(version)
-	if strings.Contains(version, "openrsync") || match == nil {
-		return "--progress"
+	clean := path.Clean("./" + raw)
+	// The repository and the link folder are never a sync target: files from an environment are untrusted, and hooks would run locally.
+	if first, _, _ := strings.Cut(clean, "/"); first == ".git" || first == ".fortrabbit" {
+		return "", fmt.Errorf("%s is inside %s; frbit files does not sync it", raw, first)
 	}
-	major, _ := strconv.Atoi(match[1])
-	minor, _ := strconv.Atoi(match[2])
-	if major > 3 || (major == 3 && minor >= 1) {
-		return "--info=progress2"
-	}
-	return "--progress"
+	return clean, nil
 }
 
 // excludes keep the repository, its link file and local secrets (top level only) and dumps, backups and temp files (any depth) out of a sync and a --delete.
-var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database.*", "--exclude=ba-*-files.*"}
+var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*"}
 
-// rsyncArgs builds the rsync arguments; "--" ends the options before the paths.
-func rsyncArgs(progress, rsh string, dryRun, del bool, src, dst string) []string {
-	args := append([]string{"-az", progress, "-e", rsh}, excludes...)
+// rsyncArgs builds the rsync arguments, with --progress on a terminal; "--" ends the options before the paths.
+func rsyncArgs(interactive bool, rsh string, dryRun, del bool, src, dst string) []string {
+	args := []string{"-az", "-e", rsh}
+	if interactive {
+		args = append(args, "--progress")
+	}
+	args = append(args, excludes...)
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
@@ -263,8 +253,6 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 		}
 	}
 
-	var version bytes.Buffer
-	_ = runner.Run(ctx, "rsync", []string{"--version"}, nil, &version, io.Discard)
 	interactive := factory.IOStreams.IsTTY
 	src, dst := endpoints(target, rel, push)
 	var stdin io.Reader
@@ -276,7 +264,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	err = runner.Run(ctx, "rsync", rsyncArgs(progressFlag(version.String()), rsh, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
+	err = runner.Run(ctx, "rsync", rsyncArgs(interactive, rsh, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
 	if err != nil && ctx.Err() != nil {
 		_, _ = fmt.Fprintf(stderr, "Cancelled: the sync of %s stopped partway; some files may be copied and others not.\n", remotePath)
 		return ctx.Err()
