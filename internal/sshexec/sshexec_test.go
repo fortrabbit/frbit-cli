@@ -86,6 +86,7 @@ func (f fakeRunner) Run(_ context.Context, _ string, _ []string, _ io.Reader, _,
 }
 
 func TestRunExit255PointsToDashboard(t *testing.T) {
+	useKnownHosts(t)
 	err := Run(context.Background(), fakeRunner{exitError(255)}, "en-abc123@ssh.x", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), KeyURL) || !strings.Contains(err.Error(), "host key") || ExitCode(err) != 255 {
 		t.Fatalf("Run: %v", err)
@@ -121,28 +122,39 @@ func (f stderrRunner) Run(_ context.Context, _ string, _ []string, _ io.Reader, 
 	return f.err
 }
 
-func TestRunUnknownHostKeyNamesTheFix(t *testing.T) {
+func TestRunHostKeyErrors(t *testing.T) {
+	useKnownHosts(t)
+	const other = "en-abc123@ssh.dev.frbit.cloud"
 	var shown bytes.Buffer
-	unknown := "No ED25519 host key is known for ssh.eu-w1a.frbit.app and you have requested strict checking.\r\nHost key verification failed.\r\n"
-	err := Run(context.Background(), stderrRunner{unknown, exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &shown)
-	for _, want := range []string{"ssh en-abc123@ssh.eu-w1a.frbit.app exit", "ssh-keyscan ssh.eu-w1a.frbit.app >> ~/.ssh/known_hosts"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("err = %v, want %q", err, want)
-		}
-	}
-	if ExitCode(err) != 255 || shown.String() != unknown {
-		t.Fatalf("exit %d, stderr %q", ExitCode(err), shown.String())
+	unknown := "No ED25519 host key is known for ssh.dev.frbit.cloud and you have requested strict checking.\r\nHost key verification failed.\r\n"
+	err := Run(context.Background(), stderrRunner{unknown, exitError(255)}, other, "true", false, nil, &bytes.Buffer{}, &shown)
+	want := "ssh to en-abc123@ssh.dev.frbit.cloud failed: the host key of ssh.dev.frbit.cloud is not in your known_hosts yet; run `ssh en-abc123@ssh.dev.frbit.cloud exit` once in a terminal to check and accept it, then try again"
+	if err == nil || err.Error() != want || ExitCode(err) != 255 || shown.String() != unknown {
+		t.Fatalf("unknown: %v", err)
 	}
 
 	changed := "@@@@@@@@\r\n@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\nHost key verification failed.\r\n"
-	err = Run(context.Background(), stderrRunner{changed, exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || strings.Contains(err.Error(), "ssh-keyscan") || !strings.Contains(err.Error(), "changed") {
+	err = Run(context.Background(), stderrRunner{changed, exitError(255)}, other, "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("changed: %v", err)
 	}
 
+	for _, stderr := range []string{changed, unknown} {
+		err = Run(context.Background(), stderrRunner{stderr, exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
+		want := "ssh to en-abc123@ssh.eu-w1a.frbit.app stopped: the server's host key does not match the fortrabbit host key frbit knows for ssh.eu-w1a.frbit.app. Do not continue and do not accept the key by hand: the connection may be intercepted. Update frbit, and contact fortrabbit support if this persists"
+		if err == nil || err.Error() != want || ExitCode(err) != 255 {
+			t.Fatalf("pinned mismatch: %v", err)
+		}
+	}
+
 	err = Run(context.Background(), stderrRunner{"Permission denied (publickey).\r\n", exitError(255)}, "en-abc123@ssh.eu-w1a.frbit.app", "true", false, nil, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), KeyURL) || strings.Contains(err.Error(), "ssh-keyscan") {
+	if err == nil || !strings.Contains(err.Error(), KeyURL) {
 		t.Fatalf("rejected key: %v", err)
+	}
+	for _, text := range []string{err.Error()} {
+		if strings.Contains(text, "keyscan") {
+			t.Fatalf("keyscan advice: %v", text)
+		}
 	}
 }
 

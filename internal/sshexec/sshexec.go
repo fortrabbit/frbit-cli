@@ -132,7 +132,7 @@ func MapExit(target string, err error) error {
 func MapOutput(target string, err error, stderr string) error {
 	// rsync may report a failed ssh with its own exit code, so the ssh message counts on any failure.
 	if err != nil && strings.Contains(stderr, "Host key verification failed") {
-		return &hostKeyError{target: target, changed: strings.Contains(stderr, "IDENTIFICATION HAS CHANGED"), err: err}
+		return &hostKeyError{target: target, pinned: Pinned(target), changed: strings.Contains(stderr, "IDENTIFICATION HAS CHANGED"), err: err}
 	}
 	if ExitCode(err) != 255 {
 		return err
@@ -153,16 +153,21 @@ func (e *keyError) Unwrap() error { return e.err }
 
 type hostKeyError struct {
 	target  string
+	pinned  bool
 	changed bool
 	err     error
 }
 
 func (e *hostKeyError) Error() string {
-	_, host, _ := strings.Cut(e.target, "@")
-	if e.changed {
-		return fmt.Sprintf("ssh to %s failed: the host key of %s changed since it was stored in ~/.ssh/known_hosts; check the entry for %s there before connecting again", e.target, host, host)
+	h := host(e.target)
+	switch {
+	// The pinned key is always in the file ssh reads, so any failure means the server showed another key.
+	case e.pinned:
+		return fmt.Sprintf("ssh to %s stopped: the server's host key does not match the fortrabbit host key frbit knows for %s. Do not continue and do not accept the key by hand: the connection may be intercepted. Update frbit, and contact fortrabbit support if this persists", e.target, h)
+	case e.changed:
+		return fmt.Sprintf("ssh to %s failed: the host key of %s changed since it was stored in your known_hosts; check the entry for %s there before connecting again", e.target, h, h)
 	}
-	return fmt.Sprintf("ssh to %s failed: the host key of %s is not in ~/.ssh/known_hosts yet; run `ssh %s exit` once in a terminal to accept it, or add it with `ssh-keyscan %s >> ~/.ssh/known_hosts`", e.target, host, e.target, host)
+	return fmt.Sprintf("ssh to %s failed: the host key of %s is not in your known_hosts yet; run `ssh %s exit` once in a terminal to check and accept it, then try again", e.target, h, e.target)
 }
 
 func (e *hostKeyError) Unwrap() error { return e.err }

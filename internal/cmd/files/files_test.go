@@ -319,7 +319,7 @@ func TestFilesRsyncFailures(t *testing.T) {
 	}
 	fake = &fakeRunner{version: rsync3, err: exitError(255), stderr: "Host key verification failed.\r\nrsync: connection unexpectedly closed\n"}
 	_, _, err = execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--environment", "en-abc123", "--confirm", "en-abc123"}})
-	if err == nil || !strings.Contains(err.Error(), "ssh-keyscan ssh.us-e1a.frbit.app") {
+	if err == nil || !strings.Contains(err.Error(), "does not match the fortrabbit host key") || strings.Contains(err.Error(), "keyscan") {
 		t.Fatalf("host key: %v", err)
 	}
 	fake = &fakeRunner{version: rsync3, err: exitError(23)}
