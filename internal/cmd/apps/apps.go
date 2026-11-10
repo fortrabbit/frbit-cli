@@ -315,7 +315,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().BoolVar(&clearTechnicalContacts, "clear-technical-contacts", false, "Remove all technical contacts")
 	command.Flags().StringVar(&repository, "repository", "", "Connect a GitHub repository in OWNER/REPOSITORY form; resets environment branches")
 	command.Flags().BoolVar(&disconnectRepository, "disconnect-repository", false, "Disconnect the GitHub repository; stops deployments until one is connected again")
-	command.Flags().StringVar(&confirmation, "confirm", "", "App public ID to confirm --disconnect-repository without a prompt")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm --disconnect-repository by repeating the app ID")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }

@@ -55,7 +55,7 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update <public-id>",
 		Short: "Change php.ini settings and enable or disable extensions",
-		Long:  "Valid directives and values: 'frbit php-settings list'. Valid extensions: 'frbit php-extensions list'. Directives and extensions you do not name stay unchanged.",
+		Long:  "Change php.ini settings and enable or disable extensions. Valid directives and values: 'frbit php-settings list'. Valid extensions: 'frbit php-extensions list'. Directives and extensions you do not name stay unchanged.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload, err := phpSettingsPayload(setValues, extensionValues)
@@ -157,7 +157,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update <public-id>",
 		Short: "Enable, disable, or change basic auth",
-		Long:  "The password is read as one line from stdin with --password-stdin and is never accepted as a flag. Pipe it in: printf '%s\\n' \"$PASSWORD\" | frbit environments basic-auth update ... --password-stdin. A password typed on a terminal is echoed. Omit it to keep the current password. --enabled and --username keep their current values when omitted.",
+		Long:  "Enable, disable, or change basic auth. The password is read as one line from stdin with --password-stdin and is never accepted as a flag. Pipe it in: printf '%s\\n' \"$PASSWORD\" | frbit environments basic-auth update ... --password-stdin. A password typed on a terminal is echoed. Omit it to keep the current password. --enabled and --username keep their current values when omitted.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			payload := map[string]any{}
@@ -363,7 +363,7 @@ func newCmdFirewallDelete(factory *app.Factory) *cobra.Command {
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm deletion by repeating the firewall rule ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the firewall rule ID")
 	return command
 }
 
@@ -425,7 +425,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update <public-id> --component SLUG=SIZE",
 		Short: "Change component sizes (billed)",
-		Long:  "Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows old -> new price per changed component and the monthly change, priced in the environment's region, and asks first, also for a downsize. Components already at the requested size are skipped; if nothing changes, nothing is sent.",
+		Long:  "Change component sizes (billed). Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows old -> new price per changed component and the monthly change, priced in the environment's region, and asks first, also for a downsize. Components already at the requested size are skipped; if nothing changes, nothing is sent.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			components, err := cmdutil.ParseAssignments(componentValues)

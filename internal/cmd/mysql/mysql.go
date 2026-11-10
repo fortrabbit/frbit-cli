@@ -23,7 +23,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "get <environment>",
 		Short: "Show host, port, user and database",
-		Long:  "The password is never printed. The app reads it from its environment variables.",
+		Long:  "Show host, port, user and database. The password is never printed. The app reads it from its environment variables.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
@@ -67,7 +67,7 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "rotate-password <environment>",
 		Short: "Generate a new MySQL password",
-		Long:  "The new password is never printed. Once the platform has applied it, the app reads it from its environment variables. " + rotateWarning,
+		Long:  "Generate a new MySQL password. The new password is never printed. Once the platform has applied it, the app reads it from its environment variables. " + rotateWarning,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]

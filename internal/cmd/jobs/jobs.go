@@ -114,8 +114,13 @@ func (j *jobFlags) bind(command *cobra.Command, update bool) {
 	f.StringVar(&j.interval, "interval", "", "Cron only: minute, hour, day or custom")
 	f.StringVar(&j.expression, "expression", "", "Cron only: crontab expression, required with --interval custom")
 	f.IntVar(&j.maxRuntime, "max-runtime", 0, "Cron only: seconds a run may take: 300, 1800, 3600, 10800 or 21600")
-	f.IntVar(&j.exitTimeout, "exit-timeout", 0, "Seconds the job gets to finish after the exit signal: 1, 5, 10 or 30 (default 30)")
-	f.StringVar(&j.exitSignal, "exit-signal", "", "Signal sent when the job is stopped: TERM or INT (default TERM)")
+	timeoutUsage, signalUsage := "Seconds the job gets to finish after the exit signal: 1, 5, 10 or 30", "Signal sent when the job is stopped: TERM or INT"
+	if !update {
+		timeoutUsage += " (default 30)"
+		signalUsage += " (default TERM)"
+	}
+	f.IntVar(&j.exitTimeout, "exit-timeout", 0, timeoutUsage)
+	f.StringVar(&j.exitSignal, "exit-signal", "", signalUsage)
 	f.BoolVar(&j.inactive, "inactive", false, "Keep the job but do not run it")
 	if update {
 		f.BoolVar(&j.active, "active", false, "Run the job")
@@ -349,6 +354,6 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm deletion by repeating the job ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the job ID")
 	return command
 }

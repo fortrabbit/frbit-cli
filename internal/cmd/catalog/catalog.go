@@ -21,7 +21,7 @@ func NewCommands(factory *app.Factory) []*cobra.Command {
 }
 
 func specs() []resource.Spec {
-	return []resource.Spec{
+	list := []resource.Spec{
 		{
 			Use: "regions", Singular: "region", Path: "/catalog/regions", Short: "List the regions an app can be created in", NoGet: true,
 			Fields: []resource.Field{{Header: "IDENTIFIER", Key: "identifier"}, {Header: "NAME", Key: "name"}, {Header: "LOCATION", Key: "location"}, {Header: "RECOMMENDED", Key: "recommended"}},
@@ -57,6 +57,11 @@ func specs() []resource.Spec {
 			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}},
 		},
 	}
+	// Catalog data is the same for everyone, so the list help repeats the group's own summary.
+	for i := range list {
+		list[i].ListShort = list[i].Short
+	}
+	return list
 }
 
 // formatSizes renders plan sizes as "s 5.00 EUR, m 10.00 EUR"; a size without a price shows its name only.

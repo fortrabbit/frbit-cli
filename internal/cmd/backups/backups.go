@@ -156,7 +156,7 @@ func newCmdRestore(factory *app.Factory) *cobra.Command {
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Backup ID to confirm the restore without a prompt")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm the restore by repeating the backup ID")
 	return command
 }
 

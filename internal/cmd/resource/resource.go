@@ -54,8 +54,10 @@ type Spec struct {
 	QueryFilters   []QueryFilter
 	ClientFilters  []ClientFilter
 	NoGet          bool
-	Logs           bool
-	Delete         *DeleteSpec
+	// ListShort replaces the generated short help of list.
+	ListShort string
+	Logs      bool
+	Delete    *DeleteSpec
 }
 
 func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
@@ -77,6 +79,13 @@ func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 	return command
 }
 
+func listShort(spec Spec) string {
+	if spec.ListShort != "" {
+		return spec.ListShort
+	}
+	return "List " + spec.Use + " available to the authenticated person"
+}
+
 // NewCmdList builds the list command of spec on its own, for groups that name it differently.
 func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	var page int
@@ -88,7 +97,7 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 	clientValues := make(map[string]*string, len(spec.ClientFilters))
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "List " + spec.Use + " available to the authenticated person",
+		Short: listShort(spec),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if spec.SupportsPage && page < 1 {
@@ -351,7 +360,7 @@ func newCmdDelete(factory *app.Factory, spec Spec) *cobra.Command {
 			return err
 		},
 	}
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm deletion by repeating the public ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the ID to delete")
 	return command
 }
 
