@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1069,5 +1070,128 @@ func TestAppsCreateJSONKeepsStdoutForTheResponse(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "Monthly price: 24.00 EUR") {
 		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func runEnvironmentsUpdate(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPatch || request.URL.Path != "/v1/environments/en-abc123" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = writer.Write([]byte(`{"publicId":"en-abc123","rootPath":"public","deployment":{"strategy":"replace","trigger":"push","cachedDirectories":["vendor"],"managedByDeployFile":false}}`))
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs(append([]string{"--host", server.URL, "environments", "update", "en-abc123"}, args...))
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"rootPath", "public", "deployment.strategy", "replace", "deployment.cachedDirectories", "vendor"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output missing %q: %q", want, output.String())
+		}
+	}
+	return got
+}
+
+func TestEnvironmentsUpdateSendsRootPath(t *testing.T) {
+	got := runEnvironmentsUpdate(t, "--root-path", "public")
+	if got["rootPath"] != "public" || len(got) != 1 {
+		t.Fatalf("payload = %#v", got)
+	}
+	got = runEnvironmentsUpdate(t, "--root-path", "")
+	if v, ok := got["rootPath"]; !ok || v != "" {
+		t.Fatalf("empty root path payload = %#v", got)
+	}
+}
+
+func TestEnvironmentsUpdateDeploymentFlags(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		key  string
+		want any
+	}{
+		"strategy":                 {[]string{"--strategy", "merge"}, "strategy", "merge"},
+		"exclude-pattern":          {[]string{"--exclude-pattern", "/storage", "--exclude-pattern", "/node_modules"}, "excludePatterns", []any{"/storage", "/node_modules"}},
+		"clear-exclude-patterns":   {[]string{"--clear-exclude-patterns"}, "excludePatterns", nil},
+		"replace-pattern":          {[]string{"--replace-pattern", "/vendor"}, "replacePatterns", []any{"/vendor"}},
+		"clear-replace-patterns":   {[]string{"--clear-replace-patterns"}, "replacePatterns", nil},
+		"cached-directory":         {[]string{"--cached-directory", "vendor"}, "cachedDirectories", []any{"vendor"}},
+		"clear-cached-directories": {[]string{"--clear-cached-directories"}, "cachedDirectories", nil},
+		"trigger":                  {[]string{"--trigger", "manual"}, "trigger", "manual"},
+		"permission":               {[]string{"--permission", "connectedDevelopers"}, "permission", "connectedDevelopers"},
+		"node-version":             {[]string{"--node-version", "24"}, "nodeVersion", "24"},
+		"deploy-hook":              {[]string{"--deploy-hook"}, "deployHook", true},
+		"deploy-hook-off":          {[]string{"--deploy-hook=false"}, "deployHook", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := runEnvironmentsUpdate(t, tc.args...)
+			deployment, _ := got["deployment"].(map[string]any)
+			value, present := deployment[tc.key]
+			if !present || len(deployment) != 1 || len(got) != 1 || !reflect.DeepEqual(value, tc.want) {
+				t.Fatalf("payload = %#v, want deployment.%s = %#v", got, tc.key, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnvironmentsUpdateRejectsBadDeploymentFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--strategy", "overwrite"},
+		{"--trigger", "cron"},
+		{"--permission", "everyone"},
+		{"--exclude-pattern", "/a", "--clear-exclude-patterns"},
+	} {
+		output := &bytes.Buffer{}
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs(append([]string{"--host", "http://127.0.0.1:1", "environments", "update", "en-abc123"}, args...))
+		if err := command.Execute(); err == nil {
+			t.Fatalf("%v: want error", args)
+		}
+	}
+}
+
+func TestAppsCreatePutsRootPathInInitialEnvironment(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+	if _, err := runAppsCreate(t, server, false, "", "--root-path", "public", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	initial, _ := got["initialEnvironment"].(map[string]any)
+	if initial["rootPath"] != "public" {
+		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func TestEnvironmentsCreateSendsRootPath(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"en-abc123"}`))
+	}))
+	defer server.Close()
+	output := &bytes.Buffer{}
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"--host", server.URL, "environments", "create", "--app", "ap-abc123", "--name", "staging", "--root-path", "public", "--yes"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got["rootPath"] != "public" {
+		t.Fatalf("payload = %#v", got)
 	}
 }

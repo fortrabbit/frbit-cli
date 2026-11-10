@@ -47,6 +47,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var name string
 	var branch string
 	var directory string
+	var rootPath string
 	var buildCommands []string
 	var postDeployCommands []string
 	var deploy bool
@@ -65,7 +66,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Create an environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := environmentCreatePayload(cmd, factory, file, appID, name, branch, directory, buildCommands, postDeployCommands, deploy, softwareVersion, phpVersion, noCloudDomain, componentValues, autoscaling, sourceEnvironment, environmentVariableValues)
+			payload, err := environmentCreatePayload(cmd, factory, file, appID, name, branch, directory, rootPath, buildCommands, postDeployCommands, deploy, softwareVersion, phpVersion, noCloudDomain, componentValues, autoscaling, sourceEnvironment, environmentVariableValues)
 			if err != nil {
 				return err
 			}
@@ -93,6 +94,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "Environment name")
 	command.Flags().StringVar(&branch, "branch", "", "Git branch")
 	command.Flags().StringVar(&directory, "directory", "", "Git source directory")
+	command.Flags().StringVar(&rootPath, "root-path", "", "Folder of the repository the web server serves, e.g. public")
 	command.Flags().StringArrayVar(&buildCommands, "build-command", nil, "Build command (repeatable)")
 	command.Flags().StringArrayVar(&postDeployCommands, "post-deploy-command", nil, "Post-deploy command (repeatable)")
 	command.Flags().BoolVar(&deploy, "deploy", false, "Start the first deployment after creation")
@@ -108,8 +110,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file string, appID string, name string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, softwareVersion string, phpVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, sourceEnvironment string, environmentVariableValues []string) (any, error) {
-	inputFlags := []string{"app", "name", "branch", "directory", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "no-cloud-domain", "component", "autoscaling", "source-environment", "env"}
+func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file string, appID string, name string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, softwareVersion string, phpVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, sourceEnvironment string, environmentVariableValues []string) (any, error) {
+	inputFlags := []string{"app", "name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "no-cloud-domain", "component", "autoscaling", "source-environment", "env"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -151,6 +153,9 @@ func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file
 	if sourceEnvironment != "" {
 		payload["sourceEnvironment"] = sourceEnvironment
 	}
+	if command.Flags().Changed("root-path") {
+		payload["rootPath"] = rootPath
+	}
 
 	deploymentChanged := cmdutil.AnyFlagChanged(command, "branch", "directory", "build-command", "post-deploy-command", "deploy")
 	if deploymentChanged {
@@ -176,23 +181,39 @@ func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file
 	return payload, nil
 }
 
+type updateOptions struct {
+	file                    string
+	name                    string
+	branch                  string
+	directory               string
+	rootPath                string
+	buildCommands           []string
+	postDeployCommands      []string
+	clearBuildCommands      bool
+	clearPostDeployCommands bool
+	strategy                string
+	excludePatterns         []string
+	clearExcludePatterns    bool
+	replacePatterns         []string
+	clearReplacePatterns    bool
+	cachedDirectories       []string
+	clearCachedDirectories  bool
+	trigger                 string
+	permission              string
+	nodeVersion             string
+	deployHook              bool
+}
+
 func newCmdUpdate(factory *app.Factory) *cobra.Command {
-	var file string
-	var name string
-	var branch string
-	var directory string
-	var buildCommands []string
-	var postDeployCommands []string
-	var clearBuildCommands bool
-	var clearPostDeployCommands bool
+	var opts updateOptions
 	var printJSON bool
 
 	command := &cobra.Command{
 		Use:   "update <public-id>",
-		Short: "Update an environment's name or deployment configuration",
+		Short: "Update an environment's name, root path, or deployment configuration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := environmentUpdatePayload(cmd, factory, file, name, branch, directory, buildCommands, postDeployCommands, clearBuildCommands, clearPostDeployCommands)
+			payload, err := environmentUpdatePayload(cmd, factory, opts)
 			if err != nil {
 				return err
 			}
@@ -207,56 +228,124 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			return writeResourceResponse(cmd, response, printJSON)
 		},
 	}
-	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
-	command.Flags().StringVar(&name, "name", "", "New environment name")
-	command.Flags().StringVar(&branch, "branch", "", "New Git branch")
-	command.Flags().StringVar(&directory, "directory", "", "New Git source directory")
-	command.Flags().StringArrayVar(&buildCommands, "build-command", nil, "Replacement build command (repeatable)")
-	command.Flags().StringArrayVar(&postDeployCommands, "post-deploy-command", nil, "Replacement post-deploy command (repeatable)")
-	command.Flags().BoolVar(&clearBuildCommands, "clear-build-commands", false, "Remove all build commands")
-	command.Flags().BoolVar(&clearPostDeployCommands, "clear-post-deploy-commands", false, "Remove all post-deploy commands")
-	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	flags := command.Flags()
+	flags.StringVarP(&opts.file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
+	flags.StringVar(&opts.name, "name", "", "New environment name")
+	flags.StringVar(&opts.branch, "branch", "", "New Git branch")
+	flags.StringVar(&opts.directory, "directory", "", "New Git source directory")
+	flags.StringVar(&opts.rootPath, "root-path", "", "Folder of the repository the web server serves, e.g. public (empty resets it)")
+	flags.StringArrayVar(&opts.buildCommands, "build-command", nil, "Replacement build command (repeatable)")
+	flags.StringArrayVar(&opts.postDeployCommands, "post-deploy-command", nil, "Replacement post-deploy command (repeatable)")
+	flags.BoolVar(&opts.clearBuildCommands, "clear-build-commands", false, "Remove all build commands")
+	flags.BoolVar(&opts.clearPostDeployCommands, "clear-post-deploy-commands", false, "Remove all post-deploy commands")
+	flags.StringVar(&opts.strategy, "strategy", "", "Deployment strategy: merge or replace")
+	flags.StringArrayVar(&opts.excludePatterns, "exclude-pattern", nil, "Path pattern excluded from deployments (repeatable)")
+	flags.BoolVar(&opts.clearExcludePatterns, "clear-exclude-patterns", false, "Remove all exclude patterns")
+	flags.StringArrayVar(&opts.replacePatterns, "replace-pattern", nil, "Path pattern replaced on deployment, merge strategy only (repeatable)")
+	flags.BoolVar(&opts.clearReplacePatterns, "clear-replace-patterns", false, "Remove all replace patterns")
+	flags.StringArrayVar(&opts.cachedDirectories, "cached-directory", nil, "Directory cached between deployments (repeatable)")
+	flags.BoolVar(&opts.clearCachedDirectories, "clear-cached-directories", false, "Remove all cached directories")
+	flags.StringVar(&opts.trigger, "trigger", "", "What starts a deployment: push, manual, or hook")
+	flags.StringVar(&opts.permission, "permission", "", "Who may deploy: connectedDevelopers or repositoryAccess")
+	flags.StringVar(&opts.nodeVersion, "node-version", "", "Node.js version, see 'frbit node-versions list'")
+	flags.BoolVar(&opts.deployHook, "deploy-hook", false, "Enable the deploy hook (--deploy-hook=false disables it)")
+	flags.BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }
 
-func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, file string, name string, branch string, directory string, buildCommands []string, postDeployCommands []string, clearBuildCommands bool, clearPostDeployCommands bool) (any, error) {
-	inputFlags := []string{"name", "branch", "directory", "build-command", "post-deploy-command", "clear-build-commands", "clear-post-deploy-commands"}
-	if file != "" {
+type listSetting struct {
+	flag    string
+	clear   string
+	key     string
+	values  []string
+	cleared bool
+}
+
+func environmentUpdatePayload(command *cobra.Command, factory *app.Factory, opts updateOptions) (any, error) {
+	inputFlags := []string{"name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "clear-build-commands", "clear-post-deploy-commands", "strategy", "exclude-pattern", "clear-exclude-patterns", "replace-pattern", "clear-replace-patterns", "cached-directory", "clear-cached-directories", "trigger", "permission", "node-version", "deploy-hook"}
+	if opts.file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
 		}
-		return cmdutil.ReadJSONObject(file, factory.IOStreams.In)
+		return cmdutil.ReadJSONObject(opts.file, factory.IOStreams.In)
 	}
-	if clearBuildCommands && command.Flags().Changed("build-command") {
+	if opts.clearBuildCommands && command.Flags().Changed("build-command") {
 		return nil, fmt.Errorf("--clear-build-commands cannot be combined with --build-command")
 	}
-	if clearPostDeployCommands && command.Flags().Changed("post-deploy-command") {
+	if opts.clearPostDeployCommands && command.Flags().Changed("post-deploy-command") {
 		return nil, fmt.Errorf("--clear-post-deploy-commands cannot be combined with --post-deploy-command")
 	}
-	if directory != "" && branch == "" {
+	if opts.directory != "" && opts.branch == "" {
 		return nil, fmt.Errorf("--branch is required when --directory is supplied")
 	}
 
 	payload := map[string]any{}
 	if command.Flags().Changed("name") {
-		payload["name"] = name
+		payload["name"] = opts.name
+	}
+	if command.Flags().Changed("root-path") {
+		payload["rootPath"] = opts.rootPath
 	}
 	if command.Flags().Changed("branch") {
-		git := map[string]any{"branch": branch}
+		git := map[string]any{"branch": opts.branch}
 		if command.Flags().Changed("directory") {
-			git["directory"] = directory
+			git["directory"] = opts.directory
 		}
 		payload["git"] = git
 	}
 	if command.Flags().Changed("build-command") {
-		payload["buildCommands"] = buildCommands
-	} else if clearBuildCommands {
+		payload["buildCommands"] = opts.buildCommands
+	} else if opts.clearBuildCommands {
 		payload["buildCommands"] = []string{}
 	}
 	if command.Flags().Changed("post-deploy-command") {
-		payload["postDeployCommands"] = postDeployCommands
-	} else if clearPostDeployCommands {
+		payload["postDeployCommands"] = opts.postDeployCommands
+	} else if opts.clearPostDeployCommands {
 		payload["postDeployCommands"] = []string{}
+	}
+
+	deployment := map[string]any{}
+	if command.Flags().Changed("strategy") {
+		if opts.strategy != "merge" && opts.strategy != "replace" {
+			return nil, fmt.Errorf("--strategy must be merge or replace")
+		}
+		deployment["strategy"] = opts.strategy
+	}
+	if command.Flags().Changed("trigger") {
+		if opts.trigger != "push" && opts.trigger != "manual" && opts.trigger != "hook" {
+			return nil, fmt.Errorf("--trigger must be push, manual, or hook")
+		}
+		deployment["trigger"] = opts.trigger
+	}
+	if command.Flags().Changed("permission") {
+		if opts.permission != "connectedDevelopers" && opts.permission != "repositoryAccess" {
+			return nil, fmt.Errorf("--permission must be connectedDevelopers or repositoryAccess")
+		}
+		deployment["permission"] = opts.permission
+	}
+	if command.Flags().Changed("node-version") {
+		deployment["nodeVersion"] = opts.nodeVersion
+	}
+	if command.Flags().Changed("deploy-hook") {
+		deployment["deployHook"] = opts.deployHook
+	}
+	// The API clears a list with null, not [].
+	for _, setting := range []listSetting{
+		{"exclude-pattern", "clear-exclude-patterns", "excludePatterns", opts.excludePatterns, opts.clearExcludePatterns},
+		{"replace-pattern", "clear-replace-patterns", "replacePatterns", opts.replacePatterns, opts.clearReplacePatterns},
+		{"cached-directory", "clear-cached-directories", "cachedDirectories", opts.cachedDirectories, opts.clearCachedDirectories},
+	} {
+		if setting.cleared && command.Flags().Changed(setting.flag) {
+			return nil, fmt.Errorf("--%s cannot be combined with --%s", setting.clear, setting.flag)
+		}
+		if command.Flags().Changed(setting.flag) {
+			deployment[setting.key] = setting.values
+		} else if setting.cleared {
+			deployment[setting.key] = nil
+		}
+	}
+	if len(deployment) > 0 {
+		payload["deployment"] = deployment
 	}
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("provide an update flag or --file")

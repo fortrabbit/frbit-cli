@@ -203,6 +203,8 @@ Use `--team` or `--payment-method` to select an accessible team or payment metho
 
 The API gives the initial environment a cloud domain with a label derived from the app name, and creates none when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the app without one, or set `initialEnvironment.cloudDomain` with `--file` to choose the label.
 
+Pass `--root-path public` to set the folder of the repository the web server serves; it defaults to the root path of the software preset.
+
 Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
 
 ### Billed creates
@@ -255,6 +257,8 @@ frbit environments create \
   --deploy
 ```
 
+Pass `--root-path public` to set the folder of the repository the web server serves.
+
 Pass `--deploy` to start the initial deployment as part of creation. It requires `--branch` so the environment has a Git source. Without `--deploy`, creating an environment does not start a deployment.
 
 The API gives the environment a cloud domain with a label derived from the app's cloud-domain label, or the app name when the app has none, plus the environment name, for example `acme-shop-staging`. It creates none when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the environment without one, or set `cloudDomain` with `--file` to choose the label.
@@ -265,7 +269,31 @@ Update the environment name or replace its deployment configuration:
 frbit environments update en-a1b2c3 --name staging
 frbit environments update en-a1b2c3 --branch develop --directory web
 frbit environments update en-a1b2c3 --clear-build-commands
+frbit environments update en-a1b2c3 --root-path public    # empty value resets it
 ```
+
+Change the deployment settings. Each flag sends only its own key; repeatable list flags replace the whole list and a `--clear-<list>` flag empties it:
+
+```sh
+frbit environments update en-a1b2c3 --strategy merge --replace-pattern /vendor
+frbit environments update en-a1b2c3 --exclude-pattern /storage --cached-directory vendor
+frbit environments update en-a1b2c3 --clear-exclude-patterns
+frbit environments update en-a1b2c3 --trigger manual --permission connectedDevelopers
+frbit environments update en-a1b2c3 --node-version 24 --deploy-hook
+```
+
+| Flag | Values |
+| --- | --- |
+| `--strategy` | `merge` or `replace` |
+| `--exclude-pattern`, `--clear-exclude-patterns` | Path patterns left out of deployments |
+| `--replace-pattern`, `--clear-replace-patterns` | Path patterns replaced on deployment, only with strategy `merge` |
+| `--cached-directory`, `--clear-cached-directories` | Directories cached between deployments |
+| `--trigger` | `push`, `manual` or `hook` |
+| `--permission` | `connectedDevelopers` or `repositoryAccess` |
+| `--node-version` | A version from `frbit node-versions list`; stops following newer Node.js versions |
+| `--deploy-hook[=false]` | Turn the deploy hook on or off |
+
+The strategy, the pattern lists and the cached directories are refused while a deploy file in the repository manages them. `trigger`, `permission`, `nodeVersion` and `deployHook` are always editable. `environments get` lists the settings as `deployment.<field>` rows next to `rootPath`.
 
 Read or merge environment variables. `--set` and `--delete` are repeatable:
 

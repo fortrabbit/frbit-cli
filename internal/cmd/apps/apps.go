@@ -46,6 +46,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var repository string
 	var branch string
 	var directory string
+	var rootPath string
 	var buildCommands []string
 	var postDeployCommands []string
 	var deploy bool
@@ -58,7 +59,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Create an app and its initial environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwarePreset, softwareVersion, noCloudDomain, components, autoscaling, repository, branch, directory, buildCommands, postDeployCommands, deploy, paymentMethodID)
+			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwarePreset, softwareVersion, noCloudDomain, components, autoscaling, repository, branch, directory, rootPath, buildCommands, postDeployCommands, deploy, paymentMethodID)
 			if err != nil {
 				return err
 			}
@@ -97,6 +98,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&repository, "repository", "", "Connected Git repository in OWNER/REPOSITORY form")
 	command.Flags().StringVar(&branch, "branch", "", "Git branch for the initial environment")
 	command.Flags().StringVar(&directory, "directory", "", "Git source directory")
+	command.Flags().StringVar(&rootPath, "root-path", "", "Folder of the repository the web server serves, e.g. public")
 	command.Flags().StringArrayVar(&buildCommands, "build-command", nil, "Build command (repeatable)")
 	command.Flags().StringArrayVar(&postDeployCommands, "post-deploy-command", nil, "Post-deploy command (repeatable)")
 	command.Flags().BoolVar(&deploy, "deploy", false, "Start the first deployment after creation")
@@ -106,8 +108,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwarePreset string, softwareVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
-	inputFlags := []string{"name", "region", "team", "software", "software-version", "no-cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "build-command", "post-deploy-command", "deploy", "payment-method"}
+func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwarePreset string, softwareVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
+	inputFlags := []string{"name", "region", "team", "software", "software-version", "no-cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "payment-method"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -144,7 +146,7 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 	if deploymentChanged && (repository == "" || branch == "") {
 		return nil, fmt.Errorf("--repository and --branch are required when configuring deployment")
 	}
-	initialChanged := softwareVersion != "" || noCloudDomain || len(components) > 0 || command.Flags().Changed("autoscaling") || deploymentChanged
+	initialChanged := softwareVersion != "" || noCloudDomain || len(components) > 0 || command.Flags().Changed("autoscaling") || command.Flags().Changed("root-path") || deploymentChanged
 	if initialChanged {
 		initial := map[string]any{}
 		if softwareVersion != "" {
@@ -158,6 +160,9 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 		}
 		if command.Flags().Changed("autoscaling") {
 			initial["autoscaling"] = autoscaling
+		}
+		if command.Flags().Changed("root-path") {
+			initial["rootPath"] = rootPath
 		}
 		if deploymentChanged {
 			git := map[string]any{"repository": repository, "branch": branch}

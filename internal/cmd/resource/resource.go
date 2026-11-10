@@ -396,11 +396,32 @@ func writeResource(output io.Writer, resource api.Resource) error {
 		return err
 	}
 	for _, key := range keys {
+		if nested, ok := resource[key].(map[string]any); ok && len(nested) > 0 {
+			if err := writeNested(table, key, nested); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := fmt.Fprintf(table, "%s\t%s\n", key, resourceValue(resource[key])); err != nil {
 			return err
 		}
 	}
 	return table.Flush()
+}
+
+// writeNested prints an object as one dotted row per field, e.g. deployment.trigger.
+func writeNested(table io.Writer, prefix string, nested map[string]any) error {
+	keys := make([]string, 0, len(nested))
+	for key := range nested {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, err := fmt.Fprintf(table, "%s.%s\t%s\n", prefix, key, resourceValue(nested[key])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeLogs(output io.Writer, resource api.Resource) error {
