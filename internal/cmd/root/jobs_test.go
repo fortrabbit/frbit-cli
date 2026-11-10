@@ -134,3 +134,14 @@ func TestJobsDeleteNeedsConfirm(t *testing.T) {
 		t.Fatalf("err = %v, deleted = %v\n%s", err, deleted, output)
 	}
 }
+
+func TestJobsUpdateExpressionOnlyChecksCronFirst(t *testing.T) {
+	var calls []string
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		_, _ = w.Write([]byte(`{"expression":"nope","valid":false,"nextRuns":[]}`))
+	}, "jobs", "update", "jo-abc123", "--expression", "nope")
+	if err == nil || !strings.Contains(err.Error(), "not valid") || strings.Join(calls, ",") != "GET /v1/jobs/check-cron" {
+		t.Fatalf("err = %v, calls = %v", err, calls)
+	}
+}

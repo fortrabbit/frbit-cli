@@ -285,11 +285,9 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if body["interval"] == "custom" {
-				if expression, ok := body["expression"].(string); ok {
-					if err := checkExpression(cmd, client, expression); err != nil {
-						return err
-					}
+			if expression, ok := body["expression"].(string); ok {
+				if err := checkExpression(cmd, client, expression); err != nil {
+					return err
 				}
 			}
 			response, err := client.UpdateResource(cmd.Context(), "/v1/jobs/"+args[0], body)
