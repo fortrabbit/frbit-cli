@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -107,7 +108,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "App name")
 	command.Flags().StringVar(&region, "region", "", "Region identifier")
 	command.Flags().StringVar(&teamID, "team", "", "Owning team public ID")
-	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug")
+	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug, from frbit presets list")
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().BoolVar(&noCloudDomain, "no-cloud-domain", false, "Create the initial environment without a cloud domain")
 	command.Flags().StringArrayVar(&components, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
@@ -229,7 +230,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			publicID := args[0]
-			fieldFlags := []string{"name", "payment-method", "software-preset", "git-deploy-comments", "technical-contact", "clear-technical-contacts"}
+			fieldFlags := []string{"name", "payment-method", "software", "git-deploy-comments", "technical-contact", "clear-technical-contacts"}
 			var payload any
 			if file != "" {
 				if cmdutil.AnyFlagChanged(cmd, append(fieldFlags, "repository", "disconnect-repository")...) {
@@ -254,7 +255,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 				if cmd.Flags().Changed("payment-method") {
 					fields["paymentMethodId"] = paymentMethodID
 				}
-				if cmd.Flags().Changed("software-preset") {
+				if cmd.Flags().Changed("software") {
 					fields["softwarePresetName"] = softwarePreset
 				}
 				if cmd.Flags().Changed("git-deploy-comments") {
@@ -266,7 +267,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					fields["technicalContacts"] = technicalContacts
 				}
 				if len(fields) == 0 && repository == "" && !disconnectRepository {
-					return fmt.Errorf("provide an update flag such as --name, --repository or --software-preset, or --file")
+					return fmt.Errorf("provide an update flag such as --name, --repository or --software, or --file")
 				}
 				if len(fields) > 0 {
 					payload = fields
@@ -276,14 +277,18 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			if repository != "" {
 				warnings = append(warnings, connectRepositoryWarning)
 			}
-			if file == "" && cmd.Flags().Changed("software-preset") {
+			// Decided on the body, so --file needs the same confirmation as --software.
+			var body struct {
+				SoftwarePresetName json.RawMessage `json:"softwarePresetName"`
+			}
+			if raw, err := json.Marshal(payload); err == nil && json.Unmarshal(raw, &body) == nil && body.SoftwarePresetName != nil {
 				warnings = append(warnings, softwarePresetWarning)
 			}
 			if disconnectRepository {
 				warnings = append(warnings, disconnectRepositoryWarning)
 			}
 			if cmd.Flags().Changed("confirm") && len(warnings) == 0 {
-				return fmt.Errorf("--confirm is only used with --repository, --software-preset or --disconnect-repository")
+				return fmt.Errorf("--confirm is only used with --repository, --software or --disconnect-repository")
 			}
 			const action = "this app update"
 			if len(warnings) > 0 {
@@ -330,13 +335,13 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
 	command.Flags().StringVar(&name, "name", "", "New app name")
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "New payment method public ID")
-	command.Flags().StringVar(&softwarePreset, "software-preset", "", "Software preset slug; resets the software version of every environment to the preset default (asks first)")
+	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug, from frbit presets list; resets the software version of every environment to the preset default (asks first)")
 	command.Flags().BoolVar(&gitDeployComments, "git-deploy-comments", false, "Comment on GitHub pull requests with the deployment (true or false)")
 	command.Flags().StringArrayVar(&technicalContacts, "technical-contact", nil, "Technical contact person public ID, replaces the list (repeatable)")
 	command.Flags().BoolVar(&clearTechnicalContacts, "clear-technical-contacts", false, "Remove all technical contacts")
 	command.Flags().StringVar(&repository, "repository", "", "Connect a GitHub repository in OWNER/REPOSITORY form; clears every environment's deploy branch (asks first)")
 	command.Flags().BoolVar(&disconnectRepository, "disconnect-repository", false, "Disconnect the GitHub repository; stops deployments until one is connected again (asks first)")
-	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm --repository, --software-preset or --disconnect-repository by repeating the app ID")
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm --repository, --software or --disconnect-repository by repeating the app ID")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }

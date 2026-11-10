@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -65,7 +66,7 @@ func TestAppsUpdateRepositoryAndNameInOneCall(t *testing.T) {
 }
 
 func TestAppsUpdateGitDeployCommentsFalseIsSent(t *testing.T) {
-	requests, _, err := runAppsUpdate(t, false, "", "--git-deploy-comments=false", "--software-preset", "laravel", "--confirm", "ap-abc123")
+	requests, _, err := runAppsUpdate(t, false, "", "--git-deploy-comments=false", "--software", "laravel", "--confirm", "ap-abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func TestAppsUpdateWrongConfirmSendsNothing(t *testing.T) {
 
 func TestAppsUpdateConfirmNeedsAGatedFlag(t *testing.T) {
 	requests, _, err := runAppsUpdate(t, false, "", "--name", "shop", "--confirm", "ap-abc123")
-	if err == nil || !strings.Contains(err.Error(), "only used with --repository, --software-preset or --disconnect-repository") || len(requests) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "only used with --repository, --software or --disconnect-repository") || len(requests) != 0 {
 		t.Fatalf("err = %v, requests = %#v", err, requests)
 	}
 }
@@ -168,8 +169,8 @@ func TestAppsUpdateConfirmNeedsAGatedFlag(t *testing.T) {
 func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
 	for _, args := range [][]string{
 		{"--repository", "acme/shop"},
-		{"--software-preset", "laravel"},
-		{"--name", "shop", "--software-preset", "laravel"},
+		{"--software", "laravel"},
+		{"--name", "shop", "--software", "laravel"},
 		{"--repository", "acme/shop", "--confirm", "ap-wrong1"},
 	} {
 		requests, _, err := runAppsUpdate(t, false, "", args...)
@@ -180,7 +181,7 @@ func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
 }
 
 func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
-	requests, output, err := runAppsUpdate(t, true, "no\n", "--repository", "acme/shop", "--software-preset", "laravel")
+	requests, output, err := runAppsUpdate(t, true, "no\n", "--repository", "acme/shop", "--software", "laravel")
 	if !errors.Is(err, cmdutil.ErrAborted) || len(requests) != 0 || !strings.Contains(output, "Aborted.") {
 		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
 	}
@@ -192,8 +193,23 @@ func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
 	if strings.Count(output, "Type ap-abc123 to confirm:") != 1 {
 		t.Fatalf("asked more than once: %q", output)
 	}
-	requests, _, err = runAppsUpdate(t, true, "ap-abc123\n", "--software-preset", "laravel")
+	requests, _, err = runAppsUpdate(t, true, "ap-abc123\n", "--software", "laravel")
 	if err != nil || len(requests) != 1 || requests[0].body["softwarePresetName"] != "laravel" {
 		t.Fatalf("confirmed: err = %v, requests = %#v", err, requests)
+	}
+}
+
+func TestAppsUpdateFileWithSoftwarePresetNeedsConfirm(t *testing.T) {
+	path := t.TempDir() + "/body.json"
+	if err := os.WriteFile(path, []byte(`{"softwarePresetName":"craft-cms"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests, _, err := runAppsUpdate(t, false, "", "--file", path)
+	if err == nil || !strings.Contains(err.Error(), "--confirm ap-abc123") || len(requests) != 0 {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+	requests, _, err = runAppsUpdate(t, false, "", "--file", path, "--confirm", "ap-abc123")
+	if err != nil || len(requests) != 1 || requests[0].body["softwarePresetName"] != "craft-cms" {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
 	}
 }

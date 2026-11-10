@@ -230,19 +230,19 @@ Dry run: nothing was created.
 frbit apps update ap-a1b2c3 --name renamed-shop
 frbit apps update ap-a1b2c3 --payment-method pm-a1b2c3
 frbit apps update ap-a1b2c3 --git-deploy-comments=false
-frbit apps update ap-a1b2c3 --software-preset laravel --confirm ap-a1b2c3
+frbit apps update ap-a1b2c3 --software laravel --confirm ap-a1b2c3
 frbit apps update ap-a1b2c3 --technical-contact pn-a1b2c3 --technical-contact pn-d4e5f6
 frbit apps update ap-a1b2c3 --clear-technical-contacts
 frbit apps update ap-a1b2c3 --repository acme/shop --confirm ap-a1b2c3
 frbit apps update ap-a1b2c3 --disconnect-repository --confirm ap-a1b2c3
 ```
 
-- `--software-preset` sets the software version of every environment to the preset default and clears pinned versions; the next deployment uses that version.
+- `--software` sets the software version of every environment to the preset default and clears pinned versions; the next deployment uses that version.
 - `--technical-contact` (repeatable) replaces the list with the given person public IDs; `--clear-technical-contacts` empties it.
 - `--git-deploy-comments=true|false` toggles deployment comments on GitHub pull requests.
 - `--repository OWNER/REPOSITORY` connects a GitHub repository (`PUT /v1/apps/{id}/git-repository`) and clears the deploy branch and deploy file settings of every environment; no environment deploys until you set a branch again with `environments update`. Combined with other flags, the app is updated first, then the repository connected.
 - `--disconnect-repository` removes the connection and stops deployments until a repository is connected again.
-- `--repository`, `--software-preset` and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
+- `--repository`, `--software` and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
 
 ## Environments
 
