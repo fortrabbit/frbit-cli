@@ -447,6 +447,28 @@ The default output is `<environment>.sql.gz` in the current folder; `--output` i
 
 A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A missing `ssh` client fails before any request.
 
+## Database push
+
+```sh
+frbit db push dump.sql.gz en-a1b2c3
+frbit db push dump.sql --confirm en-a1b2c3
+gunzip -c dump.sql.gz | frbit db push - en-a1b2c3 --confirm en-a1b2c3
+```
+
+`db push <file|-> [environment]` replaces the database of an environment with a local dump: every table in the dump is dropped and recreated; tables that exist only on the environment stay. The file is plain SQL (gzipped while uploading) or gzipped SQL; `-` reads it from stdin. An empty file, a `.gz` file that is not gzip data, or a damaged gzip file fails before any request. Without an environment it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
+
+It needs the environment ID typed on a terminal, or `--confirm <id>` without one or when the dump comes from stdin. The check runs before the environment is read and before any SSH call.
+
+Each step is its own SSH call with your own SSH key:
+
+1. Backup: `mysqldump` of the current database to `/data/home/frbit-backup-<UTC time>.sql.gz` on the environment. When it fails, the database is not touched.
+2. Upload to `/data/home/frbit-import.sql.gz` (leftover uploads of the agent skill's `db-up.sh` are removed first).
+3. `gzip -t` of the upload. A damaged upload imports nothing.
+4. Import: `gunzip -c | mysql "$FORTRABBIT_DB_NAME"`.
+5. Removal of the upload.
+
+A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
+
 ## People
 
 ```sh
@@ -713,6 +735,7 @@ frbit --profile work auth logout
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
+| `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

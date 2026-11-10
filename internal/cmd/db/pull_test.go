@@ -79,17 +79,36 @@ func gzipped(t *testing.T, content string) []byte {
 // run executes frbit db pull in dir against a fake API and the fake runner.
 func run(t *testing.T, dir string, fake *fakeRunner, args ...string) (string, string, error) {
 	t.Helper()
+	checkTool := func(string) error { return nil }
+	if fake.realCheck {
+		checkTool = sshexec.Check
+	}
+	return execute(t, dir, invocation{runner: fake, check: checkTool, ctx: fake.ctx, args: append([]string{"db", "pull"}, args...)})
+}
+
+type invocation struct {
+	runner   sshexec.Runner
+	check    func(string) error
+	ctx      context.Context
+	stdin    io.Reader
+	tty      bool
+	requests *[]string
+	args     []string
+}
+
+// execute runs the frbit db command of in inside dir against a fake API.
+func execute(t *testing.T, dir string, in invocation) (string, string, error) {
+	t.Helper()
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	t.Setenv("FORTRABBIT_ENVIRONMENT", "")
 	t.Chdir(dir)
 	previousRunner, previousCheck := runner, checkTool
-	runner = fake
-	checkTool = func(string) error { return nil }
-	if fake.realCheck {
-		checkTool = sshexec.Check
-	}
+	runner, checkTool = in.runner, in.check
 	t.Cleanup(func() { runner, checkTool = previousRunner, previousCheck })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if in.requests != nil {
+			*in.requests = append(*in.requests, r.Method+" "+r.URL.Path)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/environments/en-abc123" {
 			_, _ = w.Write([]byte(`{"publicId":"en-abc123","sshHost":"en-abc123@ssh.us-e1a.frbit.app"}`))
@@ -100,8 +119,12 @@ func run(t *testing.T, dir string, fake *fakeRunner, args ...string) (string, st
 	}))
 	t.Cleanup(server.Close)
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	stdin := in.stdin
+	if stdin == nil {
+		stdin = strings.NewReader("")
+	}
 	factory := &app.Factory{
-		IOStreams:       iostreams.IOStreams{In: strings.NewReader(""), Out: stdout, ErrOut: stderr},
+		IOStreams:       iostreams.IOStreams{In: stdin, Out: stdout, ErrOut: stderr, IsTTY: in.tty},
 		ConfigStore:     configStore{},
 		CredentialStore: credentialStore{},
 		HTTPClient:      &http.Client{},
@@ -113,8 +136,8 @@ func run(t *testing.T, dir string, fake *fakeRunner, args ...string) (string, st
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.AddCommand(NewCmdDb(factory))
-	root.SetArgs(append([]string{"--host", server.URL, "db", "pull"}, args...))
-	ctx := fake.ctx
+	root.SetArgs(append([]string{"--host", server.URL}, in.args...))
+	ctx := in.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}

@@ -31,7 +31,7 @@ var (
 
 func NewCmdDb(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{Use: "db", Short: "Copy the database of an environment", Args: cobra.NoArgs}
-	command.AddCommand(newCmdPull(factory))
+	command.AddCommand(newCmdPull(factory), newCmdPush(factory))
 	return command
 }
 
