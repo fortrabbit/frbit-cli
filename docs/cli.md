@@ -370,7 +370,16 @@ frbit deployments logs dp-a1b2c3
 frbit domains list
 frbit domains list --page 2 --id do-a1b2c3
 frbit domains get do-a1b2c3
+frbit domains create en-a1b2c3 www.example.com --main
+frbit domains create en-a1b2c3 acme-shop --cloud
+frbit domains dns do-a1b2c3 --refresh
 ```
+
+`domains create <environment> <name>` adds a domain you own (`name` is a hostname) and prints the DNS record to set at your DNS provider, the record found in DNS now, and the verification state. A bare apex such as `example.com` also creates `www.example.com`. `--main` makes it the environment's main domain.
+
+With `--cloud`, `name` is a label such as `acme-shop`, not a full hostname; the API appends the cloud domain root. The CLI checks `GET /v1/domains/cloud/availability` first and fails with the reason (`invalid`, `reserved`, `taken`) before creating anything. Cloud domains need no DNS record. An environment can have one cloud domain.
+
+`domains dns <id>` shows the expected and actual record. `--refresh` makes the API check DNS again first. Cloud and default frbit.app domains have no DNS record and answer 404. Domains are not billed. `--json` prints the raw API body (for `create`, the created domain only).
 
 ## People
 
@@ -596,7 +605,7 @@ frbit --profile work auth logout
 | `frbit environments restart <id>` | Request an environment restart. |
 | `frbit environments deploy <id>` | Create a deployment from the configured Git source. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs. `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
-| `frbit domains list` / `get <id>` / `delete <id>` | List, get, or delete domains. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
+| `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

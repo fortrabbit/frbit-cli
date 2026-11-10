@@ -147,6 +147,15 @@ func (c Client) GetResource(ctx context.Context, path string) (ResourceResponse,
 	return decodeResourceResponse(body)
 }
 
+// GetResourceWithQuery GETs path with query parameters and decodes the resource.
+func (c Client) GetResourceWithQuery(ctx context.Context, path string, query url.Values) (ResourceResponse, error) {
+	body, err := c.get(ctx, path, query)
+	if err != nil {
+		return ResourceResponse{}, err
+	}
+	return decodeResourceResponse(body)
+}
+
 func decodeResourceResponse(body []byte) (ResourceResponse, error) {
 	var resource Resource
 	if err := json.Unmarshal(body, &resource); err != nil {
