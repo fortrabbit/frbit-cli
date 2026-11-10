@@ -165,3 +165,15 @@ func TestBackupsRestorePromptEndsOnCancel(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupsDownloadErrorHidesSignedLink(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	link := "http://" + closed.Listener.Addr().String() + "/storage/site.zip?X-Amz-Signature=SECRET"
+	closed.Close()
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"publicId":"ba-abc123","type":"files","url":%q}`, link)
+	}, "backups", "download", "ba-abc123", "--output", t.TempDir())
+	if err == nil || strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "/storage/") {
+		t.Fatalf("err = %v", err)
+	}
+}

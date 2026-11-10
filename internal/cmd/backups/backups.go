@@ -223,7 +223,7 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 	transport.ResponseHeaderTimeout = 30 * time.Second
 	response, err := (&http.Client{Transport: transport}).Do(request)
 	if err != nil {
-		return "", fmt.Errorf("download backup: %w", err)
+		return "", fmt.Errorf("download backup: %w", withoutURL(err))
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -263,6 +263,15 @@ func download(ctx context.Context, stdout io.Writer, link, baseName, output stri
 		return "", fmt.Errorf("download backup: %w", err)
 	}
 	return target, nil
+}
+
+// withoutURL drops the request URL from a transport error: the signed link is the only authorisation for the backup.
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }
 
 func refuseOverwrite(target string) error {
