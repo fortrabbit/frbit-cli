@@ -214,14 +214,23 @@ func (r Resolver) Lookup(ctx context.Context, client *api.Client, dir string, br
 
 // Verify checks that id belongs to the account, so a fork of a template fails with a hint instead of a bare 404.
 func Verify(ctx context.Context, client *api.Client, id string) (string, error) {
-	if _, err := client.GetResource(ctx, "/v1/environments/"+url.PathEscape(id)); err != nil {
-		var httpErr *api.HTTPError
-		if errors.As(err, &httpErr) && (httpErr.Status == http.StatusNotFound || httpErr.Status == http.StatusForbidden) {
-			return "", fmt.Errorf("%s is not in your account; run frbit link", id)
-		}
+	if _, err := Environment(ctx, client, id); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// Environment gets the environment id, with Verify's hint when it is not in the account.
+func Environment(ctx context.Context, client *api.Client, id string) (api.Resource, error) {
+	response, err := client.GetResource(ctx, "/v1/environments/"+url.PathEscape(id))
+	if err != nil {
+		var httpErr *api.HTTPError
+		if errors.As(err, &httpErr) && (httpErr.Status == http.StatusNotFound || httpErr.Status == http.StatusForbidden) {
+			return nil, fmt.Errorf("%s is not in your account; run frbit link", id)
+		}
+		return nil, err
+	}
+	return response.Resource, nil
 }
 
 // Pick lists the environments of the account and lets the person choose one by number or ID.

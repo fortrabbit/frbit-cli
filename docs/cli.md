@@ -431,6 +431,22 @@ frbit mysql rotate-password en-a1b2c3 --confirm en-a1b2c3
 
 `mysql get <environment>` prints host, port, user and database; it never prints a password (`--json` prints the raw API body). `rotate-password` starts a password rotation; the app breaks until it reads the new password (redeploy or restart). It needs the environment ID typed on a terminal or `--confirm <id>` without one. The new password is never printed: the app reads it from its environment variables.
 
+## Database pull
+
+```sh
+frbit db pull
+frbit db pull en-a1b2c3 --output ./dumps/
+frbit db pull en-a1b2c3 --stdout | gzip > db.sql.gz
+```
+
+`db pull [environment]` dumps the database of an environment to a local gzipped file and never touches a local database: import the file yourself, or let ddev do it. Without an argument it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
+
+It runs the local `ssh` with your own SSH key; `mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces` runs on the environment, so no database credentials reach your machine. Without a terminal, ssh runs with `BatchMode=yes` and fails instead of asking for a password.
+
+The default output is `<environment>.sql.gz` in the current folder; `--output` is a file or a folder. The dump goes to a temporary file in the target folder that is renamed on success and removed on failure or Ctrl-C, with mode 0600. An existing file is not overwritten unless you pass `--force`. An empty dump fails. `--stdout` writes plain SQL to stdout instead.
+
+A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A missing `ssh` client fails before any request.
+
 ## People
 
 ```sh
@@ -696,6 +712,7 @@ frbit --profile work auth logout
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`. |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
