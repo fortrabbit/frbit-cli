@@ -444,6 +444,22 @@ frbit git repositories
 frbit git branches acme/site
 ```
 
+## Backups
+
+```sh
+frbit backups list en-a1b2c3
+frbit backups create en-a1b2c3
+frbit backups get ba-a1b2c3
+frbit backups restore ba-a1b2c3 --confirm ba-a1b2c3
+frbit backups download ba-a1b2c3 --type database --output ./backups/
+```
+
+`create` requests a manual backup; it appears in `list` once completed. `list` and `get` take `--json`.
+
+`restore` overwrites the live database and files of the environment with the backup and cannot be undone. It asks you to type the backup ID, or takes `--confirm <backup>` without a TTY; a missing or wrong value fails before any request.
+
+`download` asks the API for a signed link (`--type files|database`, default `files`) and streams it to disk without sending the API token to the storage host. `--output` is a file, a folder, or `-` for stdout; the default is `<backup>-<type>` plus the extension from the storage response, in the current folder. The data goes to a temporary file in the target folder that is renamed on success and removed on failure. The link expires; run the command again for a fresh one.
+
 ## Deleting resources
 
 Apps, environments, domains, jobs, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
