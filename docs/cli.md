@@ -385,10 +385,9 @@ Without `--metric`, `metrics` prints one row per booked component (storage, data
 frbit environments logs                       # the environment of the checkout
 frbit environments logs production            # a label from .fortrabbit/environments.yml
 frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
-frbit environments logs en-a1b2c3 --source php --follow
 ```
 
-Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. `--follow` polls every 2 seconds for new entries until Ctrl-C, which exits 0. Control characters other than tabs are stripped. `--follow` retries after 429, 503 and network errors (waiting `Retry-After` when given). `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed, and one object per line with `--follow`.
+Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. Control characters other than tabs are stripped. `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed.
 
 ## Deployments
 
@@ -813,7 +812,7 @@ frbit --profile work auth logout
 | `frbit environments variables update <environment>` | Set or delete custom environment variables. |
 | `frbit environments restart <environment>` | Request an environment restart. |
 | `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
-| `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
+| `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`. |
 | `frbit environments metrics [environment]` | Show the usage summary, or the history of one metric with `--metric <slug>`, `--range` and `--step`. Accepts `--json`. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (an ID or a label; default: all deployments). |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
