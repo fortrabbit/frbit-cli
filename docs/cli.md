@@ -469,6 +469,25 @@ Each step is its own SSH call with your own SSH key:
 
 A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
 
+## Files
+
+```sh
+frbit files pull
+frbit files pull web/uploads --env en-a1b2c3 --dry-run
+frbit files push web/uploads --env en-a1b2c3 --delete
+frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
+```
+
+`files pull [path]` copies files from `/data/www/` on an environment into the current folder; `files push [path]` copies them the other way. Both run the local `rsync` over `ssh` with your own SSH key; the API token only resolves the environment and its SSH host. The environment comes from `--env` (ID or label) or from the checkout (see [Link a local project](#link-a-local-project)).
+
+The path is relative to `/data/www/` and to the current folder; without one, all of `/data/www/` syncs with the current folder. A folder path syncs onto the same-named folder on the other side: `web/uploads` syncs `/data/www/web/uploads` with `./web/uploads`, not into `./web/uploads/uploads`. A file path syncs that file. Absolute paths, `..`, `~` and characters other than letters, digits and `. _ - + @ /` are refused before any request. On push, the parent folder of the path must exist on the environment.
+
+Changed files are overwritten on the receiving side. `--delete` also removes files there that the sending side does not have. `--dry-run` lists what would change and copies nothing.
+
+`files push` needs the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
+
+rsync 3.1 and later shows overall progress (`--info=progress2`); the older rsync and openrsync that macOS ships show per-file progress. Missing `rsync` or `ssh` fails with how to install it. A rejected SSH key (exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>; any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
+
 ## People
 
 ```sh
@@ -736,6 +755,7 @@ frbit --profile work auth logout
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
+| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`; `push` accepts `--confirm`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
