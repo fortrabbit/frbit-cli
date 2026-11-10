@@ -242,7 +242,7 @@ frbit apps update ap-a1b2c3 --disconnect-repository --confirm ap-a1b2c3
 - `--git-deploy-comments=true|false` toggles deployment comments on GitHub pull requests.
 - `--repository OWNER/REPOSITORY` connects a GitHub repository (`PUT /v1/apps/{id}/git-repository`) and clears the deploy branch and deploy file settings of every environment; no environment deploys until you set a branch again with `environments update`. Combined with other flags, the app is updated first, then the repository connected.
 - `--disconnect-repository` removes the connection and stops deployments until a repository is connected again.
-- `--repository`, `--software` and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
+- `--repository`, `--software` (or `softwarePresetName` in a `--file` body) and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
 
 ## Environments
 
