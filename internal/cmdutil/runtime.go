@@ -81,9 +81,12 @@ func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error
 	return client, nil
 }
 
+// OwnJSONErrors marks a command whose --json output already reports its errors, so no problem document follows.
+const OwnJSONErrors = "frbit/own-json-errors"
+
 // WriteProblemJSON prints the problem document of an API error to out when command ran with --json.
 func WriteProblemJSON(command *cobra.Command, err error, out io.Writer) bool {
-	if command == nil {
+	if command == nil || command.Annotations[OwnJSONErrors] != "" {
 		return false
 	}
 	flag := command.Flags().Lookup("json")

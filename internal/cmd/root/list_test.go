@@ -138,3 +138,18 @@ func TestAPIWarningsGoToCommandStderr(t *testing.T) {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 }
+
+func TestAuthStatusJSONPrintsOneLineOnRejectedToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/problem+json")
+		writer.WriteHeader(http.StatusUnauthorized)
+		_, _ = writer.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"Invalid credentials."}`))
+	}))
+	defer server.Close()
+
+	stdout, _, code := runRoot(t, "--host", server.URL, "auth", "status", "--json")
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if code == 0 || len(lines) != 1 || !strings.Contains(lines[0], `"status":"error"`) {
+		t.Fatalf("exit = %d, stdout = %q", code, stdout)
+	}
+}
