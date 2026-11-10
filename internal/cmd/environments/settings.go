@@ -467,8 +467,10 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 				return err
 			}
 			if len(components) == 0 {
-				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "No component plan changes.")
-				return err
+				if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "No component plan changes."); err != nil || !printJSON {
+					return err
+				}
+				return writeRaw(cmd, current.Raw)
 			}
 			if region == "" {
 				if region, err = environmentRegion(cmd, client, env); err != nil {

@@ -356,6 +356,10 @@ func TestComponentsUpdateSkipsUnchanged(t *testing.T) {
 	if err != nil || out != "" || !strings.Contains(stderr, "No component plan changes.") || patched(seen) {
 		t.Fatalf("out = %q, stderr = %q, err = %v, seen = %+v", out, stderr, err, seen)
 	}
+	out, _, seen, err = runStreams(t, context.Background(), "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm", "--json")
+	if err != nil || !strings.HasPrefix(out, "{") || patched(seen) {
+		t.Fatalf("json: out = %q, err = %v", out, err)
+	}
 }
 
 func TestComponentsUpdateResolvesRegion(t *testing.T) {
