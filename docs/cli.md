@@ -372,12 +372,12 @@ frbit environments components update en-a1b2c3 --component php=md --component da
 
 ```sh
 frbit environments metrics en-a1b2c3
-frbit environments metrics php-requests       # the environment of the checkout
-frbit environments metrics en-a1b2c3 php-requests --range 7d
-frbit environments metrics en-a1b2c3 web-storage --range 30d --step hour
+frbit environments metrics --metric php-requests   # the environment of the checkout
+frbit environments metrics en-a1b2c3 --metric php-requests --range 7d
+frbit environments metrics en-a1b2c3 --metric web-storage --range 30d --step hour
 ```
 
-Without a slug, `metrics` prints one row per booked component (storage, database, traffic) with current usage, limit and percentage, the last 24 hours (requests, 500/503/504 responses, response times, PHP memory, out-of-memory kills) and the available metric slugs. With a slug it prints the history: totals and one point per step. `--range 1h|24h|7d|30d` (default `24h`) sets `from` and `to` (ISO 8601, UTC) counted back from now; `--step hour|day` defaults to `hour` for 1h and 24h and `day` for 7d and 30d (the API allows hourly steps up to 83 days). `--json` prints the raw API body.
+Without `--metric`, `metrics` prints one row per booked component (storage, database, traffic) with current usage, limit and percentage, the last 24 hours (requests, 500/503/504 responses, response times, PHP memory, out-of-memory kills) and the available metric slugs. With `--metric <slug>` it prints the history: totals and one point per step. `--range 1h|24h|7d|30d` (default `24h`) sets `from` and `to` (ISO 8601, UTC) counted back from now; `--step hour|day` defaults to `hour` for 1h and 24h and `day` for 7d and 30d (the API allows hourly steps up to 83 days). `--json` prints the raw API body.
 
 ### Logs
 
@@ -577,8 +577,8 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`) or a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)).
 
-- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file, else a list to pick from on a terminal.
-- Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`add` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one they fail with `name the environment: frbit <command> <env-id|label>`, and add `(the checkout resolves to en-a1b2c3 via …)` when the checkout points to one.
+- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file. When none applies, they fail with `no environment for this checkout; pass the environment ID or run frbit link <env-id>`, on a terminal too.
+- Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`add` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one, or with an empty one, they fail with `name the environment: frbit <command> <env-id|label>`.
 - `deployments list -e` takes an ID or a label; without `-e` it lists every deployment and never reads the checkout.
 - `db push` and `files pull|push` keep using the checkout, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path.
 - `--confirm` and the typed confirmation always compare with the resolved `en-` ID, never the label.
@@ -590,8 +590,6 @@ When the environment comes from a label or the checkout, one line on stderr says
 → en-a1b2c3 (from FORTRABBIT_ENVIRONMENT)
 → en-a1b2c3 (from the repository acme/site, branch main)
 ```
-
-`environments metrics` with one argument reads it as the environment when it is an ID or a label in the file, else as the metric slug: `frbit environments metrics php-requests` shows that metric for the environment of the checkout.
 
 ## Link a local project
 
@@ -606,7 +604,7 @@ Commands find the environment of the current checkout as described in [Choosing 
 
 The server lookup matches the GitHub `origin` remote to the repository connected to an app, and the current branch to the environment that deploys it. On such a connected repository `frbit link` confirms the match and writes nothing.
 
-Bare `frbit link` runs the same steps, except the argument and the list, and prints the environment and the step that found it. `--json` prints it as one JSON object:
+Bare `frbit link` runs the same steps, except the argument, and prints the environment and the step that found it. `--json` prints it as one JSON object:
 
 ```json
 {"environment":"en-a1b2c3","source":"repository","repository":"acme/site","branch":"main","app":"ap-a1b2c3","name":"production","sshHost":"en-a1b2c3@ssh.eu-w1a.frbit.app","region":"eu-w1a"}
@@ -623,7 +621,7 @@ main: en-a1b2c3
 staging: en-d4e5f6
 ```
 
-An ID outside your account fails, for example in a fork of a template. When it comes from an entry in `.fortrabbit/environments.yml`, every command (`link`, `link --json`, `db`, `files`) names the entry and the fix: relink with `frbit link <env-id> --label <label>`, or edit the file. An ID passed directly points to `frbit environments list`. A `.fortrabbit` file with `app-env-id=` from an older setup blocks the folder: on a terminal `frbit link` offers to move the ID into `environments.yml` under the current branch. Without a terminal, commands still find the environment through the connected repository and fail with the migration hint only when nothing resolves.
+An ID outside your account fails, for example in a fork of a template. When it comes from an entry in `.fortrabbit/environments.yml`, every command (`link`, `link --json`, `db`, `files`) names the entry and the fix: relink with `frbit link <env-id> --label <label>`, or edit the file. An ID passed directly points to `frbit environments list`. A `.fortrabbit` file (with `app-env-id=`, written by an older fortrabbit skill) blocks the folder: every command that reads the checkout fails with `.fortrabbit is a link file from an older fortrabbit skill; delete it and run frbit link <env-id>`.
 
 ## Deleting resources
 
@@ -818,7 +816,7 @@ frbit --profile work auth logout
 | `frbit environments restart <environment>` | Request an environment restart. |
 | `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
 | `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`, `--follow`. |
-| `frbit environments metrics [environment] [slug]` | Show the usage summary, or the history of one metric with `--range` and `--step`. Accepts `--json`. |
+| `frbit environments metrics [environment]` | Show the usage summary, or the history of one metric with `--metric <slug>`, `--range` and `--step`. Accepts `--json`. |
 | `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (an ID or a label; default: all deployments). |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list [environment]` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |

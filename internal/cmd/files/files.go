@@ -202,7 +202,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	id, err := link.Target{Resolver: link.ForStreams(factory.IOStreams), Dir: dir, Stderr: stderr}.Resolve(ctx, client, opts.env)
+	id, err := link.Target{Dir: dir, Stderr: stderr}.Resolve(ctx, client, opts.env)
 	if err != nil {
 		return err
 	}

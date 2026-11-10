@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
-	"github.com/fortrabbit/frbit-cli/internal/app"
-	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
 )
 
@@ -23,66 +21,25 @@ type Target struct {
 	Stderr io.Writer
 }
 
-// TargetFor returns a Target that asks and reports on the terminal of streams.
-func TargetFor(streams iostreams.IOStreams) Target {
-	return Target{Resolver: ForStreams(streams), Stderr: streams.ErrOut}
-}
-
-// Resolve returns the environment named by arg, else the one of the checkout (asking on a terminal); for commands that only read.
+// Resolve returns the environment named by arg, else the one of the checkout.
 func (t Target) Resolve(ctx context.Context, client *api.Client, arg string) (string, error) {
-	dir, err := t.dir()
-	if err != nil {
-		return "", err
-	}
-	resolution, err := t.Resolver.Find(ctx, client, dir, arg)
-	if errors.Is(err, ErrNoEnvironment) && t.Resolver.IsTTY {
-		id, err := t.Resolver.Pick(ctx, client)
-		return id, err
-	}
-	if err != nil {
-		return "", err
-	}
-	t.Announce(resolution)
-	return resolution.ID, nil
-}
-
-// Optional is Resolve without asking: no environment in the checkout gives "" and no error.
-func (t Target) Optional(ctx context.Context, client *api.Client, arg string) (string, error) {
-	dir, err := t.dir()
-	if err != nil {
-		return "", err
-	}
-	resolution, err := t.Resolver.Find(ctx, client, dir, arg)
-	if errors.Is(err, ErrNoEnvironment) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	t.Announce(resolution)
-	return resolution.ID, nil
-}
-
-// Require returns the environment named by arg, an ID or a label; commands that change something never fall back to the checkout.
-// usage is the command line to show, with <env-id|label> where the environment goes.
-func (t Target) Require(ctx context.Context, client *api.Client, arg, usage string) (string, error) {
-	arg = strings.TrimSpace(arg)
-	if arg != "" {
-		return t.Resolve(ctx, client, arg)
-	}
-	message := "name the environment: " + usage
-	if dir, err := t.dir(); err == nil {
-		quiet := t.Resolver
-		quiet.IsTTY = false
-		if resolution, err := quiet.Find(ctx, client, dir, ""); err == nil {
-			message += fmt.Sprintf(" (the checkout resolves to %s via %s)", resolution.ID, via(resolution))
+	dir := t.Dir
+	if dir == "" {
+		var err error
+		if dir, err = os.Getwd(); err != nil {
+			return "", err
 		}
 	}
-	return "", errors.New(message)
+	resolution, err := t.Resolver.Find(ctx, client, dir, arg)
+	if err != nil {
+		return "", err
+	}
+	t.announce(resolution)
+	return resolution.ID, nil
 }
 
-// Announce prints where the environment came from, unless it was given as an ID or picked by hand.
-func (t Target) Announce(resolution Resolution) {
+// announce prints where the environment came from, unless it was given as an ID.
+func (t Target) announce(resolution Resolution) {
 	if t.Stderr == nil {
 		return
 	}
@@ -100,61 +57,20 @@ func (t Target) Announce(resolution Resolution) {
 	_, _ = fmt.Fprintf(t.Stderr, "→ %s (%s)\n", resolution.ID, from)
 }
 
-func via(resolution Resolution) string {
-	switch resolution.Source {
-	case SourceFile:
-		return fmt.Sprintf("%s (%s)", FilePath, resolution.Label)
-	case SourceEnv:
-		return EnvVar
-	case SourceRepository:
-		return fmt.Sprintf("the repository %s, branch %s", resolution.Match.Repository, resolution.Match.Branch)
-	}
-	return resolution.Source
-}
-
-// IsEnvironmentArg reports whether value names an environment: an ID, or a label in the link file of the checkout.
-func (t Target) IsEnvironmentArg(ctx context.Context, value string) bool {
-	if IsID(value) {
-		return true
-	}
-	dir, err := t.dir()
-	if err != nil {
-		return false
-	}
-	entries, err := ReadFile(t.Resolver.Root(ctx, dir))
-	if err != nil {
-		return false
-	}
-	_, ok := entries.Get(value)
-	return ok
-}
-
-func (t Target) dir() (string, error) {
-	if t.Dir != "" {
-		return t.Dir, nil
-	}
-	return os.Getwd()
-}
-
-// commandTarget is a Target on the terminal of f that reports on the command's stderr.
-func commandTarget(cmd *cobra.Command, f *app.Factory) Target {
-	target := TargetFor(f.IOStreams)
-	target.Resolver.Out = cmd.ErrOrStderr()
-	target.Stderr = cmd.ErrOrStderr()
-	return target
-}
-
 // ReadEnvironment resolves the optional environment argument of a read-only command.
-func ReadEnvironment(cmd *cobra.Command, f *app.Factory, client *api.Client, arg string) (string, error) {
-	return commandTarget(cmd, f).Resolve(cmd.Context(), client, arg)
+func ReadEnvironment(cmd *cobra.Command, client *api.Client, arg string) (string, error) {
+	return Target{Stderr: cmd.ErrOrStderr()}.Resolve(cmd.Context(), client, arg)
 }
 
 // WriteEnvironment resolves the required environment argument of a command that changes something; usage defaults to the command path plus <env-id|label>.
-func WriteEnvironment(cmd *cobra.Command, f *app.Factory, client *api.Client, arg, usage string) (string, error) {
-	if usage == "" {
-		usage = cmd.CommandPath() + " <env-id|label>"
+func WriteEnvironment(cmd *cobra.Command, client *api.Client, arg, usage string) (string, error) {
+	if strings.TrimSpace(arg) == "" {
+		if usage == "" {
+			usage = cmd.CommandPath() + " <env-id|label>"
+		}
+		return "", errors.New("name the environment: " + usage)
 	}
-	return commandTarget(cmd, f).Require(cmd.Context(), client, arg, usage)
+	return ReadEnvironment(cmd, client, arg)
 }
 
 // FirstArg returns args[0], or "" without arguments.
@@ -186,9 +102,4 @@ func Documented(command *cobra.Command, write bool) *cobra.Command {
 	}
 	command.Long = long + "\n\n" + help
 	return command
-}
-
-// OptionalEnvironment resolves an optional environment filter: the value given, else the checkout's without asking, else "".
-func OptionalEnvironment(cmd *cobra.Command, client *api.Client, arg string) (string, error) {
-	return Target{Stderr: cmd.ErrOrStderr()}.Optional(cmd.Context(), client, arg)
 }

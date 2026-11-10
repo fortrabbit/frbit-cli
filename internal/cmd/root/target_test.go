@@ -94,7 +94,7 @@ func TestEnvironmentTargetsOfOtherGroups(t *testing.T) {
 			}
 			stdout, stderr, paths, err := run("en-abc123")
 			if tc.write {
-				want := "name the environment: frbit " + name + " <env-id|label> (the checkout resolves to en-abc123 via FORTRABBIT_ENVIRONMENT)"
+				want := "name the environment: frbit " + name + " <env-id|label>"
 				if err == nil || err.Error() != want || len(paths) != 0 {
 					t.Fatalf("omitted: %v, %v", err, paths)
 				}
@@ -124,7 +124,7 @@ func TestDomainsCreateTakesLabelAndNeedsEnvironment(t *testing.T) {
 		t.Fatalf("label: %v, %q, %v", err, stderr, paths)
 	}
 	_, _, paths, err = runTarget(t, "en-abc123", "domains", "create", "www.example.com")
-	want := "name the environment: frbit domains create <env-id|label> <name> (the checkout resolves to en-abc123 via FORTRABBIT_ENVIRONMENT)"
+	want := "name the environment: frbit domains create <env-id|label> <name>"
 	if err == nil || err.Error() != want || len(paths) != 0 {
 		t.Fatalf("omitted: %v, %v", err, paths)
 	}

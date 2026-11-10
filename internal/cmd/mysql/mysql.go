@@ -31,7 +31,7 @@ func newCmdGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func newCmdRotatePassword(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			id, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}

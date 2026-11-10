@@ -44,7 +44,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			environment, err := link.WriteEnvironment(cmd, factory, client, envArg, cmd.CommandPath()+" <env-id|label> <name>")
+			environment, err := link.WriteEnvironment(cmd, client, envArg, cmd.CommandPath()+" <env-id|label> <name>")
 			if err != nil {
 				return err
 			}

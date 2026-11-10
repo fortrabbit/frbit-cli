@@ -113,24 +113,23 @@ func readFile(t *testing.T, path string) string {
 	return string(raw)
 }
 
-func TestLinkMigratesLegacyFile(t *testing.T) {
+func TestLinkRefusesLegacyFile(t *testing.T) {
 	dir := t.TempDir()
-	legacy := filepath.Join(dir, ".fortrabbit")
-	if err := os.WriteFile(legacy, []byte("app-env-id=en-old111\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".fortrabbit"), []byte("app-env-id=en-old111\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, dir, "", "main", false, ""); err == nil || !strings.Contains(err.Error(), "run frbit link on a terminal to migrate .fortrabbit") {
-		t.Fatalf("without TTY: %v", err)
+	for _, tty := range []bool{false, true} {
+		if _, err := run(t, dir, "", "main", tty, "y\n"); err == nil || err.Error() != ".fortrabbit is a link file from an older fortrabbit skill; delete it and run frbit link <env-id>" {
+			t.Fatalf("tty %v: %v", tty, err)
+		}
 	}
-	output, err := run(t, dir, "", "main", true, "y\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, filepath.Join(legacy, "environments.yml")); got != "main: en-old111\n" {
-		t.Fatalf("environments.yml = %q", got)
-	}
-	if !strings.Contains(output, "en-old111") {
-		t.Fatalf("output: %s", output)
+}
+
+func TestLinkWithoutEnvironmentFailsOnTerminalToo(t *testing.T) {
+	for _, tty := range []bool{false, true} {
+		if _, err := run(t, t.TempDir(), "", "main", tty, "1\n"); err == nil || err.Error() != "no environment to link; pass the environment ID: frbit link <env-id>" {
+			t.Fatalf("tty %v: %v", tty, err)
+		}
 	}
 }
 

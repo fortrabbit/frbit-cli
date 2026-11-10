@@ -39,7 +39,7 @@ func newCmdPhpSettingsGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -71,7 +71,7 @@ func newCmdPhpSettingsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			env, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}
@@ -147,7 +147,7 @@ func newCmdBasicAuthGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -198,7 +198,7 @@ func newCmdBasicAuthUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			env, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}
@@ -273,7 +273,7 @@ func newCmdFirewallList(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -327,7 +327,7 @@ func newCmdFirewallAdd(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			env, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}
@@ -415,7 +415,7 @@ func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -454,7 +454,7 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			env, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}

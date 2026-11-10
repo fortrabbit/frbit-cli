@@ -23,8 +23,8 @@ var (
 	idPattern    = regexp.MustCompile(`^en-[a-z0-9]+$`)
 	labelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
-	// ErrLegacyFile means .fortrabbit is a file from an older setup, which blocks the .fortrabbit folder.
-	ErrLegacyFile = errors.New(".fortrabbit is a file from an older setup; run frbit link on a terminal to migrate .fortrabbit")
+	// ErrLegacyFile means .fortrabbit is a file, which blocks the .fortrabbit folder.
+	ErrLegacyFile = errors.New(".fortrabbit is a link file from an older fortrabbit skill; delete it and run frbit link <env-id>")
 )
 
 // IsID reports whether value is an environment public ID rather than a label.
@@ -199,58 +199,4 @@ func isLegacy(dir string) (bool, error) {
 		return false, fmt.Errorf("inspect %s: %w", FolderName, err)
 	}
 	return !info.IsDir(), nil
-}
-
-// LegacyID returns the app-env-id of a legacy .fortrabbit file; ok is false when there is no such file or no ID in it.
-func LegacyID(dir string) (string, bool, error) {
-	legacy, err := isLegacy(dir)
-	if err != nil || !legacy {
-		return "", false, err
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, FolderName))
-	if err != nil {
-		return "", false, fmt.Errorf("read %s: %w", FolderName, err)
-	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if ok && strings.TrimSpace(key) == "app-env-id" {
-			id := unquote(strings.TrimSpace(value))
-			if IsID(id) {
-				return id, true, nil
-			}
-		}
-	}
-	return "", false, nil
-}
-
-// MigrateLegacy replaces the legacy .fortrabbit file with the folder and stores its ID under label.
-func MigrateLegacy(dir, label string) (string, error) {
-	if err := ValidLabel(label); err != nil {
-		return "", err
-	}
-	id, ok, err := LegacyID(dir)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", errors.New(".fortrabbit is a file without app-env-id=; move it away and run frbit link")
-	}
-	legacy := filepath.Join(dir, FolderName)
-	backup := legacy + ".migrating"
-	if err := os.Rename(legacy, backup); err != nil {
-		return "", fmt.Errorf("migrate %s: %w", FolderName, err)
-	}
-	entries := newEntries()
-	if err := entries.Set(label, id); err != nil {
-		return "", err
-	}
-	if err := WriteFile(dir, entries); err != nil {
-		_ = os.RemoveAll(legacy)
-		_ = os.Rename(backup, legacy)
-		return "", err
-	}
-	if err := os.Remove(backup); err != nil {
-		return "", fmt.Errorf("migrate %s: %w", FolderName, err)
-	}
-	return id, nil
 }

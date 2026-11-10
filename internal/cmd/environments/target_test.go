@@ -104,7 +104,7 @@ func TestEnvironmentArgumentPaths(t *testing.T) {
 			inCheckout(t, "en-a1b2c3")
 			stdout, stderr, seen, err := run(nil)
 			if tc.write {
-				want := "name the environment: frbit environments " + name + " <env-id|label> (the checkout resolves to en-a1b2c3 via FORTRABBIT_ENVIRONMENT)"
+				want := "name the environment: frbit environments " + name + " <env-id|label>"
 				if err == nil || err.Error() != want || len(seen) != 0 {
 					t.Fatalf("omitted: %v, seen %+v", err, seen)
 				}
@@ -127,13 +127,14 @@ func TestEnvironmentReadJSONKeepsStdoutClean(t *testing.T) {
 	}
 }
 
-func TestMetricsSingleArgument(t *testing.T) {
+func TestMetricsArguments(t *testing.T) {
 	inCheckout(t, "en-a1b2c3")
-	for arg, wantPath := range map[string]string{
-		"en-other1":  "/v1/environments/en-other1/metrics",
-		"staging":    "/v1/environments/en-other1/metrics",
-		"cpu":        "/v1/environments/en-a1b2c3/metrics/cpu",
-		"production": "/v1/environments/en-a1b2c3/metrics",
+	for args, wantPath := range map[string]string{
+		"en-other1":          "/v1/environments/en-other1/metrics",
+		"staging":            "/v1/environments/en-other1/metrics",
+		"--metric cpu":       "/v1/environments/en-a1b2c3/metrics/cpu",
+		"staging --metric x": "/v1/environments/en-other1/metrics/x",
+		"production":         "/v1/environments/en-a1b2c3/metrics",
 	} {
 		handler := targetHandler(func(r request, w http.ResponseWriter) {
 			if r.path == "/v1/environments/en-other1" {
@@ -142,9 +143,9 @@ func TestMetricsSingleArgument(t *testing.T) {
 			}
 			echo(w, 200, `{}`)
 		})
-		_, _, seen, err := runStreams(t, context.Background(), "", handler, "metrics", arg, "--json")
+		_, _, seen, err := runStreams(t, context.Background(), "", handler, append(append([]string{"metrics"}, strings.Fields(args)...), "--json")...)
 		if err != nil || len(seen) == 0 || seen[len(seen)-1].path != wantPath {
-			t.Fatalf("%s: %v, seen %+v", arg, err, seen)
+			t.Fatalf("%s: %v, seen %+v", args, err, seen)
 		}
 	}
 }
@@ -175,8 +176,12 @@ func TestEnvironmentFromConnectedRepository(t *testing.T) {
 	if err != nil || !strings.Contains(stderr, "→ en-a1b2c3 (from the repository acme/site, branch main)\n") || strings.Contains(stdout, "→") {
 		t.Fatalf("%v, stdout %q, stderr %q", err, stdout, stderr)
 	}
-	_, _, _, err = runStreams(t, context.Background(), "", handler, "restart")
-	if err == nil || !strings.Contains(err.Error(), "(the checkout resolves to en-a1b2c3 via the repository acme/site, branch main)") {
-		t.Fatalf("restart: %v", err)
+	_, _, seen, err := runStreams(t, context.Background(), "", handler, "restart")
+	if err == nil || err.Error() != "name the environment: frbit environments restart <env-id|label>" || len(seen) != 0 {
+		t.Fatalf("restart: %v, seen %+v", err, seen)
+	}
+	_, _, seen, err = runStreams(t, context.Background(), "", handler, "restart", " ")
+	if err == nil || !strings.HasPrefix(err.Error(), "name the environment") || len(seen) != 0 {
+		t.Fatalf("blank: %v, seen %+v", err, seen)
 	}
 }

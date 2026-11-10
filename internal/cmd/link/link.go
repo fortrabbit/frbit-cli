@@ -26,7 +26,7 @@ func NewCmdLink(factory *app.Factory) *cobra.Command {
 		Short: "Link the local project to an environment",
 		Long: `Link the local project to an environment.
 
-Without an argument it prints the environment that db and files use here, and which step found it: FORTRABBIT_ENVIRONMENT, the entry for the current branch in .fortrabbit/environments.yml, the environment deploying the current branch of the connected repository, or the only entry in the file. --json prints it as JSON with the SSH host and region. When nothing is found on a terminal, it lets you pick an environment and stores it.
+Without an argument it prints the environment that db and files use here, and which step found it: FORTRABBIT_ENVIRONMENT, the entry for the current branch in .fortrabbit/environments.yml, the environment deploying the current branch of the connected repository, or the only entry in the file. --json prints it as JSON with the SSH host and region.
 
 With an environment, an ID (en-xxxxxx) or a label from that file, it stores the ID in .fortrabbit/environments.yml under --label, which defaults to the current branch. On a repository connected to an app, the environment deploying the current branch needs no entry and nothing is written.
 
@@ -48,7 +48,7 @@ The file lives at the top of the git checkout, or in the current folder outside 
 				return err
 			}
 			out := cmd.OutOrStdout()
-			resolver := envlink.Resolver{Git: git, In: factory.IOStreams.In, Out: cmd.ErrOrStderr(), IsTTY: factory.IOStreams.IsTTY}
+			resolver := envlink.Resolver{Git: git}
 			dir = resolver.Root(ctx, dir)
 			if len(args) == 0 && label == "" {
 				resolution, err := resolver.Find(ctx, client, dir, "")
@@ -58,17 +58,15 @@ The file lives at the top of the git checkout, or in the current folder outside 
 					}
 					return describe(out, resolver.Branch(ctx, dir), resolution)
 				}
-				if !errors.Is(err, envlink.ErrNoEnvironment) {
-					return err
+				if errors.Is(err, envlink.ErrNoEnvironment) {
+					return errNoLink
 				}
-				if printJSON || !factory.IOStreams.IsTTY {
-					return errors.New("no environment to link; pass the environment ID: frbit link <environment>")
-				}
+				return err
 			} else if printJSON {
 				return errors.New("--json only works without an environment or --label")
 			}
 			branch := resolver.Branch(ctx, dir)
-			entries, err := resolver.Entries(ctx, dir, branch)
+			entries, err := envlink.ReadFile(dir)
 			if err != nil {
 				return err
 			}
@@ -98,12 +96,8 @@ The file lives at the top of the git checkout, or in the current folder outside 
 				}
 			case connected && label == "":
 				return confirm()
-			case !factory.IOStreams.IsTTY:
-				return errors.New("no environment to link; pass the environment ID: frbit link <environment>")
 			default:
-				if id, err = resolver.Pick(ctx, client); err != nil {
-					return err
-				}
+				return errNoLink
 			}
 			if connected && match.EnvironmentID == id && label == "" {
 				return confirm()
@@ -132,6 +126,8 @@ The file lives at the top of the git checkout, or in the current folder outside 
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the environment of the checkout as JSON")
 	return command
 }
+
+var errNoLink = errors.New("no environment to link; pass the environment ID: frbit link <env-id>")
 
 // describe says which environment the checkout resolves to and why.
 func describe(out io.Writer, branch string, resolution envlink.Resolution) error {

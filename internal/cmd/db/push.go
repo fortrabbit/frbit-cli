@@ -64,10 +64,6 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if err := checkTool("ssh"); err != nil {
 				return err
 			}
-			dir, err := os.Getwd()
-			if err != nil {
-				return err
-			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
@@ -76,11 +72,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if len(args) == 2 {
 				arg = args[1]
 			}
-			resolver := link.ForStreams(factory.IOStreams)
-			if fromStdin {
-				resolver = link.Resolver{}
-			}
-			id, err := link.Target{Resolver: resolver, Dir: dir, Stderr: cmd.ErrOrStderr()}.Resolve(ctx, client, arg)
+			id, err := link.ReadEnvironment(cmd, client, arg)
 			if err != nil {
 				return err
 			}

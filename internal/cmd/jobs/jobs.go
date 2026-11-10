@@ -37,7 +37,7 @@ func newCmdList(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, link.FirstArg(args))
+			env, err := link.ReadEnvironment(cmd, client, link.FirstArg(args))
 			if err != nil {
 				return err
 			}
@@ -165,7 +165,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			env, err := link.WriteEnvironment(cmd, factory, client, link.FirstArg(args), "")
+			env, err := link.WriteEnvironment(cmd, client, link.FirstArg(args), "")
 			if err != nil {
 				return err
 			}

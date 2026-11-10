@@ -132,7 +132,7 @@ func deploymentsEnvironment(cmd *cobra.Command, client *api.Client, value string
 	if value == "" {
 		return "", nil
 	}
-	return envlink.OptionalEnvironment(cmd, client, value)
+	return envlink.ReadEnvironment(cmd, client, value)
 }
 
 func deploymentSpec() resource.Spec {

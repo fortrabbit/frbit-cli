@@ -28,37 +28,29 @@ var metricRanges = map[string]time.Duration{
 
 func newCmdMetrics(factory *app.Factory) *cobra.Command {
 	var printJSON bool
-	var rangeName, step string
+	var rangeName, step, slug string
 	command := &cobra.Command{
-		Use:   "metrics [environment] [slug]",
+		Use:   "metrics [environment]",
 		Short: "Show usage against plan limits, or the history of one metric",
-		Long: `Without a slug: current usage per booked component with its limit, the last 24 hours, and the available metric slugs. With a slug: that metric over --range (default 24h), one point per --step (default hour for 1h and 24h, day for 7d and 30d).
+		Long: `Without --metric: current usage per booked component with its limit, the last 24 hours, and the available metric slugs. With --metric <slug>: that metric over --range (default 24h), one point per --step (default hour for 1h and 24h, day for 7d and 30d).
 
-The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link). A single argument is the environment when it is an ID (en-…) or a label in that file, else it is the metric slug.`,
-		Args: cobra.MaximumNArgs(2),
+The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link).`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
 				return err
 			}
-			envArg, slug := "", ""
-			switch {
-			case len(args) == 2:
-				envArg, slug = args[0], args[1]
-			case len(args) == 1 && link.TargetFor(factory.IOStreams).IsEnvironmentArg(cmd.Context(), args[0]):
-				envArg = args[0]
-			case len(args) == 1:
-				slug = args[0]
-			}
+			envArg := link.FirstArg(args)
 			var query url.Values
 			if slug != "" {
 				if query, err = metricQuery(rangeName, step, metricsNow()); err != nil {
 					return err
 				}
 			} else if cmd.Flags().Changed("range") || cmd.Flags().Changed("step") {
-				return fmt.Errorf("--range and --step need a metric slug")
+				return fmt.Errorf("--range and --step need --metric")
 			}
-			env, err := link.ReadEnvironment(cmd, factory, client, envArg)
+			env, err := link.ReadEnvironment(cmd, client, envArg)
 			if err != nil {
 				return err
 			}
@@ -80,6 +72,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 		},
 	}
 	command.Flags().StringVar(&rangeName, "range", "24h", "Range of a metric history: 1h, 24h, 7d or 30d")
+	command.Flags().StringVar(&slug, "metric", "", "Metric slug to show the history of; the summary lists them")
 	command.Flags().StringVar(&step, "step", "", "Point size of a metric history: hour or day (default by range)")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
@@ -95,9 +88,6 @@ func metricQuery(rangeName, step string, now time.Time) (url.Values, error) {
 		if length > 24*time.Hour {
 			step = "day"
 		}
-	}
-	if step != "hour" && step != "day" {
-		return nil, fmt.Errorf("--step must be hour or day")
 	}
 	now = now.UTC()
 	return url.Values{
@@ -150,7 +140,7 @@ func writeMetricsSummary(out io.Writer, value api.Resource) error {
 		for _, slug := range slugs {
 			names = append(names, fmt.Sprint(slug))
 		}
-		_, _ = fmt.Fprintf(out, "\nMetrics: %s\nHistory: frbit environments metrics <environment> <slug> --range 7d\n", strings.Join(names, ", "))
+		_, _ = fmt.Fprintf(out, "\nMetrics: %s\nHistory: frbit environments metrics <environment> --metric <slug> --range 7d\n", strings.Join(names, ", "))
 	}
 	return nil
 }

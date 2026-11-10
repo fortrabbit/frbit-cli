@@ -22,7 +22,7 @@ func TestMetricsRangeSetsFromAndTo(t *testing.T) {
 		{[]string{"--range", "30d", "--step", "hour"}, "2026-10-11T11:00:00Z", "hour"},
 	}
 	for _, tc := range cases {
-		args := append([]string{"metrics", "en-abc123", "php-requests"}, tc.args...)
+		args := append([]string{"metrics", "en-abc123", "--metric", "php-requests"}, tc.args...)
 		_, seen, err := run(t, "", func(r request, w http.ResponseWriter) {
 			echo(w, 200, `{"slug":"php-requests","unit":"requests","from":"x","to":"y","step":"day","totals":[{"label":"total","value":4210}],"series":{"total":[["2026-11-01T00:00:00+00:00",120],["2026-11-02T00:00:00+00:00",null]]}}`)
 		}, args...)
@@ -34,7 +34,7 @@ func TestMetricsRangeSetsFromAndTo(t *testing.T) {
 			t.Fatalf("%v: %s?%s", tc.args, seen[0].path, seen[0].query)
 		}
 	}
-	if _, _, err := run(t, "", func(request, http.ResponseWriter) {}, "metrics", "en-abc123", "x", "--range", "2d"); err == nil {
+	if _, _, err := run(t, "", func(request, http.ResponseWriter) {}, "metrics", "en-abc123", "--metric", "x", "--range", "2d"); err == nil {
 		t.Fatal("bad range accepted")
 	}
 }
@@ -59,7 +59,7 @@ func TestMetricsSummaryTable(t *testing.T) {
 func TestMetricsHistoryOutput(t *testing.T) {
 	output, _, err := run(t, "", func(r request, w http.ResponseWriter) {
 		echo(w, 200, `{"slug":"php-requests","unit":"requests","from":"a","to":"b","step":"day","totals":[{"label":"total","value":4210}],"series":{"total":[["2026-11-01T00:00:00+00:00",120],["2026-11-02T00:00:00+00:00",null]]}}`)
-	}, "metrics", "en-abc123", "php-requests")
+	}, "metrics", "en-abc123", "--metric", "php-requests")
 	if err != nil {
 		t.Fatal(err)
 	}
