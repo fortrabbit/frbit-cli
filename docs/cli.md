@@ -318,7 +318,7 @@ frbit environments update en-a1b2c3 --software-version 11 --php-version 8.4   # 
 | `--trigger` | `push`, `manual` or `hook` |
 | `--permission` | `connectedDevelopers` or `repositoryAccess` |
 | `--node-version` | A version from `frbit node-versions list`; stops following newer Node.js versions |
-| `--deploy-hook[=false]` | Turn the deploy hook on or off |
+| `--deploy-hook[=false]` | Turn the deploy hook on or off; the hook URL is in the dashboard |
 
 The strategy, the pattern lists and the cached directories are refused while a deploy file in the repository manages them. `trigger`, `permission`, `nodeVersion` and `deployHook` are always editable. `environments get` lists the settings as `deployment.<field>` rows next to `rootPath`.
 
@@ -434,7 +434,7 @@ frbit jobs update jo-a1b2c3 --inactive
 frbit jobs delete jo-a1b2c3 --confirm jo-a1b2c3
 ```
 
-`jobs list [environment]` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page; `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
+`jobs list [environment]` prints the jobs and a footer `Jobs: <count> of <limit>` from the `X-Jobs-Count` and `X-Jobs-Limit` headers of the first page (text output only; `--json` prints the jobs array); `--limit` and `--all` follow further pages. The limit is 0 when no jobs plan is booked (create then answers 403). A worker runs all the time (a Laravel or Craft queue worker); a cron job runs on a schedule.
 
 `create` needs `--name`, `--command` (must start with `php ` or `bash `) and `--type worker|cron`. A cron job also needs `--interval minute|hour|day|custom` and `--max-runtime 300|1800|3600|10800|21600`; `--interval custom` needs `--expression`. The CLI sends the flags as typed; the API checks the values and names each rejected field. Optional: `--inactive`, `--exit-timeout 1|5|10|30`, `--exit-signal TERM|INT`.
 

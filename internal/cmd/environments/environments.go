@@ -300,7 +300,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	flags.StringVar(&opts.nodeVersion, "node-version", "", "Node.js version, see 'frbit node-versions list'")
 	flags.StringVar(&opts.softwareVersion, "software-version", "", "Major software version")
 	flags.StringVar(&opts.phpVersion, "php-version", "", "PHP runtime version (stops automatic PHP updates)")
-	flags.BoolVar(&opts.deployHook, "deploy-hook", false, "Enable the deploy hook (--deploy-hook=false disables it)")
+	flags.BoolVar(&opts.deployHook, "deploy-hook", false, "Enable the deploy hook (--deploy-hook=false disables it); its URL is in the dashboard")
 	flags.BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
 }
