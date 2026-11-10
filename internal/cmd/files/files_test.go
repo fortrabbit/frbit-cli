@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -139,11 +140,11 @@ func TestFilesPullBuildsRsyncArgs(t *testing.T) {
 		want []string
 	}{
 		{[]string{"files", "pull", "--env", "en-abc123", "--confirm", "en-abc123"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
 		{[]string{"files", "pull", "web/uploads/", "--env", "en-abc123", "--delete", "--confirm", "en-abc123"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
 		{[]string{"files", "pull", "./storage", "--env", "en-abc123", "--dry-run"},
-			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
+			[]string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
 	}
 	for _, c := range cases {
 		fake := &fakeRunner{version: rsync3}
@@ -171,7 +172,7 @@ func TestFilesRsyncArgsOldRsync(t *testing.T) {
 		}
 	}
 	got := rsyncArgs("--progress", true, true, true, "a", "b")
-	want := []string{"-az", "--progress", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--dry-run", "-v", "--delete", "--", "a", "b"}
+	want := []string{"-az", "--progress", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--dry-run", "-v", "--delete", "--", "a", "b"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rsyncArgs = %q", got)
 	}
@@ -238,7 +239,7 @@ func TestFilesPushWithoutTTYRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "push", "--env", "en-abc123", "--confirm", "en-abc123", "--delete"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
+	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -278,7 +279,7 @@ func TestFilesPushPromptsOnTTY(t *testing.T) {
 
 	fake = &fakeRunner{version: rsync3}
 	_, _, err = execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("en-abc123\n"), args: []string{"files", "push", "web/uploads", "--env", "en-abc123"}})
-	want := []string{"-az", "--info=progress2", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
+	want := []string{"-az", "--info=progress2", "-e", "ssh -T -o ConnectTimeout=10", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
 	if err != nil || len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("confirmed: %v, %q", err, fake.syncs)
 	}
@@ -356,7 +357,7 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--env", "en-abc123", "--delete", "--confirm", "en-abc123"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
+	want := []string{"-az", "--info=progress2", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -409,6 +410,35 @@ func TestFilesPullWithoutPathRequiresConfirm(t *testing.T) {
 		fake = &fakeRunner{version: rsync3}
 		if _, _, err := execute(t, dir, invocation{runner: fake, args: args}); err != nil || len(fake.syncs) != 1 {
 			t.Fatalf("%v: %v, %q", args, err, fake.syncs)
+		}
+	}
+}
+
+func TestExcludesKeepDumpsAndTempFilesOutOfAPush(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("rsync not installed")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	kept := []string{"index.php", "web/en-abc123.sql.gz", "web/ba-abc123-files.zip", "notes.sql.gz"}
+	skipped := []string{"en-abc123.sql.gz", "ba-abc123-database.sql.gz", "ba-abc123-files.zip", "ba-abc123-files.tar.gz", ".frbit-db-pull-123", ".frbit-download-456", ".env", ".git/config"}
+	for _, name := range append(append([]string{}, kept...), skipped...) {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(src, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := append([]string{"-r"}, excludes...)
+	if output, err := exec.Command("rsync", append(args, src+"/", dst+"/")...).CombinedOutput(); err != nil {
+		t.Fatalf("rsync: %v\n%s", err, output)
+	}
+	for _, name := range kept {
+		if _, err := os.Stat(filepath.Join(dst, name)); err != nil {
+			t.Errorf("%s not copied", name)
+		}
+	}
+	for _, name := range skipped {
+		if _, err := os.Stat(filepath.Join(dst, name)); err == nil {
+			t.Errorf("%s copied", name)
 		}
 	}
 }

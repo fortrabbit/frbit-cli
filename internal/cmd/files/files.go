@@ -52,7 +52,7 @@ The path is relative to /data/www/ and to the current folder; without one, all o
 
 Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment. Without a path, and with --delete, it asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
 
-Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
+Without a path, .git/, .fortrabbit/, .env, .env.*, the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit files pull web/uploads
@@ -74,7 +74,7 @@ Files that changed are overwritten on the environment. --delete also removes fil
 
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. A dry run needs no confirmation.
 
-Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
+Without a path, .git/, .fortrabbit/, .env, .env.*, the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database.*, ba-*-files.*) and .frbit-* temp files in the current folder and in /data/www/ are never copied or deleted. These excludes are anchored at the top of the transfer, so they apply to a whole-folder sync, not inside a synced subfolder.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`
 		command.Example = `  frbit files push web/uploads --env en-a1b2c3
@@ -118,9 +118,12 @@ func progressFlag(version string) string {
 	return "--progress"
 }
 
-// rsyncArgs builds the rsync arguments; the excludes keep the repository, its link file and local secrets out of a sync and a --delete, and "--" ends the options before the paths.
+// excludes keep the repository, its link file, local secrets, and the default outputs and temp files of db pull and backups download out of a sync and a --delete.
+var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=/.frbit-*", "--exclude=/en-*.sql.gz", "--exclude=/ba-*-database.*", "--exclude=/ba-*-files.*"}
+
+// rsyncArgs builds the rsync arguments; "--" ends the options before the paths.
 func rsyncArgs(progress string, interactive, dryRun, del bool, src, dst string) []string {
-	args := []string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " "), "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*"}
+	args := append([]string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " ")}, excludes...)
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
