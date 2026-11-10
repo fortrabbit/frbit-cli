@@ -474,7 +474,7 @@ A failure or Ctrl-C after the backup says whether the database changed and print
 ```sh
 frbit files pull
 frbit files pull web/uploads --env en-a1b2c3 --dry-run
-frbit files push web/uploads --env en-a1b2c3 --delete
+frbit files pull storage --env en-a1b2c3 --delete --confirm en-a1b2c3
 frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
 ```
 
@@ -482,9 +482,9 @@ frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3
 
 The path is relative to `/data/www/` and to the current folder; without one, all of `/data/www/` syncs with the current folder. A folder path syncs onto the same-named folder on the other side: `web/uploads` syncs `/data/www/web/uploads` with `./web/uploads`, not into `./web/uploads/uploads`. A file path syncs that file. Absolute paths, `..`, `~` and characters other than letters, digits and `. _ - + @ /` are refused before any request. On push, the parent folder of the path must exist on the environment.
 
-Changed files are overwritten on the receiving side. `--delete` also removes files there that the sending side does not have. `--dry-run` lists what would change and copies nothing.
+Changed files are overwritten on the receiving side. `--delete` also removes files there that the sending side does not have. `--dry-run` lists what would change and copies nothing. `.git/` and `.fortrabbit/` at the top of the synced folder are always excluded (`--exclude=/.git/ --exclude=/.fortrabbit/`), so a sync never copies or deletes the repository, the deploy file or the link file.
 
-`files push` needs the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
+`files push`, and `files pull --delete`, need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before the environment is read and before rsync starts. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
 
 rsync 3.1 and later shows overall progress (`--info=progress2`); the older rsync and openrsync that macOS ships show per-file progress. Missing `rsync` or `ssh` fails with how to install it. A rejected SSH key (exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>; any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
 
@@ -755,7 +755,7 @@ frbit --profile work auth logout
 | `frbit jobs list <environment>` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--stdout` (plain SQL), `--force`. |
 | `frbit db push <file\|-> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
-| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`; `push` accepts `--confirm`. |
+| `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--env`, `--dry-run`, `--delete`, `--confirm` (push, and pull with `--delete`). Never sync `.git/` or `.fortrabbit/`. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

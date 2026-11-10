@@ -50,7 +50,9 @@ func newCmdSync(factory *app.Factory, push bool) *cobra.Command {
 
 The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .. and characters outside letters, digits and . _ - + @ / are refused.
 
-Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment; --dry-run lists what would change.
+Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment; it asks you to type the environment ID on a terminal, without one pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
+
+.git/ and .fortrabbit/ at the top of the synced folder are never copied or deleted.
 
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit files pull
@@ -72,12 +74,14 @@ Files that changed are overwritten on the environment. --delete also removes fil
 
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. A dry run needs no confirmation.
 
+.git/ and .fortrabbit/ at the top of the synced folder are never copied or deleted.
+
 The environment is an ID or a label from .fortrabbit/environments.yml passed with --env; without one, the environment of the checkout is used (see frbit link).`
 		command.Example = `  frbit files push web/uploads --env en-a1b2c3
   frbit files push web/uploads --dry-run
   frbit files push web/uploads --env en-a1b2c3 --confirm en-a1b2c3`
-		command.Flags().StringVar(&opts.confirmation, "confirm", "", "Confirm by repeating the environment ID")
 	}
+	command.Flags().StringVar(&opts.confirmation, "confirm", "", "Confirm by repeating the environment ID")
 	command.Flags().StringVar(&opts.env, "env", "", "Environment ID or label (default: the environment of the checkout)")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "List what would change without copying")
 	command.Flags().BoolVar(&opts.delete, "delete", false, "Remove files on the receiving side that the sending side does not have")
@@ -114,9 +118,9 @@ func progressFlag(version string) string {
 	return "--progress"
 }
 
-// rsyncArgs builds the rsync arguments; "--" ends the options before the paths.
+// rsyncArgs builds the rsync arguments; the excludes keep the repository and its link file out of a sync and a --delete, and "--" ends the options before the paths.
 func rsyncArgs(progress string, interactive, dryRun, del bool, src, dst string) []string {
-	args := []string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " ")}
+	args := []string{"-az", progress, "-e", strings.Join(append([]string{"ssh"}, sshexec.Options(interactive)...), " "), "--exclude=/.git/", "--exclude=/.fortrabbit/"}
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
@@ -180,9 +184,13 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	destructive := push && !opts.dryRun
+	destructive := !opts.dryRun && (push || opts.delete)
+	action := "files pull --delete"
+	if push {
+		action = "files push"
+	}
 	if destructive {
-		if err := cmdutil.CheckDestructive(factory, "files push", id, opts.confirmation); err != nil {
+		if err := cmdutil.CheckDestructive(factory, action, id, opts.confirmation); err != nil {
 			return err
 		}
 	}
@@ -199,14 +207,17 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 		remotePath += rel
 	}
 	if destructive {
-		warning := fmt.Sprintf("Files under %s on %s are overwritten by the local copies.", remotePath, id)
-		if opts.delete {
-			warning += " Files there that do not exist locally are deleted."
+		warning := fmt.Sprintf("Local files under %s that are not on %s are deleted.", localPath(rel), id)
+		if push {
+			warning = fmt.Sprintf("Files under %s on %s are overwritten by the local copies.", remotePath, id)
+			if opts.delete {
+				warning += " Files there that do not exist locally are deleted."
+			}
+			if branch := gitBranch(env); branch != "" {
+				warning += fmt.Sprintf(" %s deploys from the Git branch %s: the next deployment overwrites code changes made this way.", id, branch)
+			}
 		}
-		if branch := gitBranch(env); branch != "" {
-			warning += fmt.Sprintf(" %s deploys from the Git branch %s: the next deployment overwrites code changes made this way.", id, branch)
-		}
-		confirmed, err := cmdutil.ConfirmDestructiveContext(ctx, factory, stderr, "files push", id, opts.confirmation, warning)
+		confirmed, err := cmdutil.ConfirmDestructiveContext(ctx, factory, stderr, action, id, opts.confirmation, warning)
 		if err != nil {
 			return err
 		}
@@ -249,4 +260,11 @@ func gitBranch(env map[string]any) string {
 	git, _ := env["git"].(map[string]any)
 	branch, _ := git["branch"].(string)
 	return branch
+}
+
+func localPath(rel string) string {
+	if rel == "." {
+		return "./"
+	}
+	return "./" + rel
 }
