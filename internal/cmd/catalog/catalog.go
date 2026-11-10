@@ -30,7 +30,7 @@ func specs() []resource.Spec {
 			Use: "plans", Singular: "plan", Path: "/catalog/component-plans", Short: "List component plans, sizes and prices", NoGet: true,
 			QueryFilters:  []resource.QueryFilter{{Name: "region", Usage: "Region identifier, e.g. eu-w1a"}, {Name: "currency", Usage: "Price currency: EUR or USD"}},
 			ClientFilters: []resource.ClientFilter{{Name: "component", Usage: "Only the component with this slug, e.g. php", Key: "slug"}},
-			Fields:        []resource.Field{{Header: "COMPONENT", Key: "slug"}, {Header: "OPTIONAL", Key: "optional"}, {Header: "AUTOSCALES", Key: "autoscales"}, {Header: "SIZES", Key: "sizes"}},
+			Fields:        []resource.Field{{Header: "COMPONENT", Key: "slug"}, {Header: "OPTIONAL", Key: "optional"}, {Header: "AUTOSCALES", Key: "autoscales"}, {Header: "SIZES", Key: "sizes", Format: formatSizes}},
 		},
 		{
 			Use: "presets", Singular: "preset", Path: "/catalog/software-presets", Short: "List software presets and their versions", NoGet: true,
@@ -42,7 +42,7 @@ func specs() []resource.Spec {
 		},
 		{
 			Use: "php-versions", Singular: "PHP version", Path: "/catalog/php-versions", Short: "List the available PHP versions", NoGet: true,
-			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}, {Header: "SURCHARGE", Key: "surcharge"}},
+			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}, {Header: "SURCHARGE", Key: "surcharge", Format: formatSurcharge}},
 		},
 		{
 			Use: "php-extensions", Singular: "PHP extension", Path: "/catalog/php-extensions", Short: "List the available PHP extensions", NoGet: true,
@@ -57,6 +57,40 @@ func specs() []resource.Spec {
 			Fields: []resource.Field{{Header: "VERSION", Key: "version"}, {Header: "DEFAULT", Key: "default"}, {Header: "EOL", Key: "eol"}},
 		},
 	}
+}
+
+// formatSizes renders plan sizes as "s 5.00 EUR, m 10.00 EUR"; a size without a price shows its name only.
+func formatSizes(value any) string {
+	sizes, _ := value.([]any)
+	parts := make([]string, 0, len(sizes))
+	for _, item := range sizes {
+		size, _ := item.(map[string]any)
+		name, _ := size["size"].(string)
+		cents, ok := size["priceInCents"].(float64)
+		if !ok {
+			parts = append(parts, name)
+			continue
+		}
+		currency, _ := size["currency"].(string)
+		parts = append(parts, strings.TrimSpace(fmt.Sprintf("%s %s %s", name, money(cents), currency)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// formatSurcharge renders the monthly PHP version surcharge given in cents per currency.
+func formatSurcharge(value any) string {
+	surcharge, _ := value.(map[string]any)
+	var parts []string
+	for _, currency := range []string{"eur", "usd"} {
+		if cents, ok := surcharge[currency].(float64); ok {
+			parts = append(parts, money(cents)+" "+strings.ToUpper(currency))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func money(cents float64) string {
+	return fmt.Sprintf("%.2f", cents/100)
 }
 
 func newCmdGit(factory *app.Factory) *cobra.Command {

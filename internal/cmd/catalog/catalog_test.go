@@ -156,3 +156,27 @@ func TestNoGetGroupsHaveNoGetSubcommand(t *testing.T) {
 		}
 	}
 }
+
+func TestPlansListShowsSizesReadably(t *testing.T) {
+	out, err := run(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"slug":"php","optional":false,"autoscales":true,"sizes":[{"size":"s","name":"Small","specs":{"cpu":1},"priceInCents":500,"currency":"EUR"},{"size":"m","name":null,"specs":{},"priceInCents":1000,"currency":"EUR"}]},{"slug":"backups","optional":true,"autoscales":false,"sizes":[{"size":"off","name":null,"specs":{},"priceInCents":null,"currency":"EUR"}]}]`))
+	}, "plans", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "s 5.00 EUR, m 10.00 EUR") || !strings.Contains(out, "false       off\n") || strings.Contains(out, "{") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestPHPVersionsListShowsSurcharge(t *testing.T) {
+	out, err := run(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"version":"8.4","eol":null,"default":true,"surcharge":{"eur":0,"usd":0}},{"version":"7.4","eol":"2022-11-28","default":false,"surcharge":{"eur":1000,"usd":1100}}]`))
+	}, "php-versions", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "10.00 EUR, 11.00 USD") || strings.Contains(out, "{") {
+		t.Fatalf("output = %q", out)
+	}
+}

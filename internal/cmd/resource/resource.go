@@ -22,6 +22,8 @@ import (
 type Field struct {
 	Header string
 	Key    string
+	// Format renders the value in a table; nil uses the default rendering.
+	Format func(value any) string
 }
 
 // QueryFilter is a list flag sent as a query parameter of the same name.
@@ -433,7 +435,11 @@ func writeResources(output io.Writer, resources []api.Resource, totalItems int, 
 				if index > 0 {
 					_, _ = fmt.Fprint(table, "\t")
 				}
-				if _, err := fmt.Fprint(table, resourceValue(resource[field.Key])); err != nil {
+				value := resourceValue(resource[field.Key])
+				if field.Format != nil {
+					value = field.Format(resource[field.Key])
+				}
+				if _, err := fmt.Fprint(table, value); err != nil {
 					return err
 				}
 			}
