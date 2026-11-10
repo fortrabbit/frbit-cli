@@ -51,6 +51,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var deploy bool
 	var paymentMethodID string
 	var printJSON bool
+	var yes bool
 
 	command := &cobra.Command{
 		Use:   "create",
@@ -63,6 +64,14 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
+				return err
+			}
+			confirmed, err := cmdutil.ConfirmBilled(cmd, factory, client, "/v1/apps", payload, yes)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return err
 			}
 			response, err := client.CreateResource(cmd.Context(), "/v1/apps", payload)
@@ -93,6 +102,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().BoolVar(&deploy, "deploy", false, "Start the first deployment after creation")
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "Payment method public ID")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
 	return command
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -438,7 +439,7 @@ func TestDeleteRequiresConfirmationInNonInteractiveUse(t *testing.T) {
 
 func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		var body map[string]any
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -491,7 +492,7 @@ func TestAppWriteCommandsSendExpectedPayloads(t *testing.T) {
 
 func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		switch requests {
 		case 1:
@@ -574,7 +575,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 
 func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
 	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwarePresetName":"general-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		body := &bytes.Buffer{}
 		_, _ = body.ReadFrom(request.Body)
 		if body.String() != payload {
@@ -878,5 +879,132 @@ func TestCreateCommandsLeaveCloudDomainToTheAPIUnlessOptedOut(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+type dryRunCall struct {
+	method, path, idempotencyKey string
+	dryRun                       bool
+}
+
+func billingServer(t *testing.T, pricing string, calls *[]dryRunCall) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		dryRun, _ := body["dryRun"].(bool)
+		*calls = append(*calls, dryRunCall{request.Method, request.URL.Path, request.Header.Get("Idempotency-Key"), dryRun})
+		if dryRun {
+			_, _ = writer.Write([]byte(pricing))
+			return
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123","name":"store"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+const billedPricing = `{"pricing":{"monthlyPriceInCents":2400,"currency":"EUR","billed":true,"trialEndsAt":null,"components":[{"slug":"php","size":"sm","priceInCents":1200},{"slug":"storage","size":"xs","priceInCents":1200}]}}`
+
+func runAppsCreate(t *testing.T, server *httptest.Server, tty bool, input string, extra ...string) (*bytes.Buffer, error) {
+	t.Helper()
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	errOut := &bytes.Buffer{}
+	factory.IOStreams.ErrOut = errOut
+	factory.IOStreams.IsTTY = tty
+	factory.IOStreams.In = strings.NewReader(input)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetOut(output)
+	command.SetErr(errOut)
+	command.SetArgs(append([]string{"--host", server.URL, "apps", "create", "--name", "store", "--region", "eu-w1a"}, extra...))
+	err := command.Execute()
+	return errOut, err
+}
+
+func TestAppsCreateShowsPriceAndAsks(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	errOut, err := runAppsCreate(t, server, true, "y\n", "--payment-method", "pm-abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Monthly price: 24.00 EUR", "pm-abc123", "Create and start billing? [y/N]"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr = %q, missing %q", errOut.String(), want)
+		}
+	}
+	if len(calls) != 2 || !calls[0].dryRun || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+
+	calls = nil
+	if _, err := runAppsCreate(t, server, true, "n\n"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || !calls[0].dryRun {
+		t.Fatalf("declined: calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateWithoutTTYRequiresYes(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	_, err := runAppsCreate(t, server, false, "")
+	if err == nil || !strings.Contains(err.Error(), "billed change needs --yes") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(calls) != 1 || !calls[0].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+
+	calls = nil
+	if _, err := runAppsCreate(t, server, false, "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestAppsCreateTrialSkipsQuestion(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, `{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":"2026-11-14T10:30:00+00:00","components":[]}}`, &calls)
+	if _, err := runAppsCreate(t, server, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[1].dryRun {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestDryRunSendsNoIdempotencyKey(t *testing.T) {
+	var calls []dryRunCall
+	server := billingServer(t, billedPricing, &calls)
+	if _, err := runAppsCreate(t, server, false, "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if calls[0].idempotencyKey != "" {
+		t.Fatalf("dry run sent Idempotency-Key %q", calls[0].idempotencyKey)
+	}
+	if calls[1].idempotencyKey == "" {
+		t.Fatal("real create sent no Idempotency-Key")
+	}
+}
+
+// answerDryRun serves create dry runs with a trial price and passes everything else to next.
+func answerDryRun(next http.HandlerFunc) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		raw, _ := io.ReadAll(request.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if dryRun, _ := body["dryRun"].(bool); dryRun {
+			_, _ = writer.Write([]byte(`{"pricing":{"monthlyPriceInCents":0,"currency":"EUR","billed":false,"trialEndsAt":null,"components":[]}}`))
+			return
+		}
+		request.Body = io.NopCloser(bytes.NewReader(raw))
+		next(writer, request)
 	}
 }

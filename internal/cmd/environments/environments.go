@@ -58,6 +58,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var sourceEnvironment string
 	var environmentVariableValues []string
 	var printJSON bool
+	var yes bool
 
 	command := &cobra.Command{
 		Use:   "create",
@@ -70,6 +71,14 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			}
 			client, err := cmdutil.APIClient(cmd, factory)
 			if err != nil {
+				return err
+			}
+			confirmed, err := cmdutil.ConfirmBilled(cmd, factory, client, "/v1/environments", payload, yes)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				_, err := fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 				return err
 			}
 			response, err := client.CreateResource(cmd.Context(), "/v1/environments", payload)
@@ -95,6 +104,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&sourceEnvironment, "source-environment", "", "Environment public ID whose component plans should be cloned")
 	command.Flags().StringArrayVar(&environmentVariableValues, "env", nil, "Environment variable as NAME=VALUE (repeatable)")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
 	return command
 }
 

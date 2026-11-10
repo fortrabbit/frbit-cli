@@ -205,6 +205,10 @@ The API gives the initial environment a cloud domain with a label derived from t
 
 Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
 
+### Billed creates
+
+`apps create` and `environments create` first run the same request as a dry run, print the monthly price and the payment method, and ask `Create and start billing? [y/N]`. The price and the question go to stderr. Trial apps without a payment method cost nothing and are created without a question. Without a terminal the command fails with `billed change needs --yes`; pass `--yes` only after the person has seen the price. The dry run applies to `--file` bodies too and sends no idempotency key.
+
 ### Update an app
 
 ```sh
@@ -511,11 +515,11 @@ frbit --profile work auth logout
 | `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
-| `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. |
+| `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
 | `frbit apps update <id>` | Update an app name or payment method. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get <id>` | List or get environments. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
-| `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. |
+| `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. |
 | `frbit environments update <id>` | Update an environment and its deployment configuration. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get <id>` | Get custom and platform-injected environment variables. |
