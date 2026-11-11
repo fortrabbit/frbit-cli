@@ -156,7 +156,7 @@ func TestFilesRejectsParentPath(t *testing.T) {
 		"/etc": "not a relative path", "~": "not a relative path", "~/x": "not a relative path",
 		"a;id": "characters other than", "$(id)": "characters other than", "a b": "characters other than",
 		`.\./x`: "backslash", `web\uploads`: "backslash",
-		".git/hooks": "inside .git", "./.git": "inside .git", ".fortrabbit": "inside .fortrabbit", ".fortrabbit/environments.yml": "inside .fortrabbit", ".ddev": "inside .ddev", ".ddev/.downloads/db.sql.gz": "inside .ddev",
+		".git/hooks": "inside .git", "./.git": "inside .git", ".fortrabbit": "inside .fortrabbit", ".fortrabbit/environments.yml": "inside .fortrabbit", ".ddev": "inside .ddev", ".ddev/.downloads/db.sql.gz": "inside .ddev", ".DDEV": "inside .ddev", ".Git/hooks": "inside .git",
 	}
 	for path, want := range cases {
 		for _, command := range []string{"pull", "push"} {
@@ -546,9 +546,9 @@ func TestUserExcludesWithRsync(t *testing.T) {
 	}
 	exists := func(name string) bool { _, err := os.Stat(filepath.Join(dst, name)); return err == nil }
 
-	// Whole-folder sync: / anchors at the project folder.
-	run([]string{"node_modules", "/vendor/"}, src+"/", dst+"/")
-	for name, want := range map[string]bool{"index.php": true, "web/vendor/b.js": true, "vendor/a.php": false, "node_modules/d.js": false, "web/node_modules/c.js": false} {
+	// Whole-folder sync: a leading / anchors at the project folder, other patterns match the end of a path.
+	run([]string{"node_modules", "/vendor/", "uploads/cache"}, src+"/", dst+"/")
+	for name, want := range map[string]bool{"index.php": true, "web/vendor/b.js": true, "vendor/a.php": false, "node_modules/d.js": false, "web/node_modules/c.js": false, "web/uploads/cache/x.jpg": false, "web/uploads/a.jpg": true} {
 		if exists(name) != want {
 			t.Errorf("whole folder: %s copied = %v", name, !want)
 		}

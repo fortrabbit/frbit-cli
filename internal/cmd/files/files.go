@@ -38,7 +38,7 @@ func NewCmdFiles(factory *app.Factory) *cobra.Command {
 // sharedHelp ends the long help of pull and push.
 const sharedHelp = `Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database*, ba-*-files*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .ddev/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
 
---exclude <pattern> leaves more files out, and can be repeated. It takes an rsync pattern: node_modules matches at any depth, a leading / anchors it at the top of the transfer, which is the project folder without a path and the parent of the synced folder with one (/vendor/ without a path, /uploads/cache/ for web/uploads). Excluded files are neither copied nor deleted.
+--exclude <pattern> leaves more files out, and can be repeated. It takes an rsync pattern: node_modules or uploads/cache match at the end of a path at any depth, and a leading / anchors a pattern at the top of the transfer, which is the project folder without a path and the parent of the synced folder with one (/vendor/ without a path, /uploads/cache/ for web/uploads). Excluded files are neither copied nor deleted.
 
 A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
@@ -116,8 +116,12 @@ func cleanPath(raw string) (string, error) {
 	}
 	clean := path.Clean("./" + raw)
 	// The repository, the link folder and the local DDEV config are never a sync target: files from an environment are untrusted, hooks would run locally, and .ddev holds local dumps.
-	if first, _, _ := strings.Cut(clean, "/"); first == ".git" || first == ".fortrabbit" || first == ".ddev" {
-		return "", fmt.Errorf("%s is inside %s; frbit files does not sync it", raw, first)
+	first, _, _ := strings.Cut(clean, "/")
+	// Compared case-insensitively, since .DDEV is the same folder on a case-insensitive file system.
+	for _, kept := range []string{".git", ".fortrabbit", ".ddev"} {
+		if strings.EqualFold(first, kept) {
+			return "", fmt.Errorf("%s is inside %s; frbit files does not sync it", raw, kept)
+		}
 	}
 	return clean, nil
 }
@@ -251,6 +255,9 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 			if branch := gitBranch(env); branch != "" {
 				warning += fmt.Sprintf(" %s deploys from the Git branch %s: the next deployment overwrites code changes made this way.", id, branch)
 			}
+		}
+		if opts.delete && len(opts.excludes) > 0 {
+			warning += " Files matching --exclude are kept."
 		}
 		confirmed, err := cmdutil.ConfirmDestructiveContext(ctx, factory, stderr, action, id, opts.confirmation, warning)
 		if err != nil {
