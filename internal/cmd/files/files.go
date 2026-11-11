@@ -38,7 +38,7 @@ func NewCmdFiles(factory *app.Factory) *cobra.Command {
 // sharedHelp ends the long help of pull and push.
 const sharedHelp = `Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database*, ba-*-files*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .ddev/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
 
---exclude <pattern> leaves more files out, and can be repeated. It takes an rsync pattern: node_modules matches at any depth, a leading / anchors it at the top of the transfer (/vendor/). Excluded files are neither copied nor deleted.
+--exclude <pattern> leaves more files out, and can be repeated. It takes an rsync pattern: node_modules matches at any depth, a leading / anchors it at the top of the transfer, which is the project folder without a path and the parent of the synced folder with one (/vendor/ without a path, /uploads/cache/ for web/uploads). Excluded files are neither copied nor deleted.
 
 A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
@@ -176,8 +176,9 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	for _, pattern := range opts.excludes {
-		if strings.TrimSpace(pattern) == "" {
+	for i, pattern := range opts.excludes {
+		opts.excludes[i] = strings.TrimSpace(pattern)
+		if opts.excludes[i] == "" {
 			return fmt.Errorf("--exclude needs a pattern")
 		}
 	}

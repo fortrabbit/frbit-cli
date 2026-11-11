@@ -511,7 +511,7 @@ func TestFilesEnvironmentFlagTakesLabel(t *testing.T) {
 func TestFilesExcludeFlag(t *testing.T) {
 	dir := t.TempDir()
 	fake := &fakeRunner{}
-	args := []string{"files", "push", "--environment", "en-abc123", "--confirm", "en-abc123", "--exclude", "node_modules", "--exclude", "/vendor/"}
+	args := []string{"files", "push", "--environment", "en-abc123", "--confirm", "en-abc123", "--exclude", " node_modules", "--exclude", "/vendor/"}
 	if _, stderr, err := execute(t, dir, invocation{runner: fake, args: args}); err != nil {
 		t.Fatalf("%v\n%s", err, stderr)
 	}
@@ -524,5 +524,40 @@ func TestFilesExcludeFlag(t *testing.T) {
 	_, _, err := execute(t, dir, invocation{runner: fake, requests: &requests, args: []string{"files", "pull", "web", "--environment", "en-abc123", "--exclude", " "}})
 	if err == nil || !strings.Contains(err.Error(), "--exclude needs a pattern") || len(fake.syncs) != 0 || len(requests) != 0 {
 		t.Fatalf("empty pattern: %v, %q, %q", err, fake.syncs, requests)
+	}
+}
+
+func TestUserExcludesWithRsync(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("rsync not installed")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	for _, name := range []string{"index.php", "vendor/a.php", "web/vendor/b.js", "web/node_modules/c.js", "node_modules/d.js", "web/uploads/a.jpg", "web/uploads/cache/x.jpg"} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(src, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(extra []string, from, to string) {
+		args := rsyncArgs(false, "ssh", false, false, extra, from, to)[3:]
+		if output, err := exec.Command("rsync", append([]string{"-r"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("rsync: %v\n%s", err, output)
+		}
+	}
+	exists := func(name string) bool { _, err := os.Stat(filepath.Join(dst, name)); return err == nil }
+
+	// Whole-folder sync: / anchors at the project folder.
+	run([]string{"node_modules", "/vendor/"}, src+"/", dst+"/")
+	for name, want := range map[string]bool{"index.php": true, "web/vendor/b.js": true, "vendor/a.php": false, "node_modules/d.js": false, "web/node_modules/c.js": false} {
+		if exists(name) != want {
+			t.Errorf("whole folder: %s copied = %v", name, !want)
+		}
+	}
+
+	// Path sync: / anchors at the parent of the synced folder.
+	dst = t.TempDir()
+	run([]string{"/uploads/cache/"}, src+"/web/uploads", dst+"/")
+	if !exists("uploads/a.jpg") || exists("uploads/cache/x.jpg") {
+		t.Errorf("path sync: a.jpg %v, cache %v", exists("uploads/a.jpg"), exists("uploads/cache/x.jpg"))
 	}
 }
