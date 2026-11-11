@@ -36,7 +36,9 @@ func NewCmdFiles(factory *app.Factory) *cobra.Command {
 }
 
 // sharedHelp ends the long help of pull and push.
-const sharedHelp = `Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database*, ba-*-files*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
+const sharedHelp = `Files named like the default outputs of db pull and backups download (en-*.sql.gz, ba-*-database*, ba-*-files*) and .frbit-* temp files are never copied or deleted, at any depth. Without a path, .git/, .fortrabbit/, .ddev/, .env and .env.* in the current folder and in /data/www/ are never copied or deleted either; these are anchored at the top of the transfer, so they do not apply inside a synced subfolder.
+
+--exclude <pattern> leaves more files out, and can be repeated. It takes an rsync pattern: node_modules or uploads/cache match at the end of a path at any depth, and a leading / anchors a pattern at the top of the transfer, which is the project folder without a path and the parent of the synced folder with one (/vendor/ without a path, /uploads/cache/ for web/uploads). Excluded files are neither copied nor deleted.
 
 A sync without a path, and any --delete, refuses to run from /, your home folder, or a subfolder of a git checkout: run it from the top of the project.
 
@@ -45,6 +47,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml passed wit
 type options struct {
 	env, confirmation string
 	dryRun, delete    bool
+	excludes          []string
 }
 
 func newCmdSync(factory *app.Factory, push bool) *cobra.Command {
@@ -54,7 +57,7 @@ func newCmdSync(factory *app.Factory, push bool) *cobra.Command {
 		Short: "Copy files from an environment to the current folder",
 		Long: `Copy files from /data/www/ on an environment to the current folder with rsync over SSH, using your own SSH key.
 
-The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .., a path into .git or .fortrabbit, and characters outside letters, digits and . _ - + @ / are refused.
+The path is relative to /data/www/ and to the current folder; without one, all of /data/www/ is synced into the current folder. A folder path syncs that folder onto the same-named local folder, so web/uploads syncs /data/www/web/uploads into ./web/uploads. Absolute paths, .., a path into .git, .fortrabbit or .ddev, and characters outside letters, digits and . _ - + @ / are refused.
 
 Files that changed are overwritten locally. --delete also removes local files that do not exist on the environment. Without a path, and with --delete, it asks you to type the environment ID on a terminal; without one, pass --confirm <environment>. --dry-run lists what would change and needs no confirmation.
 
@@ -72,7 +75,7 @@ Files that changed are overwritten locally. --delete also removes local files th
 		command.Short = "Copy files from the current folder to an environment"
 		command.Long = `Copy files from the current folder to /data/www/ on an environment with rsync over SSH, using your own SSH key.
 
-The path is relative to the current folder and to /data/www/; without one, the whole current folder is synced onto /data/www/. A folder path syncs that folder onto the same-named remote folder, whose parent must exist on the environment. Absolute paths, .., a path into .git or .fortrabbit, and characters outside letters, digits and . _ - + @ / are refused.
+The path is relative to the current folder and to /data/www/; without one, the whole current folder is synced onto /data/www/. A folder path syncs that folder onto the same-named remote folder, whose parent must exist on the environment. Absolute paths, .., a path into .git, .fortrabbit or .ddev, and characters outside letters, digits and . _ - + @ / are refused.
 
 Files that changed are overwritten on the environment. --delete also removes files on the environment that do not exist locally; --dry-run lists what would change. When the environment deploys from a Git repository, the next deployment overwrites code you push this way.
 
@@ -87,6 +90,7 @@ It asks you to type the environment ID on a terminal; without one, pass --confir
 	command.Flags().StringVarP(&opts.env, "environment", "e", "", "Environment ID or label (default: the environment of the checkout)")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "List what would change without copying")
 	command.Flags().BoolVar(&opts.delete, "delete", false, "Remove files on the receiving side that the sending side does not have")
+	command.Flags().StringArrayVar(&opts.excludes, "exclude", nil, "Leave files matching this rsync pattern out, can be repeated (e.g. node_modules, /vendor/)")
 	return command
 }
 
@@ -111,23 +115,30 @@ func cleanPath(raw string) (string, error) {
 		}
 	}
 	clean := path.Clean("./" + raw)
-	// The repository and the link folder are never a sync target: files from an environment are untrusted, and hooks would run locally.
-	if first, _, _ := strings.Cut(clean, "/"); first == ".git" || first == ".fortrabbit" {
-		return "", fmt.Errorf("%s is inside %s; frbit files does not sync it", raw, first)
+	// The repository, the link folder and the local DDEV config are never a sync target: files from an environment are untrusted, hooks would run locally, and .ddev holds local dumps.
+	first, _, _ := strings.Cut(clean, "/")
+	// Compared case-insensitively, since .DDEV is the same folder on a case-insensitive file system.
+	for _, kept := range []string{".git", ".fortrabbit", ".ddev"} {
+		if strings.EqualFold(first, kept) {
+			return "", fmt.Errorf("%s is inside %s; frbit files does not sync it", raw, kept)
+		}
 	}
 	return clean, nil
 }
 
-// excludes keep the repository, its link file and local secrets (top level only) and dumps, backups and temp files (any depth) out of a sync and a --delete.
-var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*"}
+// excludes keep the repository, its link file, the local DDEV config and local secrets (top level only) and dumps, backups and temp files (any depth) out of a sync and a --delete.
+var excludes = []string{"--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*"}
 
 // rsyncArgs builds the rsync arguments, with --progress on a terminal; "--" ends the options before the paths.
-func rsyncArgs(interactive bool, rsh string, dryRun, del bool, src, dst string) []string {
+func rsyncArgs(interactive bool, rsh string, dryRun, del bool, extra []string, src, dst string) []string {
 	args := []string{"-az", "-e", rsh}
 	if interactive {
 		args = append(args, "--progress")
 	}
 	args = append(args, excludes...)
+	for _, pattern := range extra {
+		args = append(args, "--exclude="+pattern)
+	}
 	if dryRun {
 		args = append(args, "--dry-run", "-v")
 	}
@@ -168,6 +179,12 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	rel, err := cleanPath(raw)
 	if err != nil {
 		return err
+	}
+	for i, pattern := range opts.excludes {
+		opts.excludes[i] = strings.TrimSpace(pattern)
+		if opts.excludes[i] == "" {
+			return fmt.Errorf("--exclude needs a pattern")
+		}
 	}
 	if push {
 		if _, err := os.Lstat(rel); err != nil {
@@ -239,6 +256,9 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 				warning += fmt.Sprintf(" %s deploys from the Git branch %s: the next deployment overwrites code changes made this way.", id, branch)
 			}
 		}
+		if opts.delete && len(opts.excludes) > 0 {
+			warning += " Files matching --exclude are kept."
+		}
 		confirmed, err := cmdutil.ConfirmDestructiveContext(ctx, factory, stderr, action, id, opts.confirmation, warning)
 		if err != nil {
 			return err
@@ -264,7 +284,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	err = runner.Run(ctx, "rsync", rsyncArgs(interactive, rsh, opts.dryRun, opts.delete, src, dst), stdin, cmd.OutOrStdout(), tail)
+	err = runner.Run(ctx, "rsync", rsyncArgs(interactive, rsh, opts.dryRun, opts.delete, opts.excludes, src, dst), stdin, cmd.OutOrStdout(), tail)
 	if err != nil && ctx.Err() != nil {
 		_, _ = fmt.Fprintf(stderr, "Cancelled: the sync of %s stopped partway; some files may be copied and others not.\n", remotePath)
 		return ctx.Err()

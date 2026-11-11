@@ -121,11 +121,11 @@ func TestFilesPullBuildsRsyncArgs(t *testing.T) {
 		want []string
 	}{
 		{[]string{"files", "pull", "--environment", "en-abc123", "--confirm", "en-abc123"},
-			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
+			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}},
 		{[]string{"files", "pull", "web/uploads/", "--environment", "en-abc123", "--delete", "--confirm", "en-abc123"},
-			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
+			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/uploads", "./web/"}},
 		{[]string{"files", "pull", "./storage", "--environment", "en-abc123", "--dry-run"},
-			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
+			[]string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--dry-run", "-v", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/storage", "./"}},
 	}
 	for _, c := range cases {
 		fake := &fakeRunner{}
@@ -142,8 +142,8 @@ func TestFilesPullBuildsRsyncArgs(t *testing.T) {
 }
 
 func TestFilesRsyncArgs(t *testing.T) {
-	got := rsyncArgs(true, "ssh -T", true, true, "a", "b")
-	want := []string{"-az", "-e", "ssh -T", "--progress", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--dry-run", "-v", "--delete", "--", "a", "b"}
+	got := rsyncArgs(true, "ssh -T", true, true, []string{"node_modules", "/vendor/"}, "a", "b")
+	want := []string{"-az", "-e", "ssh -T", "--progress", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--exclude=node_modules", "--exclude=/vendor/", "--dry-run", "-v", "--delete", "--", "a", "b"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rsyncArgs = %q", got)
 	}
@@ -156,7 +156,7 @@ func TestFilesRejectsParentPath(t *testing.T) {
 		"/etc": "not a relative path", "~": "not a relative path", "~/x": "not a relative path",
 		"a;id": "characters other than", "$(id)": "characters other than", "a b": "characters other than",
 		`.\./x`: "backslash", `web\uploads`: "backslash",
-		".git/hooks": "inside .git", "./.git": "inside .git", ".fortrabbit": "inside .fortrabbit", ".fortrabbit/environments.yml": "inside .fortrabbit",
+		".git/hooks": "inside .git", "./.git": "inside .git", ".fortrabbit": "inside .fortrabbit", ".fortrabbit/environments.yml": "inside .fortrabbit", ".ddev": "inside .ddev", ".ddev/.downloads/db.sql.gz": "inside .ddev", ".DDEV": "inside .ddev", ".Git/hooks": "inside .git",
 	}
 	for path, want := range cases {
 		for _, command := range []string{"pull", "push"} {
@@ -204,7 +204,7 @@ func TestFilesPushWithoutTTYRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "push", "--environment", "en-abc123", "--confirm", "en-abc123", "--delete"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
+	want := []string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "./", "en-abc123@ssh.us-e1a.frbit.app:/data/www/"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -244,7 +244,7 @@ func TestFilesPushPromptsOnTTY(t *testing.T) {
 
 	fake = &fakeRunner{}
 	_, _, err = execute(t, dir, invocation{runner: fake, tty: true, stdin: strings.NewReader("en-abc123\n"), args: []string{"files", "push", "web/uploads", "--environment", "en-abc123"}})
-	want := []string{"-az", "-e", sshTTY, "--progress", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
+	want := []string{"-az", "-e", sshTTY, "--progress", "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--", "./web/uploads", "en-abc123@ssh.us-e1a.frbit.app:/data/www/web/"}
 	if err != nil || len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("confirmed: %v, %q", err, fake.syncs)
 	}
@@ -327,7 +327,7 @@ func TestFilesPullDeleteRequiresConfirm(t *testing.T) {
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "pull", "--environment", "en-abc123", "--delete", "--confirm", "en-abc123"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
+	want := []string{"-az", "-e", sshE, "--exclude=/.git/", "--exclude=/.fortrabbit/", "--exclude=/.ddev/", "--exclude=/.env", "--exclude=/.env.*", "--exclude=.frbit-*", "--exclude=en-*.sql.gz", "--exclude=ba-*-database*", "--exclude=ba-*-files*", "--delete", "--", "en-abc123@ssh.us-e1a.frbit.app:/data/www/", "./"}
 	if len(fake.syncs) != 1 || !slices.Equal(fake.syncs[0], want) {
 		t.Fatalf("ran %q", fake.syncs)
 	}
@@ -389,8 +389,8 @@ func TestExcludesKeepDumpsAndTempFilesOutOfAPush(t *testing.T) {
 		t.Skip("rsync not installed")
 	}
 	src, dst := t.TempDir(), t.TempDir()
-	kept := []string{"index.php", "web/notes.sql.gz", "notes.sql.gz", "web/.env"}
-	skipped := []string{"web/en-abc123.sql.gz", "web/uploads/ba-abc123-files.zip", "web/uploads/.frbit-download-1", "en-abc123.sql.gz", "ba-abc123-database.sql.gz", "ba-abc123-files.zip", "ba-abc123-files.tar.gz", "ba-abc123-database", "ba-abc123-files", ".frbit-db-pull-123", ".frbit-download-456", ".env", ".git/config"}
+	kept := []string{"index.php", "web/notes.sql.gz", "notes.sql.gz", "web/.env", "web/.ddev/x"}
+	skipped := []string{"web/en-abc123.sql.gz", "web/uploads/ba-abc123-files.zip", "web/uploads/.frbit-download-1", "en-abc123.sql.gz", "ba-abc123-database.sql.gz", "ba-abc123-files.zip", "ba-abc123-files.tar.gz", "ba-abc123-database", "ba-abc123-files", ".frbit-db-pull-123", ".frbit-download-456", ".env", ".git/config", ".ddev/config.yaml", ".ddev/.downloads/db.sql.gz"}
 	for _, name := range append(append([]string{}, kept...), skipped...) {
 		_ = os.MkdirAll(filepath.Dir(filepath.Join(src, name)), 0o755)
 		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o600); err != nil {
@@ -505,5 +505,59 @@ func TestFilesEnvironmentFlagTakesLabel(t *testing.T) {
 	fake = &fakeRunner{}
 	if _, _, err := execute(t, dir, invocation{runner: fake, args: []string{"files", "push", "web", "--environment", "production", "--confirm", "production"}}); err == nil || !strings.Contains(err.Error(), "en-abc123") || len(fake.syncs) != 0 {
 		t.Fatalf("label confirm: %v", err)
+	}
+}
+
+func TestFilesExcludeFlag(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeRunner{}
+	args := []string{"files", "push", "--environment", "en-abc123", "--confirm", "en-abc123", "--exclude", " node_modules", "--exclude", "/vendor/"}
+	if _, stderr, err := execute(t, dir, invocation{runner: fake, args: args}); err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	if len(fake.syncs) != 1 || !slices.Contains(fake.syncs[0], "--exclude=node_modules") || !slices.Contains(fake.syncs[0], "--exclude=/vendor/") {
+		t.Fatalf("ran %q", fake.syncs)
+	}
+
+	fake = &fakeRunner{}
+	requests := []string{}
+	_, _, err := execute(t, dir, invocation{runner: fake, requests: &requests, args: []string{"files", "pull", "web", "--environment", "en-abc123", "--exclude", " "}})
+	if err == nil || !strings.Contains(err.Error(), "--exclude needs a pattern") || len(fake.syncs) != 0 || len(requests) != 0 {
+		t.Fatalf("empty pattern: %v, %q, %q", err, fake.syncs, requests)
+	}
+}
+
+func TestUserExcludesWithRsync(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("rsync not installed")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	for _, name := range []string{"index.php", "vendor/a.php", "web/vendor/b.js", "web/node_modules/c.js", "node_modules/d.js", "web/uploads/a.jpg", "web/uploads/cache/x.jpg"} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(src, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(extra []string, from, to string) {
+		args := rsyncArgs(false, "ssh", false, false, extra, from, to)[3:]
+		if output, err := exec.Command("rsync", append([]string{"-r"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("rsync: %v\n%s", err, output)
+		}
+	}
+	exists := func(name string) bool { _, err := os.Stat(filepath.Join(dst, name)); return err == nil }
+
+	// Whole-folder sync: a leading / anchors at the project folder, other patterns match the end of a path.
+	run([]string{"node_modules", "/vendor/", "uploads/cache"}, src+"/", dst+"/")
+	for name, want := range map[string]bool{"index.php": true, "web/vendor/b.js": true, "vendor/a.php": false, "node_modules/d.js": false, "web/node_modules/c.js": false, "web/uploads/cache/x.jpg": false, "web/uploads/a.jpg": true} {
+		if exists(name) != want {
+			t.Errorf("whole folder: %s copied = %v", name, !want)
+		}
+	}
+
+	// Path sync: / anchors at the parent of the synced folder.
+	dst = t.TempDir()
+	run([]string{"/uploads/cache/"}, src+"/web/uploads", dst+"/")
+	if !exists("uploads/a.jpg") || exists("uploads/cache/x.jpg") {
+		t.Errorf("path sync: a.jpg %v, cache %v", exists("uploads/a.jpg"), exists("uploads/cache/x.jpg"))
 	}
 }
