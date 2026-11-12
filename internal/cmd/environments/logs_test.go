@@ -1,9 +1,12 @@
 package environments
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLogsPagesBackAndFilters(t *testing.T) {
@@ -55,5 +58,46 @@ func TestLogsKeepTabsStripsOtherControl(t *testing.T) {
 	}, "logs", "en-abc123")
 	if err != nil || !strings.Contains(output, "a\tbc") {
 		t.Fatalf("err=%v %q", err, output)
+	}
+}
+
+func TestLogsFollowPrintsOnlyNewEntriesUntilCancelled(t *testing.T) {
+	previous := FollowInterval
+	FollowInterval = 5 * time.Millisecond
+	t.Cleanup(func() { FollowInterval = previous })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	output, seen, err := runContext(t, ctx, "", func(r request, w http.ResponseWriter) {
+		calls++
+		switch calls {
+		case 1:
+			echo(w, 200, `[{"time":"t2","level":null,"message":"b"},{"time":"t1","level":null,"message":"a"}]`)
+		case 2:
+			// since=t2 returns the boundary entry again, plus one new at the same time and one later.
+			echo(w, 200, `[{"time":"t3","level":null,"message":"d"},{"time":"t2","level":null,"message":"c"},{"time":"t2","level":null,"message":"b"}]`)
+		default:
+			cancel()
+			echo(w, 200, `[]`)
+		}
+	}, "logs", "en-abc123", "--follow", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) < 2 || !strings.Contains(seen[1].query, "since=t2") {
+		t.Fatalf("requests: %+v", seen)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var messages []string
+	for _, line := range lines {
+		var entry struct{ Message string }
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("line %q: %v", line, err)
+		}
+		messages = append(messages, entry.Message)
+	}
+	if strings.Join(messages, ",") != "a,b,c,d" {
+		t.Fatalf("messages = %v\noutput:\n%s", messages, output)
 	}
 }

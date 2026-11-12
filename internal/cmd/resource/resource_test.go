@@ -189,3 +189,16 @@ func TestDeploymentLogsFollowSurvivesTransientErrorAndAnnouncesWaiting(t *testin
 		t.Fatalf("err=%v out=%q err=%q", err, out, errOut)
 	}
 }
+
+func TestFlatObjectsReadAsKeyValuePairsInCalendarOrder(t *testing.T) {
+	var out bytes.Buffer
+	if err := WriteResource(&out, api.Resource{"backups": map[string]any{"retention": map[string]any{"monthly": 1.0, "daily": 7.0, "weekly": 4.0}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "daily 7, weekly 4, monthly 1") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	if got := resourceValue(map[string]any{"a": map[string]any{"b": 1.0}}); got != `{"a":{"b":1}}` {
+		t.Fatalf("nested object = %q", got)
+	}
+}

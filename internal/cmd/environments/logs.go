@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -29,11 +30,11 @@ type logEntry struct {
 func newCmdLogs(factory *app.Factory) *cobra.Command {
 	var source, since, status, method string
 	var limit int
-	var printJSON bool
+	var printJSON, follow bool
 	command := &cobra.Command{
 		Use:   "logs [environment]",
 		Short: "Show the logs of an environment",
-		Long:  "Prints the newest --limit entries of one log source, oldest first. Logs are kept for 14 days. --status and --method filter the access log only.",
+		Long:  "Prints the newest --limit entries of one log source, oldest first. Logs are kept for 14 days. --status and --method filter the access log only.\n\n--follow keeps printing new entries until Ctrl-C; with --json, one entry per line.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch source {
@@ -65,9 +66,13 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			newest, raw, pages, err := fetchLogs(cmd.Context(), client, "/v1/environments/"+url.PathEscape(env)+"/logs", query, limit)
+			path := "/v1/environments/" + url.PathEscape(env) + "/logs"
+			newest, raw, pages, err := fetchLogs(cmd.Context(), client, path, query, limit)
 			if err != nil {
 				return err
+			}
+			if follow {
+				return followLogs(cmd.Context(), client, cmd.OutOrStdout(), cmd.ErrOrStderr(), path, query, reversed(newest), printJSON)
 			}
 			if printJSON {
 				if pages == 1 {
@@ -93,7 +98,87 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&status, "status", "", "Access log only: HTTP status, class or list (500, 5xx, 500,503)")
 	command.Flags().StringVar(&method, "method", "", "Access log only: HTTP method, e.g. GET")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the entries as JSON")
+	command.Flags().BoolVarP(&follow, "follow", "f", false, "Keep printing new entries until Ctrl-C")
 	return command
+}
+
+// FollowInterval is how often --follow asks for new entries; tests shorten it.
+var FollowInterval = 3 * time.Second
+
+// followLogs prints the first entries, then polls for entries since the newest one until ctx ends.
+// Entries sharing the newest timestamp come back with since, so their keys mark what was printed.
+func followLogs(ctx context.Context, client *api.Client, out, errOut io.Writer, path string, query url.Values, first []logEntry, asJSON bool) error {
+	if err := writeFollowed(out, first, asJSON); err != nil {
+		return err
+	}
+	newestTime, seen := boundary(first, "", nil)
+	if len(first) == 0 {
+		_, _ = fmt.Fprintln(errOut, "waiting for log entries…")
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(FollowInterval):
+		}
+		poll := cloneQuery(query)
+		if newestTime != "" {
+			poll.Set("since", newestTime)
+		}
+		batch, _, _, err := fetchLogs(ctx, client, path, poll, maxLogLimit)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if _, transient := api.TransientDelay(err, FollowInterval); transient {
+				continue
+			}
+			return err
+		}
+		var fresh []logEntry
+		for _, entry := range reversed(batch) {
+			if !seen[entryKey(entry)] {
+				fresh = append(fresh, entry)
+			}
+		}
+		if err := writeFollowed(out, fresh, asJSON); err != nil {
+			return err
+		}
+		newestTime, seen = boundary(fresh, newestTime, seen)
+	}
+}
+
+func writeFollowed(out io.Writer, entries []logEntry, asJSON bool) error {
+	if !asJSON {
+		return writeLogEntries(out, entries)
+	}
+	for _, entry := range entries {
+		if err := cmdutil.WriteJSONLine(out, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// boundary moves the newest timestamp forward and keeps the keys of the entries at it.
+func boundary(entries []logEntry, newestTime string, seen map[string]bool) (string, map[string]bool) {
+	if len(entries) == 0 {
+		return newestTime, seen
+	}
+	last := entries[len(entries)-1].Time
+	if last != newestTime {
+		newestTime, seen = last, map[string]bool{}
+	}
+	for _, entry := range entries {
+		if entry.Time == newestTime {
+			seen[entryKey(entry)] = true
+		}
+	}
+	return newestTime, seen
+}
+
+func entryKey(entry logEntry) string {
+	return entry.Time + "\x00" + entry.Message
 }
 
 // fetchLogs reads up to limit entries, newest first, paging back through rel="next".

@@ -385,9 +385,10 @@ Without `--metric`, `metrics` prints one row per booked component (storage, data
 frbit environments logs                       # the environment of the checkout
 frbit environments logs production            # a label from .fortrabbit/environments.yml
 frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
+frbit environments logs --follow              # keep printing new entries until Ctrl-C
 ```
 
-Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. Control characters other than tabs are stripped. `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed.
+Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. Control characters other than tabs are stripped. `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed. `--follow` (`-f`) keeps polling for new entries until Ctrl-C; with `--json` it prints one entry per line.
 
 ## Deployments
 
@@ -488,6 +489,17 @@ Each step is its own SSH call with your own SSH key:
 5. Removal of the upload.
 
 A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'set -o pipefail; gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
+
+## SSH
+
+```sh
+frbit ssh                                     # a shell on the environment of the checkout
+frbit ssh en-a1b2c3
+frbit ssh -- php artisan migrate --force      # one command; frbit exits with its exit code
+frbit ssh --print                             # print the ssh command instead of running it
+```
+
+The connection uses your own SSH key and the same settings as `db` and `files`: no agent or X11 forwarding and the pinned host key of fortrabbit's SSH endpoints. With a terminal, ssh gets one too; without one, as in scripts, it runs in batch mode and never prompts.
 
 ## Files
 
@@ -706,6 +718,9 @@ frbit setup agent --remove
 frbit setup agent --remove --agent codex --yes
 ```
 
+
+Run by a coding agent, frbit adds the agent's name to its `User-Agent`, for example `frbit/1.16.0 agent/claude-code`, so the account's events can tell agent actions from a person's. It comes from `AI_AGENT` or the agent's own environment variable (`CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `OPENCODE`, `GEMINI_CLI`); nothing is added at a plain terminal.
+
 ## MCP server
 
 Manage the MCP registration independently when you do not want to change the
@@ -825,7 +840,8 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get [environment]` | Get custom and platform-injected environment variables. |
 | `frbit environments variables update <environment>` | Set or delete custom environment variables. |
-| `frbit environments restart <environment>` | Request an environment restart. |
+| `frbit environments restart <environment>` | Request an environment restart. `--json` prints `{"environment":…,"restart":"requested"}`. |
+| `frbit ssh [environment] [-- command]` | Open a shell on the environment, or run one command and exit with its exit code. `--print` prints the ssh command. |
 | `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
 | `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`. |
 | `frbit environments metrics [environment]` | Show the usage summary, or the history of one metric with `--metric <slug>`, `--range` and `--step`. Accepts `--json`. |

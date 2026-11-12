@@ -581,6 +581,15 @@ func resourceValue(value any) string {
 			parts = append(parts, resourceValue(item))
 		}
 		return strings.Join(parts, ",")
+	case map[string]any:
+		if flat, ok := flatObject(value); ok {
+			return flat
+		}
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			return string(encoded)
+		}
+		return fmt.Sprint(value)
 	default:
 		encoded, err := json.Marshal(value)
 		if err == nil {
@@ -588,4 +597,34 @@ func resourceValue(value any) string {
 		}
 		return fmt.Sprint(value)
 	}
+}
+
+// periodOrder puts retention periods in calendar order; other keys sort alphabetically after them.
+var periodOrder = map[string]int{"daily": 1, "weekly": 2, "monthly": 3, "yearly": 4}
+
+// flatObject renders an object of plain values as "daily 7, weekly 4"; it reports false when a value is itself an object or a list.
+func flatObject(value map[string]any) (string, bool) {
+	keys := make([]string, 0, len(value))
+	for key, item := range value {
+		switch item.(type) {
+		case map[string]any, []any:
+			return "", false
+		}
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		rankI, rankJ := periodOrder[keys[i]], periodOrder[keys[j]]
+		if rankI != rankJ && rankI != 0 && rankJ != 0 {
+			return rankI < rankJ
+		}
+		if (rankI == 0) != (rankJ == 0) {
+			return rankI != 0
+		}
+		return keys[i] < keys[j]
+	})
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+" "+resourceValue(value[key]))
+	}
+	return strings.Join(parts, ", "), true
 }
