@@ -71,4 +71,46 @@ fi
 if install_fixture --agent 'codex;id' >/dev/null 2>&1; then printf 'invalid agent name was accepted\n' >&2; exit 1; fi
 if install_fixture --unknown >/dev/null 2>&1; then printf 'unknown option was accepted\n' >&2; exit 1; fi
 
+
+# The cases below run on a minimal PATH, so a frbit, brew or npm on the test machine cannot leak in.
+sys_path="/usr/bin:/bin:/usr/sbin:/sbin"
+mkdir -p "$test_dir/home" "$test_dir/brew/bin" "$test_dir/brew-tool" "$test_dir/npm/bin" "$test_dir/npm-tool" "$test_dir/other/bin" "$test_dir/windows"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$test_dir/brew" > "$test_dir/brew-tool/brew"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$test_dir/npm" > "$test_dir/npm-tool/npm"
+for managed in brew npm other; do
+  printf '#!/bin/sh\nprintf "managed frbit%%s\\n" "${*:+ $*}"\n' > "$test_dir/$managed/bin/frbit"
+done
+printf '#!/bin/sh\nprintf "MINGW64_NT-10.0\\n"\n' > "$test_dir/windows/uname"
+chmod 0755 "$test_dir/brew-tool/brew" "$test_dir/npm-tool/npm" "$test_dir/brew/bin/frbit" "$test_dir/npm/bin/frbit" "$test_dir/other/bin/frbit" "$test_dir/windows/uname"
+
+isolated_install() {
+  path=$1
+  shift
+  env -i HOME="$test_dir/home" SHELL=/bin/zsh PATH="$path" \
+    FRBIT_RELEASE_BASE_URL="file://$test_dir/release" FRBIT_INSTALL_TESTING=1 \
+    sh "$root/install.sh" "$@" 2>&1
+}
+
+out=$(isolated_install "$test_dir/brew/bin:$test_dir/brew-tool:$test_dir:$sys_path" --setup-agent)
+printf '%s\n' "$out" | grep -q 'installed with Homebrew' || { printf 'Homebrew frbit was not kept\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx 'managed frbit setup agent' || { printf 'setup agent did not use the Homebrew frbit\n' >&2; exit 1; }
+test ! -e "$test_dir/home/.local/bin/frbit" || { printf 'installed next to a Homebrew frbit\n' >&2; exit 1; }
+
+out=$(isolated_install "$test_dir/npm/bin:$test_dir/npm-tool:$test_dir:$sys_path")
+printf '%s\n' "$out" | grep -q 'npm update --global @fortrabbit/cli' || { printf 'npm frbit was not kept\n' >&2; exit 1; }
+
+out=$(isolated_install "$test_dir/other/bin:$test_dir/home/.local/bin:$test_dir:$sys_path")
+printf '%s\n' "$out" | grep -q 'shadows the new install' || { printf 'shadowing frbit was not reported\n' >&2; exit 1; }
+rm -rf "$test_dir/home/.local"
+
+out=$(isolated_install "$test_dir/brew-tool:$test_dir:$sys_path")
+printf '%s\n' "$out" | grep -q 'brew install fortrabbit/tap/frbit' || { printf 'Homebrew hint missing\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -q ">> ~/.zshrc" || { printf 'zsh PATH hint missing\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -q '^Installed frbit installer fixture --version to ' || { printf 'installed version not reported\n' >&2; exit 1; }
+
+if isolated_install "$test_dir/windows:$test_dir:$sys_path" | grep -q 'does not run on Windows'; then :; else printf 'Windows shell not pointed to the docs\n' >&2; exit 1; fi
+if env -i HOME="$test_dir/home" PATH="$test_dir:$sys_path" FRBIT_VERSION='v1/../../evil' sh "$root/install.sh" >/dev/null 2>&1; then printf 'FRBIT_VERSION with .. was accepted\n' >&2; exit 1; fi
+if env -i HOME="$test_dir/home" PATH="$test_dir:$sys_path" FRBIT_RELEASE_BASE_URL='https://github.com/fortrabbit/frbit-cli/releases/download/../../evil' sh "$root/install.sh" >/dev/null 2>&1; then printf 'FRBIT_RELEASE_BASE_URL with .. was accepted\n' >&2; exit 1; fi
+sh "$root/install.sh" --help | grep -q 'FRBIT_INSTALL_DIR' || { printf 'help does not list the environment\n' >&2; exit 1; }
+
 printf 'installer test passed\n'
