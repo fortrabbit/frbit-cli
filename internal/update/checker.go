@@ -23,6 +23,8 @@ type Checker struct {
 	Endpoint  string
 	CachePath string
 	Now       func() time.Time
+	// Fresh skips the cached answer and asks GitHub; the answer still refreshes the cache.
+	Fresh bool
 }
 
 type cacheEntry struct {
@@ -52,7 +54,7 @@ func (c Checker) Latest(ctx context.Context, current string) (string, error) {
 	}
 
 	now := c.Now()
-	if cached, ok := c.readCache(); ok && now.Sub(cached.CheckedAt) >= 0 && now.Sub(cached.CheckedAt) < cacheLifetime {
+	if cached, ok := c.readCache(); ok && !c.Fresh && now.Sub(cached.CheckedAt) >= 0 && now.Sub(cached.CheckedAt) < cacheLifetime {
 		return newerVersion(currentVersion, cached.Latest), nil
 	}
 

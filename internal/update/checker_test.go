@@ -57,3 +57,28 @@ func TestLatestIgnoresDevelopmentAndCurrentVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestFreshLatestSkipsTheCache(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		_, _ = writer.Write([]byte(`{"tag_name":"v1.2.0"}`))
+	}))
+	defer server.Close()
+
+	checker := Checker{
+		Client:    server.Client(),
+		Endpoint:  server.URL,
+		CachePath: filepath.Join(t.TempDir(), "update-check.json"),
+		Now:       time.Now,
+		Fresh:     true,
+	}
+	for range 2 {
+		if _, err := checker.Latest(context.Background(), "1.1.0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
