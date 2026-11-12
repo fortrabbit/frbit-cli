@@ -60,6 +60,14 @@ run_setup_agent() {
   fi
 }
 
+# Older releases have no doctor command; a failed check never fails the install.
+run_doctor() {
+  if "$1" doctor --help >/dev/null 2>&1; then
+    printf '\n'
+    "$1" doctor || true
+  fi
+}
+
 path_hint() {
   case "$(basename "${SHELL:-sh}")" in
     zsh) printf "Add it to PATH: echo 'export PATH=\"%s:\$PATH\"' >> ~/.zshrc\n" "$1" ;;
@@ -133,6 +141,7 @@ main() {
       if [ "$setup_agent" -eq 1 ]; then
         run_setup_agent "$existing"
       fi
+      run_doctor "$existing"
       return
     fi
   fi
@@ -244,6 +253,7 @@ main() {
   else
     printf 'For shell completion, run: frbit completion install <bash|fish|powershell|zsh>\n'
   fi
+  run_doctor "$install_dir/frbit"
 }
 
 main "$@"

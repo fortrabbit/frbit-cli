@@ -94,6 +94,7 @@ isolated_install() {
 out=$(isolated_install "$test_dir/brew/bin:$test_dir/brew-tool:$test_dir:$sys_path" --setup-agent)
 printf '%s\n' "$out" | grep -q 'installed with Homebrew' || { printf 'Homebrew frbit was not kept\n' >&2; exit 1; }
 printf '%s\n' "$out" | grep -qx 'managed frbit setup agent' || { printf 'setup agent did not use the Homebrew frbit\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx 'managed frbit doctor' || { printf 'doctor did not run with the Homebrew frbit\n' >&2; exit 1; }
 test ! -e "$test_dir/home/.local/bin/frbit" || { printf 'installed next to a Homebrew frbit\n' >&2; exit 1; }
 
 out=$(isolated_install "$test_dir/npm/bin:$test_dir/npm-tool:$test_dir:$sys_path")
@@ -111,6 +112,7 @@ printf '%s\n' "$out" | grep -q '^Installed frbit installer fixture --version to 
 if isolated_install "$test_dir/windows:$test_dir:$sys_path" | grep -q 'does not run on Windows'; then :; else printf 'Windows shell not pointed to the docs\n' >&2; exit 1; fi
 if env -i HOME="$test_dir/home" PATH="$test_dir:$sys_path" FRBIT_VERSION='v1/../../evil' sh "$root/install.sh" >/dev/null 2>&1; then printf 'FRBIT_VERSION with .. was accepted\n' >&2; exit 1; fi
 if env -i HOME="$test_dir/home" PATH="$test_dir:$sys_path" FRBIT_RELEASE_BASE_URL='https://github.com/fortrabbit/frbit-cli/releases/download/../../evil' sh "$root/install.sh" >/dev/null 2>&1; then printf 'FRBIT_RELEASE_BASE_URL with .. was accepted\n' >&2; exit 1; fi
+install_fixture | grep -qx 'frbit installer fixture doctor' || { printf 'doctor did not run after the install\n' >&2; exit 1; }
 sh "$root/install.sh" --help | grep -q 'FRBIT_INSTALL_DIR' || { printf 'help does not list the environment\n' >&2; exit 1; }
 
 printf 'installer test passed\n'

@@ -16,6 +16,16 @@ Confirm the installation:
 frbit version
 ```
 
+Check the whole setup: the version against the latest release, the sign-in, the
+local tools (`ssh`, `rsync`, `git`), the linked environment and an SSH connection
+to it, and the coding agents. Most problems come with their fix. The command exits
+1 when a check fails; `--json` prints the checks for agents.
+
+```sh
+frbit doctor
+frbit doctor --json
+```
+
 For every command and option available in your installed version, run:
 
 ```sh
