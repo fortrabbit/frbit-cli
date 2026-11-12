@@ -28,7 +28,7 @@ USAGE
 }
 
 download() {
-  curl --proto "$curl_protocols" --tlsv1.2 --retry 3 -fsSL "$1" -o "$2"
+  curl --proto "$curl_protocols" --proto-redir "=https" --tlsv1.2 --retry 3 -fsSL "$1" -o "$2"
 }
 
 # Prints "Homebrew" or "npm" when that package manager owns the given frbit.
@@ -122,6 +122,9 @@ main() {
     manager=$(package_manager_of "$existing")
     if [ -n "$manager" ]; then
       printf 'frbit is installed with %s at %s; keeping it.\n' "$manager" "$existing"
+      if [ -n "${FRBIT_VERSION:-}" ]; then
+        printf 'frbit installer: FRBIT_VERSION is ignored, %s manages the version. Set FRBIT_INSTALL_DIR to install a release next to it.\n' "$manager" >&2
+      fi
       if [ "$manager" = "Homebrew" ]; then
         printf 'Update it with: brew upgrade frbit\n'
       else
