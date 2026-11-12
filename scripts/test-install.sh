@@ -94,6 +94,7 @@ isolated_install() {
 out=$(isolated_install "$test_dir/brew/bin:$test_dir/brew-tool:$test_dir:$sys_path" --setup-agent)
 printf '%s\n' "$out" | grep -q 'installed with Homebrew' || { printf 'Homebrew frbit was not kept\n' >&2; exit 1; }
 printf '%s\n' "$out" | grep -qx 'managed frbit setup agent' || { printf 'setup agent did not use the Homebrew frbit\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx 'managed frbit doctor' || { printf 'doctor did not run with the Homebrew frbit\n' >&2; exit 1; }
 test ! -e "$test_dir/home/.local/bin/frbit" || { printf 'installed next to a Homebrew frbit\n' >&2; exit 1; }
 
 out=$(isolated_install "$test_dir/npm/bin:$test_dir/npm-tool:$test_dir:$sys_path")

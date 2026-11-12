@@ -111,7 +111,8 @@ func Execute(factory *app.Factory, args []string) int {
 }
 
 func notifyUpdate(command *cobra.Command, factory *app.Factory) {
-	if !factory.IOStreams.IsErrTTY || factory.CheckForUpdate == nil || os.Getenv("FRBIT_NO_UPDATE_NOTIFIER") != "" {
+	// doctor reports the version itself.
+	if command.Name() == "doctor" || !factory.IOStreams.IsErrTTY || factory.CheckForUpdate == nil || os.Getenv("FRBIT_NO_UPDATE_NOTIFIER") != "" {
 		return
 	}
 
