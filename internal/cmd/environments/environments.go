@@ -134,7 +134,11 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return resource.Write(cmd, response, printJSON)
+			if err := resource.Write(cmd, response, printJSON); err != nil || printJSON {
+				return err
+			}
+			id, _ := response.Resource["publicId"].(string)
+			return cmdutil.WriteCloudDomain(cmd.Context(), client, cmd.OutOrStdout(), response.Resource, id, "")
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
@@ -508,7 +512,8 @@ func newCmdVariablesUpdate(factory *app.Factory) *cobra.Command {
 }
 
 func newCmdRestart(factory *app.Factory) *cobra.Command {
-	return &cobra.Command{
+	var printJSON bool
+	command := &cobra.Command{
 		Use:   "restart <environment>",
 		Short: "Request an environment restart",
 		Args:  cobra.MaximumNArgs(1),
@@ -524,10 +529,16 @@ func newCmdRestart(factory *app.Factory) *cobra.Command {
 			if _, err := client.PostAction(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/restart"); err != nil {
 				return err
 			}
+			// The API answers a restart without a body, so --json reports what was requested.
+			if printJSON {
+				return cmdutil.WriteJSONLine(cmd.OutOrStdout(), map[string]string{"environment": env, "restart": "requested"})
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restart requested for %s.\n", env)
 			return err
 		},
 	}
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the result as JSON")
+	return command
 }
 
 func newCmdDeploy(factory *app.Factory) *cobra.Command {

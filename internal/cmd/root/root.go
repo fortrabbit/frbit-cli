@@ -28,6 +28,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
+	sshcmd "github.com/fortrabbit/frbit-cli/internal/cmd/ssh"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	envlink "github.com/fortrabbit/frbit-cli/internal/link"
@@ -70,6 +71,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		mysql.NewCmdMysql(factory),
 		db.NewCmdDb(factory),
 		files.NewCmdFiles(factory),
+		sshcmd.NewCmdSSH(factory),
 		backups.NewCmdBackups(factory),
 		link.NewCmdLink(factory),
 		resource.NewCmdGroup(factory, personSpec()),
@@ -105,9 +107,20 @@ func Execute(factory *app.Factory, args []string) int {
 	if errors.Is(err, cmdutil.ErrAborted) {
 		return 1
 	}
+	if code := exitCodeFor(err); code >= 0 {
+		return code
+	}
 	cmdutil.WriteProblemJSON(executed, err, factory.IOStreams.Out)
 	_, _ = fmt.Fprintln(factory.IOStreams.ErrOut, "error:", iostreams.StripControl(err.Error()))
 	return 1
+}
+
+// exitCodeFor returns the code an ExitError carries, or -1 for any other error.
+func exitCodeFor(err error) int {
+	if exit := (*cmdutil.ExitError)(nil); errors.As(err, &exit) {
+		return exit.Code
+	}
+	return -1
 }
 
 func notifyUpdate(command *cobra.Command, factory *app.Factory) {

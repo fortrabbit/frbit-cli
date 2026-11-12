@@ -36,7 +36,7 @@ func Profile(cmd *cobra.Command) (string, error) {
 }
 
 func Client(factory *app.Factory, host string, token string) (*api.Client, error) {
-	return api.NewClient(host, token, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
+	return api.NewClient(host, token, factory.HTTPClient, UserAgent(factory.Version))
 }
 
 // CredentialClient builds a client that refreshes an OAuth credential of profile as needed.
@@ -54,7 +54,7 @@ func CredentialClient(factory *app.Factory, host string, profile string, credent
 		return oauth.Refresh(ctx, host, factory.HTTPClient, refreshToken)
 	}
 	tokens := api.NewOAuthTokens(host, factory.CredentialStore, profile, factory.CredentialLockPath, credential, refresh)
-	return api.NewClientWithTokens(host, tokens, factory.HTTPClient, fmt.Sprintf("frbit/%s", factory.Version))
+	return api.NewClientWithTokens(host, tokens, factory.HTTPClient, UserAgent(factory.Version))
 }
 
 func APIClient(command *cobra.Command, factory *app.Factory) (*api.Client, error) {

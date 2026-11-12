@@ -98,7 +98,10 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return resource.Write(cmd, response, printJSON)
+			if err := resource.Write(cmd, response, printJSON); err != nil || printJSON {
+				return err
+			}
+			return cmdutil.WriteCloudDomain(cmd.Context(), client, cmd.OutOrStdout(), response.Resource, cmdutil.FirstEnvironment(response.Resource), cmdutil.FirstEnvironment(response.Resource))
 		},
 	}
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")

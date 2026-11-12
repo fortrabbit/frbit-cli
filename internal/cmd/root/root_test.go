@@ -1252,3 +1252,34 @@ func TestCreateDryRunCreatesNothing(t *testing.T) {
 		t.Fatalf("json: %q, %v, %#v", stdout, err, calls)
 	}
 }
+
+func TestRestartPrintsJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/environments/en-abc123/restart" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		writer.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	command := NewCmdRoot(factory)
+	command.SetArgs([]string{"--host", server.URL, "environments", "restart", "en-abc123", "--json"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(output.String()); got != `{"environment":"en-abc123","restart":"requested"}` {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestExitErrorBecomesTheExitCode(t *testing.T) {
+	if code := exitCodeFor(fmt.Errorf("run: %w", &cmdutil.ExitError{Code: 7})); code != 7 {
+		t.Fatalf("exit code = %d, want 7", code)
+	}
+	if code := exitCodeFor(errors.New("other")); code != -1 {
+		t.Fatalf("other error code = %d, want -1", code)
+	}
+}
