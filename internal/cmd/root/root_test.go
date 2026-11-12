@@ -1274,3 +1274,12 @@ func TestRestartPrintsJSON(t *testing.T) {
 		t.Fatalf("output = %q", got)
 	}
 }
+
+func TestExitErrorBecomesTheExitCode(t *testing.T) {
+	if code := exitCodeFor(fmt.Errorf("run: %w", &cmdutil.ExitError{Code: 7})); code != 7 {
+		t.Fatalf("exit code = %d, want 7", code)
+	}
+	if code := exitCodeFor(errors.New("other")); code != -1 {
+		t.Fatalf("other error code = %d, want -1", code)
+	}
+}

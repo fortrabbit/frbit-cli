@@ -604,6 +604,9 @@ var periodOrder = map[string]int{"daily": 1, "weekly": 2, "monthly": 3, "yearly"
 
 // flatObject renders an object of plain values as "daily 7, weekly 4"; it reports false when a value is itself an object or a list.
 func flatObject(value map[string]any) (string, bool) {
+	if len(value) == 0 {
+		return "", false
+	}
 	keys := make([]string, 0, len(value))
 	for key, item := range value {
 		switch item.(type) {

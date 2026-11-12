@@ -202,3 +202,9 @@ func TestFlatObjectsReadAsKeyValuePairsInCalendarOrder(t *testing.T) {
 		t.Fatalf("nested object = %q", got)
 	}
 }
+
+func TestAnEmptyObjectStaysVisible(t *testing.T) {
+	if got := resourceValue(map[string]any{}); got != "{}" {
+		t.Fatalf("empty object = %q", got)
+	}
+}

@@ -388,7 +388,7 @@ frbit environments logs en-a1b2c3 --source access --status 5xx --since 1h
 frbit environments logs --follow              # keep printing new entries until Ctrl-C
 ```
 
-Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. Control characters other than tabs are stripped. `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed. `--follow` (`-f`) keeps polling for new entries until Ctrl-C; with `--json` it prints one entry per line.
+Prints the newest `--limit` entries (default 100, max 1000) of one `--source` (`php` default, `apache`, `access`, `jobs`), oldest first, paging back through the `Link` header. `--since` takes a duration (`15m`, `24h`, `7d`) or an ISO 8601 time with a time zone. `--status` (`500`, `5xx`, `500,503`) and `--method` filter the access log only. Control characters other than tabs are stripped. `--json` prints the raw API body when one page satisfies the request, the merged array (newest first) when several pages were needed. `--follow` keeps polling for new entries until Ctrl-C; with `--json` it prints one entry per line.
 
 ## Deployments
 
@@ -496,8 +496,11 @@ A failure or Ctrl-C after the backup says whether the database changed and print
 frbit ssh                                     # a shell on the environment of the checkout
 frbit ssh en-a1b2c3
 frbit ssh -- php artisan migrate --force      # one command; frbit exits with its exit code
+frbit ssh -- 'cd web && php craft up'         # one argument is a command line for the remote shell
 frbit ssh --print                             # print the ssh command instead of running it
 ```
+
+Several arguments after `--` are quoted one by one, so a space or `;` inside one stays part of it; a single argument goes to the remote shell as it is, as with plain `ssh`. A remote exit code, 255 included, becomes frbit's exit code.
 
 The connection uses your own SSH key and the same settings as `db` and `files`: no agent or X11 forwarding and the pinned host key of fortrabbit's SSH endpoints. With a terminal, ssh gets one too; without one, as in scripts, it runs in batch mode and never prompts.
 
@@ -718,8 +721,7 @@ frbit setup agent --remove
 frbit setup agent --remove --agent codex --yes
 ```
 
-
-Run by a coding agent, frbit adds the agent's name to its `User-Agent`, for example `frbit/1.16.0 agent/claude-code`, so the account's events can tell agent actions from a person's. It comes from `AI_AGENT` or the agent's own environment variable (`CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `OPENCODE`, `GEMINI_CLI`); nothing is added at a plain terminal.
+Run by a coding agent, frbit adds the agent's name to the `User-Agent` of its API requests, for example `frbit/1.16.0 agent/claude-code`, so the account's events can tell agent actions from a person's. It comes from `AI_AGENT` or the agent's own environment variable (`CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `OPENCODE`, `GEMINI_CLI`); nothing is added at a plain terminal.
 
 ## MCP server
 

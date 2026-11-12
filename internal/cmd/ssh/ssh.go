@@ -3,6 +3,8 @@ package ssh
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -10,11 +12,13 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
-	runner    sshexec.Runner = sshexec.System{}
-	checkTool                = sshexec.Check
+	runner         sshexec.Runner = sshexec.System{}
+	checkTool                     = sshexec.Check
+	stdoutTerminal                = isTerminal
 )
 
 func NewCmdSSH(factory *app.Factory) *cobra.Command {
@@ -24,7 +28,9 @@ func NewCmdSSH(factory *app.Factory) *cobra.Command {
 		Short: "Open a shell on an environment, or run one command there",
 		Long: `Open an interactive shell on the environment, or run the command after -- and exit with its exit code.
 
-The connection uses your own SSH key and the same SSH settings as frbit db and frbit files: no agent or X11 forwarding, and the pinned host key of fortrabbit's SSH endpoints. With a terminal, ssh gets one too, so prompts and tools like tinker work; without one, as in scripts, it runs in batch mode.
+One argument after -- is a command line for the remote shell, as with plain ssh: frbit ssh -- 'cd web && php craft up'. Several arguments are quoted one by one, so a space or ; inside one stays part of it.
+
+The connection uses your own SSH key and the same SSH settings as frbit db and frbit files: no agent or X11 forwarding, and the pinned host key of fortrabbit's SSH endpoints. With a terminal, ssh gets one too, so prompts and tools like tinker work; without one, as in scripts or with output redirected, it runs in batch mode.
 
 --print prints the ssh command instead of running it, for scripts and other tools.`,
 		Example: `  frbit ssh
@@ -65,7 +71,8 @@ The connection uses your own SSH key and the same SSH settings as frbit db and f
 			if err != nil {
 				return err
 			}
-			terminal := factory.IOStreams.IsTTY
+			// A remote terminal needs one on both ends here; a redirected stdout gets clean output without it.
+			terminal := factory.IOStreams.IsTTY && stdoutTerminal(cmd.OutOrStdout())
 			sshArgs, err := arguments(target, remote, terminal)
 			if err != nil {
 				return err
@@ -76,11 +83,15 @@ The connection uses your own SSH key and the same SSH settings as frbit db and f
 			}
 			tail := sshexec.NewTail(cmd.ErrOrStderr())
 			err = runner.Run(cmd.Context(), "ssh", sshArgs, factory.IOStreams.In, cmd.OutOrStdout(), tail)
-			if err == nil || cmd.Context().Err() != nil {
-				return err
+			if err == nil {
+				return nil
+			}
+			if ctxErr := cmd.Context().Err(); ctxErr != nil {
+				return ctxErr
 			}
 			code := sshexec.ExitCode(err)
-			if code == 255 || code < 0 {
+			// A remote PHP fatal exits 255 as well, so only ssh's own message makes it a connection problem.
+			if code < 0 || (code == 255 && sshFailed(tail.String())) {
 				return sshexec.MapOutput(target, err, tail.String())
 			}
 			return &cmdutil.ExitError{Code: code}
@@ -113,10 +124,30 @@ func arguments(target string, remote []string, terminal bool) ([]string, error) 
 		}
 	}
 	args := append(options, "--", target)
-	if len(remote) > 0 {
-		args = append(args, strings.Join(remote, " "))
+	switch {
+	case len(remote) == 1:
+		// One argument is a command line for the remote shell, as with plain ssh: frbit ssh -- 'a && b'.
+		args = append(args, remote[0])
+	case len(remote) > 1:
+		// Several arguments keep their boundaries, so a space or ; inside one stays part of it.
+		args = append(args, quote(remote))
 	}
 	return args, nil
+}
+
+// sshFailed tells ssh's own failure messages from a remote command that exited 255.
+func sshFailed(stderr string) bool {
+	for _, marker := range []string{"Permission denied", "Host key verification failed", "Could not resolve hostname", "Connection refused", "Connection timed out", "Connection closed", "ssh: "} {
+		if strings.Contains(stderr, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTerminal(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 // quote renders args as one POSIX shell line.

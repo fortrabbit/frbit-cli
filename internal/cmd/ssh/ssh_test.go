@@ -38,12 +38,14 @@ func (e exitCode) Error() string { return "exit" }
 func (e exitCode) ExitCode() int { return int(e) }
 
 type fakeRunner struct {
-	args []string
-	err  error
+	args   []string
+	stderr string
+	err    error
 }
 
-func (f *fakeRunner) Run(_ context.Context, _ string, args []string, _ io.Reader, _, _ io.Writer) error {
+func (f *fakeRunner) Run(_ context.Context, _ string, args []string, _ io.Reader, _, stderr io.Writer) error {
 	f.args = args
+	_, _ = io.WriteString(stderr, f.stderr)
 	return f.err
 }
 
@@ -52,9 +54,10 @@ func execute(t *testing.T, fake *fakeRunner, tty bool, args ...string) (string, 
 	t.Setenv("FRBIT_TOKEN", "test-token")
 	t.Setenv("FORTRABBIT_ENVIRONMENT", "")
 	t.Chdir(t.TempDir())
-	previousRunner, previousCheck := runner, checkTool
+	previousRunner, previousCheck, previousTerminal := runner, checkTool, stdoutTerminal
 	runner, checkTool = fake, func(string) error { return nil }
-	t.Cleanup(func() { runner, checkTool = previousRunner, previousCheck })
+	stdoutTerminal = func(io.Writer) bool { return tty }
+	t.Cleanup(func() { runner, checkTool, stdoutTerminal = previousRunner, previousCheck, previousTerminal })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/environments/en-abc123" {
 			_, _ = w.Write([]byte(`{"publicId":"en-abc123","sshHost":"en-abc123@ssh.us-e1a.frbit.app"}`))
@@ -106,15 +109,39 @@ func TestACommandRunsInBatchModeAndPassesItsExitCode(t *testing.T) {
 }
 
 func TestAnSSHFailurePointsToTheKey(t *testing.T) {
-	_, err := execute(t, &fakeRunner{err: exitCode(255)}, false, "en-abc123", "--", "true")
+	_, err := execute(t, &fakeRunner{err: exitCode(255), stderr: "en-abc123@ssh.us-e1a.frbit.app: Permission denied (publickey).\n"}, false, "en-abc123", "--", "true")
 	if err == nil || errors.As(err, new(*cmdutil.ExitError)) {
 		t.Fatalf("err = %v, want the mapped ssh error", err)
 	}
 }
 
+func TestARemoteExit255IsPassedThrough(t *testing.T) {
+	_, err := execute(t, &fakeRunner{err: exitCode(255), stderr: "PHP Fatal error: oops\n"}, false, "en-abc123", "--", "php", "broken.php")
+	var exit *cmdutil.ExitError
+	if !errors.As(err, &exit) || exit.Code != 255 {
+		t.Fatalf("err = %v, want exit code 255", err)
+	}
+}
+
+func TestOneArgumentIsAShellLineAndSeveralAreQuoted(t *testing.T) {
+	fake := &fakeRunner{}
+	if _, err := execute(t, fake, false, "en-abc123", "--", "cd web && php craft up"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.args[len(fake.args)-1]; got != "cd web && php craft up" {
+		t.Fatalf("one argument = %q", got)
+	}
+	if _, err := execute(t, fake, false, "en-abc123", "--", "rm", "a file; rm -rf /"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.args[len(fake.args)-1]; got != `rm 'a file; rm -rf /'` {
+		t.Fatalf("several arguments = %q", got)
+	}
+}
+
 func TestPrintShowsTheCommandWithoutRunningIt(t *testing.T) {
 	fake := &fakeRunner{}
-	out, err := execute(t, fake, false, "en-abc123", "--print", "--", "echo", "it's")
+	out, err := execute(t, fake, false, "en-abc123", "--print", "--", "echo it's")
 	if err != nil {
 		t.Fatal(err)
 	}

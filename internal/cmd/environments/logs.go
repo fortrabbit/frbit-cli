@@ -98,7 +98,7 @@ func newCmdLogs(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&status, "status", "", "Access log only: HTTP status, class or list (500, 5xx, 500,503)")
 	command.Flags().StringVar(&method, "method", "", "Access log only: HTTP method, e.g. GET")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the entries as JSON")
-	command.Flags().BoolVarP(&follow, "follow", "f", false, "Keep printing new entries until Ctrl-C")
+	command.Flags().BoolVar(&follow, "follow", false, "Keep printing new entries until Ctrl-C")
 	return command
 }
 
@@ -111,7 +111,7 @@ func followLogs(ctx context.Context, client *api.Client, out, errOut io.Writer, 
 	if err := writeFollowed(out, first, asJSON); err != nil {
 		return err
 	}
-	newestTime, seen := boundary(first, "", nil)
+	newestTime, printed := advance(first, "", nil)
 	if len(first) == 0 {
 		_, _ = fmt.Fprintln(errOut, "waiting for log entries…")
 	}
@@ -130,22 +130,60 @@ func followLogs(ctx context.Context, client *api.Client, out, errOut io.Writer, 
 			if ctx.Err() != nil {
 				return nil
 			}
-			if _, transient := api.TransientDelay(err, FollowInterval); transient {
-				continue
+			delay, transient := api.TransientDelay(err, FollowInterval)
+			if !transient {
+				return err
 			}
-			return err
-		}
-		var fresh []logEntry
-		for _, entry := range reversed(batch) {
-			if !seen[entryKey(entry)] {
-				fresh = append(fresh, entry)
+			// Honour Retry-After before the next regular wait.
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
 			}
+			continue
 		}
+		fresh := unseen(reversed(batch), newestTime, printed)
 		if err := writeFollowed(out, fresh, asJSON); err != nil {
 			return err
 		}
-		newestTime, seen = boundary(fresh, newestTime, seen)
+		newestTime, printed = advance(fresh, newestTime, printed)
 	}
+}
+
+// unseen drops the entries at newestTime that were printed already; since is inclusive, so they come back.
+// Counting copies keeps two identical lines in the same second apart from a third.
+func unseen(entries []logEntry, newestTime string, printed map[string]int) []logEntry {
+	remaining := make(map[string]int, len(printed))
+	for key, count := range printed {
+		remaining[key] = count
+	}
+	var fresh []logEntry
+	for _, entry := range entries {
+		key := entryKey(entry)
+		if entry.Time == newestTime && remaining[key] > 0 {
+			remaining[key]--
+			continue
+		}
+		fresh = append(fresh, entry)
+	}
+	return fresh
+}
+
+// advance moves newestTime to the newest printed entry and counts the printed entries at it.
+func advance(entries []logEntry, newestTime string, printed map[string]int) (string, map[string]int) {
+	if len(entries) == 0 {
+		return newestTime, printed
+	}
+	last := entries[len(entries)-1].Time
+	if last != newestTime || printed == nil {
+		newestTime, printed = last, map[string]int{}
+	}
+	for _, entry := range entries {
+		if entry.Time == newestTime {
+			printed[entryKey(entry)]++
+		}
+	}
+	return newestTime, printed
 }
 
 func writeFollowed(out io.Writer, entries []logEntry, asJSON bool) error {
@@ -158,23 +196,6 @@ func writeFollowed(out io.Writer, entries []logEntry, asJSON bool) error {
 		}
 	}
 	return nil
-}
-
-// boundary moves the newest timestamp forward and keeps the keys of the entries at it.
-func boundary(entries []logEntry, newestTime string, seen map[string]bool) (string, map[string]bool) {
-	if len(entries) == 0 {
-		return newestTime, seen
-	}
-	last := entries[len(entries)-1].Time
-	if last != newestTime {
-		newestTime, seen = last, map[string]bool{}
-	}
-	for _, entry := range entries {
-		if entry.Time == newestTime {
-			seen[entryKey(entry)] = true
-		}
-	}
-	return newestTime, seen
 }
 
 func entryKey(entry logEntry) string {

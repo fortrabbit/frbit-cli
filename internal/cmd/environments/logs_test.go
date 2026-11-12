@@ -61,6 +61,15 @@ func TestLogsKeepTabsStripsOtherControl(t *testing.T) {
 	}
 }
 
+func TestFollowCountsIdenticalLinesInTheSameSecond(t *testing.T) {
+	warning := logEntry{Time: "t1", Message: "PHP Warning: x"}
+	newest, printed := advance([]logEntry{warning, warning}, "", nil)
+	fresh := unseen([]logEntry{warning, warning, warning}, newest, printed)
+	if len(fresh) != 1 {
+		t.Fatalf("fresh = %+v, want the third warning only", fresh)
+	}
+}
+
 func TestLogsFollowPrintsOnlyNewEntriesUntilCancelled(t *testing.T) {
 	previous := FollowInterval
 	FollowInterval = 5 * time.Millisecond
