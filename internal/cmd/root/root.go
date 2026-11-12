@@ -17,6 +17,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/backups"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/catalog"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/db"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/doctor"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/domains"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/environments"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/files"
@@ -76,6 +77,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		resource.NewCmdGroup(factory, personSpec()),
 		resource.NewCmdGroup(factory, teamSpec()),
 		resource.NewCmdGroup(factory, paymentMethodSpec()),
+		doctor.NewCmdDoctor(factory, nil),
 		newCmdVersion(factory),
 	)
 	command.AddCommand(catalog.NewCommands(factory)...)
@@ -122,7 +124,8 @@ func exitCodeFor(err error) int {
 }
 
 func notifyUpdate(command *cobra.Command, factory *app.Factory) {
-	if !factory.IOStreams.IsErrTTY || factory.CheckForUpdate == nil || os.Getenv("FRBIT_NO_UPDATE_NOTIFIER") != "" {
+	// doctor reports the version itself.
+	if command.Name() == "doctor" || !factory.IOStreams.IsErrTTY || factory.CheckForUpdate == nil || os.Getenv("FRBIT_NO_UPDATE_NOTIFIER") != "" {
 		return
 	}
 

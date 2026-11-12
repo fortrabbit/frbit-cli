@@ -76,14 +76,18 @@ var installHints = map[string]string{
 	"rsync": "install rsync with your package manager (macOS ships one; on Windows use WSL)",
 }
 
+// InstallHint says how to get a local tool.
+func InstallHint(name string) string {
+	if hint, ok := installHints[name]; ok {
+		return hint
+	}
+	return "install " + name
+}
+
 // Check reports a missing local tool by name, with how to get it.
 func Check(name string) error {
 	if _, err := exec.LookPath(name); err != nil {
-		hint, ok := installHints[name]
-		if !ok {
-			hint = "install " + name
-		}
-		return fmt.Errorf("%s not found in PATH; %s", name, hint)
+		return fmt.Errorf("%s not found in PATH; %s", name, InstallHint(name))
 	}
 	return nil
 }

@@ -61,6 +61,7 @@ frbit environments restart en-a1b2c3
 frbit environments deploy en-a1b2c3
 frbit deployments logs dp-a1b2c3
 frbit auth status
+frbit doctor
 ```
 
 The CLI can also set up fortrabbit for coding agents. See the
