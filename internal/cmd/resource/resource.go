@@ -59,8 +59,10 @@ type Spec struct {
 	QueryFilters   []QueryFilter
 	ClientFilters  []ClientFilter
 	NoGet          bool
-	Logs           bool
-	Delete         *DeleteSpec
+	// Decorate adds values to the resources before the table is printed; --json prints the API response as is.
+	Decorate func(cmd *cobra.Command, client *api.Client, resources []api.Resource)
+	Logs     bool
+	Delete   *DeleteSpec
 }
 
 func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
@@ -181,6 +183,9 @@ func NewCmdList(factory *app.Factory, spec Spec) *cobra.Command {
 				}
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", raw)
 				return err
+			}
+			if spec.Decorate != nil {
+				spec.Decorate(cmd, client, response.Resources)
 			}
 			return writeResources(cmd.OutOrStdout(), response.Resources, response.TotalItems, spec)
 		},

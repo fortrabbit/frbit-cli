@@ -53,6 +53,7 @@ const (
 	SourceEnv        = "env"
 	SourceFile       = "file"
 	SourceRepository = "repository"
+	SourceName       = "name"
 )
 
 // ErrNoEnvironment means nothing in the checkout names an environment.
@@ -62,13 +63,13 @@ var ErrNoEnvironment = errors.New("no environment for this checkout; pass the en
 type Resolution struct {
 	ID     string
 	Source string
-	// Label is the environments.yml entry for SourceFile.
+	// Label is the environments.yml entry for SourceFile, and app/environment for SourceName.
 	Label string
 	// Match is set for SourceRepository.
 	Match Match
 }
 
-// Find tries arg (ID or label), FORTRABBIT_ENVIRONMENT, the file entry for the branch, the server lookup and the only file entry; it returns ErrNoEnvironment when none applies.
+// Find tries arg (ID, label, or app/environment name), FORTRABBIT_ENVIRONMENT, the file entry for the branch, the server lookup and the only file entry; it returns ErrNoEnvironment when none applies.
 func (r Resolver) Find(ctx context.Context, client *api.Client, dir string, arg string) (Resolution, error) {
 	arg = strings.TrimSpace(arg)
 	if IsID(arg) {
@@ -96,10 +97,14 @@ func (r Resolver) Find(ctx context.Context, client *api.Client, dir string, arg 
 		return Resolution{ID: id, Source: SourceFile, Label: label}, nil
 	}
 	if arg != "" {
-		if _, ok := entries.Get(arg); !ok {
-			return Resolution{}, fmt.Errorf("no environment labelled %q in %s; run frbit link", arg, FilePath)
+		if _, ok := entries.Get(arg); ok {
+			return fromFile(arg)
 		}
-		return fromFile(arg)
+		candidate, err := byName(ctx, client, arg)
+		if err != nil {
+			return Resolution{}, err
+		}
+		return Resolution{ID: candidate.EnvironmentID, Source: SourceName, Label: candidate.Name()}, nil
 	}
 	if _, ok := entries.Get(branch); ok && branch != "" {
 		return fromFile(branch)

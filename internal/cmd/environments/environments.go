@@ -28,10 +28,11 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		SupportsPage:   true,
 		SupportsFilter: true,
 		NoGet:          true,
+		Decorate:       addAppNames,
 		Fields: []resource.Field{
 			{Header: "ID", Key: "publicId"},
+			{Header: "APP", Key: appKey},
 			{Header: "NAME", Key: "name"},
-			{Header: "SOFTWARE", Key: "softwareVersion"},
 			{Header: "UPDATED", Key: "updatedAt"},
 		},
 	})
@@ -50,6 +51,25 @@ func NewCmdEnvironments(factory *app.Factory) *cobra.Command {
 		link.Documented(newCmdLogs(factory), false),
 	)
 	return command
+}
+
+// appKey holds the app name added for the table; the API has no such field.
+const appKey = "frbit:app"
+
+func addAppNames(cmd *cobra.Command, client *api.Client, environments []api.Resource) {
+	if len(environments) == 0 {
+		return
+	}
+	names, err := link.AppNames(cmd.Context(), client)
+	if err != nil {
+		// The environments are listed already; a missing app name is not worth failing for.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: no app names: %v\n", err)
+		return
+	}
+	for _, environment := range environments {
+		id, _ := environment["publicId"].(string)
+		environment[appKey] = names[id]
+	}
 }
 
 func newCmdGet(factory *app.Factory) *cobra.Command {

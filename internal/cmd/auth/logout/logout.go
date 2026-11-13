@@ -74,6 +74,7 @@ func run(options *Options) error {
 	if err := options.Factory.CredentialStore.Delete(profile); err != nil {
 		return err
 	}
+	cmdutil.ClearCompletionCache()
 	if _, err := fmt.Fprintf(command.OutOrStdout(), "Removed stored credentials for profile %q.\n", profile); err != nil {
 		return err
 	}

@@ -53,6 +53,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 	}
 	command.SetOut(factory.IOStreams.Out)
 	command.SetErr(factory.IOStreams.ErrOut)
+	command.SetIn(factory.IOStreams.In)
 	command.PersistentFlags().String("host", "", "Public API origin (or FRBIT_HOST)")
 	command.PersistentFlags().String("profile", app.DefaultProfile, "Credential profile")
 
@@ -81,6 +82,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		newCmdVersion(factory),
 	)
 	command.AddCommand(catalog.NewCommands(factory)...)
+	addEnvironmentCompletion(command, factory)
 
 	return command
 }
@@ -155,7 +157,7 @@ func deploymentsEnvironment(cmd *cobra.Command, client *api.Client, value string
 func deploymentSpec() resource.Spec {
 	return resource.Spec{
 		Use: "deployments", Singular: "deployment", Path: "/deployments", Short: "List and inspect deployments, newest first", Logs: true, SupportsPage: true,
-		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID or a label (default: all deployments)", Resolve: deploymentsEnvironment}},
+		QueryFilters: []resource.QueryFilter{{Name: "environment", Shorthand: "e", Usage: "Only deployments of this environment, an ID, a label or app/environment (default: all deployments)", Resolve: deploymentsEnvironment}},
 		Fields:       []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "ENVIRONMENT", Key: "environment"}, {Header: "BRANCH", Key: "branch"}, {Header: "COMMIT", Key: "commitHash"}, {Header: "STATUS", Key: "status"}, {Header: "CREATED", Key: "createdAt"}},
 	}
 }

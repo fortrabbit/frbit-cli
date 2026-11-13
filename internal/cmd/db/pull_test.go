@@ -96,6 +96,10 @@ func execute(t *testing.T, dir string, in invocation) (string, string, error) {
 			*in.requests = append(*in.requests, r.Method+" "+r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/environments/en-nodb11" {
+			_, _ = w.Write([]byte(`{"publicId":"en-nodb11","sshHost":"en-nodb11@ssh.us-e1a.frbit.app","components":{"database":"off"}}`))
+			return
+		}
 		if r.URL.Path == "/v1/environments/en-abc123" {
 			_, _ = w.Write([]byte(`{"publicId":"en-abc123","sshHost":"en-abc123@ssh.us-e1a.frbit.app"}`))
 			return
@@ -272,5 +276,21 @@ func TestDbPullAnnouncesLabelOnStderr(t *testing.T) {
 	_, stderr, err = run(t, dir, &fakeRunner{stdout: gzipped(t, dump)}, "en-abc123", "--force")
 	if err != nil || strings.Contains(stderr, "→") {
 		t.Fatalf("ID: err %v, stderr %q", err, stderr)
+	}
+}
+
+func TestDbWithoutDatabaseFailsBeforeSSH(t *testing.T) {
+	want := "en-nodb11 has no database booked; book one with frbit environments components update en-nodb11 --component database=<size>"
+	fake := &fakeRunner{}
+	if _, _, err := run(t, t.TempDir(), fake, "en-nodb11"); err == nil || err.Error() != want || fake.name != "" {
+		t.Fatalf("pull: %v, ran %q", err, fake.name)
+	}
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "dump.sql")
+	if err := os.WriteFile(dump, []byte("SELECT 1;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := execute(t, dir, invocation{runner: fake, check: func(string) error { return nil }, args: []string{"db", "push", dump, "en-nodb11", "--confirm", "en-nodb11"}}); err == nil || err.Error() != want || fake.name != "" {
+		t.Fatalf("push: %v, ran %q", err, fake.name)
 	}
 }

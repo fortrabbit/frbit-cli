@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
@@ -137,6 +138,8 @@ func TestPublicReadCommandsUseExpectedEndpoints(t *testing.T) {
 				t.Fatalf("environment filter = %#v", got)
 			}
 			_, _ = writer.Write([]byte(`[{"publicId":"en-abc123","name":"production","softwareVersion":"12"}]`))
+		case "/v1/apps":
+			_, _ = writer.Write([]byte(`[]`))
 		case "/v1/people/pn-abc123":
 			_, _ = writer.Write([]byte(`{"publicId":"pn-abc123","name":"Ada","email":"ada@example.test","type":"developer"}`))
 		case "/v1/deployments/dp-abc123/logs":
@@ -210,16 +213,6 @@ func TestDomainsListRendersEnvironmentRelationship(t *testing.T) {
 	output := executeResourceList(t, "/v1/domains", `[{"publicId":"do-abc123","name":"example.test","type":"apex","environment":"en-abc123","isMain":true}]`, "domains")
 	assertTableColumns(t, output, "ID", "NAME", "TYPE", "ENVIRONMENT", "MAIN", "UPDATED")
 	for _, expected := range []string{"do-abc123", "example.test", "en-abc123"} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("output %q does not contain %q", output, expected)
-		}
-	}
-}
-
-func TestEnvironmentsListRendersTable(t *testing.T) {
-	output := executeResourceList(t, "/v1/environments", `[{"publicId":"en-abc123","name":"production","softwareVersion":"12","updatedAt":"2026-01-02T00:00:00Z"}]`, "environments")
-	assertTableColumns(t, output, "ID", "NAME", "SOFTWARE", "UPDATED")
-	for _, expected := range []string{"en-abc123", "production", "12"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output %q does not contain %q", output, expected)
 		}
@@ -1300,5 +1293,104 @@ func TestExitErrorBecomesTheExitCode(t *testing.T) {
 	}
 	if code := exitCodeFor(errors.New("other")); code != -1 {
 		t.Fatalf("other error code = %d, want -1", code)
+	}
+}
+
+func TestEnvironmentArgPosition(t *testing.T) {
+	cases := map[string]int{
+		"get [environment]":                                 0,
+		"push <file> [environment]":                         1,
+		"ssh [environment] [-- command...]":                 0,
+		"create <environment> --description D --port N[-M]": 0,
+		"delete <firewall-rule-id>":                         -1,
+		"list":                                              -1,
+	}
+	for use, want := range cases {
+		if got := environmentArg(use); got != want {
+			t.Errorf("environmentArg(%q) = %d, want %d", use, got, want)
+		}
+	}
+}
+
+func TestCompletionOffersEnvironmentNames(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		switch request.URL.Path {
+		case "/v1/apps":
+			_, _ = writer.Write([]byte(`[{"publicId":"ap-shop11","name":"shop","environments":["en-shop11","en-shop22"]},{"publicId":"ap-blog11","name":"blog","environments":["en-blog11"]}]`))
+		case "/v1/environments":
+			_, _ = writer.Write([]byte(`[{"publicId":"en-shop11","name":"main"},{"publicId":"en-shop22","name":"staging"},{"publicId":"en-blog11","name":"main"}]`))
+		default:
+			t.Errorf("unexpected path %q", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	previous := completionHost
+	completionHost = func(host string) bool { return host == server.URL }
+	t.Cleanup(func() { completionHost = previous })
+	complete := func(args ...string) string {
+		t.Helper()
+		output := &bytes.Buffer{}
+		command := NewCmdRoot(testFactory(output))
+		command.SetArgs(append([]string{"__complete", "--host", server.URL}, args...))
+		if err := command.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return output.String()
+	}
+	if got := complete("ssh", "sh"); got != "shop/main\ten-shop11\nshop/staging\ten-shop22\n:4\n" {
+		t.Fatalf("ssh:\n%s", got)
+	}
+	if got := complete("files", "pull", "-e", "bl"); got != "blog/main\ten-blog11\n:4\n" {
+		t.Fatalf("files -e:\n%s", got)
+	}
+	if got := complete("db", "push", "dump.sql", "en-b"); got != "en-blog11\tblog/main\n:4\n" {
+		t.Fatalf("db push:\n%s", got)
+	}
+	if got := complete("db", "push", ""); strings.Contains(got, "shop/") || !strings.HasSuffix(got, ":0\n") {
+		t.Fatalf("db push completed the file argument:\n%s", got)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("requests = %d, want 2: the cache answers after the first completion", requests.Load())
+	}
+}
+
+func TestCompletionStaysQuietWithoutAPI(t *testing.T) {
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"__complete", "--host", "http://127.0.0.1:1", "ssh", ""})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != ":4\n" {
+		t.Fatalf("output:\n%s", got)
+	}
+}
+
+func TestCompletionSkipsOtherHosts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the token went to a host that is not the default")
+	}))
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	output := &bytes.Buffer{}
+	command := NewCmdRoot(testFactory(output))
+	command.SetArgs([]string{"__complete", "--host", server.URL, "ssh", ""})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != ":4\n" {
+		t.Fatalf("output:\n%s", got)
 	}
 }

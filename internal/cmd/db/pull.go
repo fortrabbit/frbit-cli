@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"io"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -38,7 +39,7 @@ func newCmdPull(factory *app.Factory) *cobra.Command {
 
 mysqldump runs on the environment over SSH with your own SSH key, so no database credentials reach this machine. The default output is <environment>.sql.gz in the current folder; --output sets a file or folder. An existing file is not overwritten unless you pass --force.
 
-The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link).`,
+The environment is an ID, a label from .fortrabbit/environments.yml, or app/environment by name; without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit db pull en-a1b2c3
   frbit db pull --output ./dumps/`,
 		Args: cobra.MaximumNArgs(1),
@@ -58,7 +59,7 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if err != nil {
 				return err
 			}
-			env, err := link.Environment(ctx, client, id)
+			env, err := environmentWithDatabase(ctx, client, id)
 			if err != nil {
 				return err
 			}
@@ -95,4 +96,17 @@ func (p puller) run(ctx context.Context, stdout io.Writer) error {
 		return err
 	}
 	return fmt.Errorf("mysqldump failed on %s (exit %d); see the message above", p.id, sshexec.ExitCode(err))
+}
+
+// environmentWithDatabase gets the environment, failing before any SSH call when no database is booked, as mysqldump would only report a missing socket.
+func environmentWithDatabase(ctx context.Context, client *api.Client, id string) (api.Resource, error) {
+	env, err := link.Environment(ctx, client, id)
+	if err != nil {
+		return nil, err
+	}
+	components, _ := env["components"].(map[string]any)
+	if components["database"] == "off" {
+		return nil, fmt.Errorf("%s has no database booked; book one with frbit environments components update %s --component database=<size>", id, id)
+	}
+	return env, nil
 }

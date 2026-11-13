@@ -16,6 +16,12 @@ type IOStreams struct {
 	IsErrTTY bool
 }
 
+// IsTerminal reports whether stream is a file attached to a terminal.
+func IsTerminal(stream any) bool {
+	file, ok := stream.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
+}
+
 func System() IOStreams {
 	return IOStreams{
 		In:       os.Stdin,

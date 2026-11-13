@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const apps = `[{"publicId":"ap-aaa111","gitRepository":"acme/site","environments":["en-prod11"]}]`
+const apps = `[{"publicId":"ap-aaa111","name":"site","gitRepository":"acme/site","environments":["en-prod11"]}]`
 const environments = `[{"publicId":"en-prod11","name":"production","git":{"branch":"main","directory":null}}]`
 
 // topLevel is what the fake git reports as the checkout root; empty means outside git.
@@ -73,7 +73,7 @@ func run(t *testing.T, dir, remote, branch string, tty bool, stdin string, args 
 	t.Cleanup(server.Close)
 	output := &bytes.Buffer{}
 	factory := &app.Factory{
-		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: &bytes.Buffer{}, IsTTY: tty},
+		IOStreams:       iostreams.IOStreams{In: strings.NewReader(stdin), Out: output, ErrOut: &bytes.Buffer{}, IsTTY: tty, IsErrTTY: tty},
 		ConfigStore:     testutil.ConfigStore{},
 		CredentialStore: testutil.CredentialStore{},
 		HTTPClient:      &http.Client{},
@@ -111,11 +111,49 @@ func TestLinkRefusesLegacyFile(t *testing.T) {
 	}
 }
 
-func TestLinkWithoutEnvironmentFailsOnTerminalToo(t *testing.T) {
-	for _, tty := range []bool{false, true} {
-		if _, err := run(t, t.TempDir(), "", "main", tty, "1\n"); err == nil || err.Error() != "no environment to link; pass the environment ID: frbit link <env-id>" {
-			t.Fatalf("tty %v: %v", tty, err)
-		}
+func TestLinkWithoutEnvironmentListsCandidates(t *testing.T) {
+	dir := t.TempDir()
+	_, err := run(t, dir, "", "main", false, "1\n")
+	want := "no environment for this checkout; pass the environment ID or run frbit link <env-id>:\n  site/production  en-prod11"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".fortrabbit")); !os.IsNotExist(err) {
+		t.Fatalf(".fortrabbit created: %v", err)
+	}
+}
+
+func TestLinkWithoutEnvironmentPicksOnTerminal(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := run(t, dir, "", "main", true, "1\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(dir, ".fortrabbit", "environments.yml")); got != "main: en-prod11\n" {
+		t.Fatalf("environments.yml = %q", got)
+	}
+	outside := t.TempDir()
+	if _, err := run(t, outside, "", "", true, "site/production\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(outside, ".fortrabbit", "environments.yml")); got != "production: en-prod11\n" {
+		t.Fatalf("outside git: environments.yml = %q", got)
+	}
+}
+
+func TestLinkByName(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := run(t, dir, "", "main", false, "", "site/production"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(dir, ".fortrabbit", "environments.yml")); got != "main: en-prod11\n" {
+		t.Fatalf("environments.yml = %q", got)
+	}
+	outside := t.TempDir()
+	if _, err := run(t, outside, "", "", false, "", "site/production"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(outside, ".fortrabbit", "environments.yml")); got != "production: en-prod11\n" {
+		t.Fatalf("outside git: environments.yml = %q", got)
 	}
 }
 

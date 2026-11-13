@@ -27,3 +27,16 @@ func (s stripper) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// SingleLine makes a name from the API safe to print as one item of a line-based list: no control characters, no line breaks or tabs, no bidi or other format characters that reorder what follows.
+func SingleLine(value string) string {
+	return strings.Map(func(character rune) rune {
+		switch {
+		case character == '\n' || character == '\t' || character == '\r':
+			return ' '
+		case unicode.IsControl(character) || unicode.Is(unicode.Cf, character):
+			return -1
+		}
+		return character
+	}, value)
+}

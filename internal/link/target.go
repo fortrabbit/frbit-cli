@@ -1,6 +1,7 @@
 package link
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +19,23 @@ type Target struct {
 	Resolver Resolver
 	// Dir is the folder the checkout is read from; empty means the current folder.
 	Dir string
-	// Stderr gets the line naming the resolved environment.
+	// Stderr gets the line naming the resolved environment, and the picker.
 	Stderr io.Writer
+	// In answers the picker; it only runs when Interactive is set.
+	In          *bufio.Reader
+	Interactive bool
+	// NoSave skips the offer to save a pick, for commands that may still abort at their confirmation.
+	NoSave bool
+}
+
+// NewTarget reads the checkout in dir and picks on a terminal when the command runs on one.
+func NewTarget(cmd *cobra.Command, dir string) Target {
+	return Target{
+		Dir:         dir,
+		Stderr:      cmd.ErrOrStderr(),
+		In:          bufio.NewReader(cmd.InOrStdin()),
+		Interactive: iostreams.IsTerminal(cmd.InOrStdin()) && iostreams.IsTerminal(cmd.ErrOrStderr()),
+	}
 }
 
 // Resolve returns the environment named by arg, else the one of the checkout.
@@ -31,6 +48,9 @@ func (t Target) Resolve(ctx context.Context, client *api.Client, arg string) (st
 		}
 	}
 	resolution, err := t.Resolver.Find(ctx, client, dir, arg)
+	if errors.Is(err, ErrNoEnvironment) {
+		return t.discover(ctx, client, dir)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -49,6 +69,8 @@ func (t Target) announce(resolution Resolution) {
 		from = resolution.Label + ", from " + FilePath
 	case SourceEnv:
 		from = "from " + EnvVar
+	case SourceName:
+		from = iostreams.SingleLine(resolution.Label)
 	case SourceRepository:
 		from = fmt.Sprintf("from the repository %s, branch %s", resolution.Match.Repository, resolution.Match.Branch)
 	default:
@@ -59,7 +81,7 @@ func (t Target) announce(resolution Resolution) {
 
 // ReadEnvironment resolves the optional environment argument of a read-only command.
 func ReadEnvironment(cmd *cobra.Command, client *api.Client, arg string) (string, error) {
-	return Target{Stderr: cmd.ErrOrStderr()}.Resolve(cmd.Context(), client, arg)
+	return NewTarget(cmd, "").Resolve(cmd.Context(), client, arg)
 }
 
 // WriteEnvironment resolves the required environment argument of a command that changes something; usage defaults to the command path plus <env-id|label>.
@@ -83,8 +105,8 @@ func FirstArg(args []string) string {
 
 // ReadHelp and WriteHelp state in the long help how a command takes its environment.
 const (
-	ReadHelp  = "The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link)."
-	WriteHelp = "The environment is required: an ID or a label from .fortrabbit/environments.yml."
+	ReadHelp  = "The environment is an ID, a label from .fortrabbit/environments.yml, or app/environment by name; without one, the environment of the checkout is used (see frbit link)."
+	WriteHelp = "The environment is required: an ID, a label from .fortrabbit/environments.yml, or app/environment by name."
 )
 
 // Documented adds ReadHelp, or WriteHelp when write is set, to the long help of command.
