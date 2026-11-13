@@ -111,7 +111,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&softwareTemplate, "software", "", "Software template slug, from frbit templates list")
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().BoolVar(&noCloudDomain, "no-cloud-domain", false, "Create the initial environment without a cloud domain")
-	command.Flags().StringArrayVar(&components, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
+	command.Flags().String("preset", "", "Component preset slug from frbit component-presets list, e.g. web-app-2; defaults to the first preset of the software template")
+	command.Flags().StringArrayVar(&components, "component", nil, "Component plan as SLUG=SIZE (repeatable); with --preset it changes single components, without it the named components are the whole plan")
 	command.Flags().BoolVar(&autoscaling, "autoscaling", true, "Enable autoscaling for the initial environment")
 	command.Flags().StringVar(&repository, "repository", "", "Connected Git repository in OWNER/REPOSITORY form")
 	command.Flags().StringVar(&branch, "branch", "", "Git branch for the initial environment")
@@ -128,7 +129,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 }
 
 func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwareTemplate string, softwareVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
-	inputFlags := []string{"name", "region", "team", "software", "software-version", "no-cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "payment-method"}
+	inputFlags := []string{"name", "region", "team", "software", "software-version", "no-cloud-domain", "preset", "component", "autoscaling", "repository", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "payment-method"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -165,7 +166,8 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 	if deploymentChanged && (repository == "" || branch == "") {
 		return nil, fmt.Errorf("--repository and --branch are required when configuring deployment")
 	}
-	initialChanged := softwareVersion != "" || noCloudDomain || len(components) > 0 || command.Flags().Changed("autoscaling") || command.Flags().Changed("root-path") || deploymentChanged
+	preset, _ := command.Flags().GetString("preset")
+	initialChanged := softwareVersion != "" || noCloudDomain || preset != "" || len(components) > 0 || command.Flags().Changed("autoscaling") || command.Flags().Changed("root-path") || deploymentChanged
 	if initialChanged {
 		initial := map[string]any{}
 		if softwareVersion != "" {
@@ -173,6 +175,9 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 		}
 		if noCloudDomain {
 			initial["cloudDomain"] = nil
+		}
+		if preset != "" {
+			initial["componentPreset"] = preset
 		}
 		if len(components) > 0 {
 			initial["components"] = components
