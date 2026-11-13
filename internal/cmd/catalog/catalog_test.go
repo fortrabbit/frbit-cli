@@ -82,15 +82,16 @@ func TestGitBranchesRejectsMissingSlash(t *testing.T) {
 
 func TestCatalogCommandsListTheirEndpoints(t *testing.T) {
 	cases := map[string]string{
-		"regions list":        "/v1/catalog/regions",
-		"templates list":      "/v1/catalog/software-templates",
-		"presets list":        "/v1/catalog/software-templates",
-		"software list":       "/v1/catalog/software",
-		"php-versions list":   "/v1/catalog/php-versions",
-		"php-extensions list": "/v1/catalog/php-extensions",
-		"php-settings list":   "/v1/catalog/php-settings",
-		"node-versions list":  "/v1/catalog/node-versions",
-		"git repositories":    "/v1/git-repositories",
+		"regions list":           "/v1/catalog/regions",
+		"templates list":         "/v1/catalog/software-templates",
+		"component-presets list": "/v1/catalog/component-presets",
+		"presets list":           "/v1/catalog/software-templates",
+		"software list":          "/v1/catalog/software",
+		"php-versions list":      "/v1/catalog/php-versions",
+		"php-extensions list":    "/v1/catalog/php-extensions",
+		"php-settings list":      "/v1/catalog/php-settings",
+		"node-versions list":     "/v1/catalog/node-versions",
+		"git repositories":       "/v1/git-repositories",
 	}
 	for command, want := range cases {
 		var path string
@@ -153,6 +154,23 @@ func TestPlansListShowsSizesReadably(t *testing.T) {
 	}
 	if !strings.Contains(out, "s 5.00 EUR, m 10.00 EUR") || !strings.Contains(out, "false       off\n") || strings.Contains(out, "{") {
 		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestComponentPresetsListShowsPresetsReadably(t *testing.T) {
+	var query string
+	out, err := run(t, func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[{"slug":"web-app","name":"Web app","description":"","softwareTemplates":["laravel"],"presets":[{"slug":"web-app-1","name":"XS","description":"","components":{"php":"sm","key-value-store":"off"},"priceInCents":2400,"currency":"EUR"},{"slug":"web-app-2","name":"SM","description":"","components":{"php":"md"},"priceInCents":null,"currency":"EUR"}]},{"slug":"lamp","name":"Classic","description":"","softwareTemplates":["craft-cms"],"presets":[]}]`))
+	}, "component-presets", "list", "--group", "web-app", "--region", "eu-w1a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "web-app-1 XS 24.00 EUR (key-value-store off, php sm); web-app-2 SM (php md)") || strings.Contains(out, "craft-cms") {
+		t.Fatalf("output = %q", out)
+	}
+	if !strings.Contains(query, "region=eu-w1a") || strings.Contains(query, "group") {
+		t.Fatalf("query = %q", query)
 	}
 }
 
