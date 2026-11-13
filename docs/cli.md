@@ -213,7 +213,7 @@ Use `--team` or `--payment-method` to select an accessible team or payment metho
 
 The API gives the initial environment a cloud domain with a label derived from the app name, and creates none when that label is invalid, reserved or taken. Pass `--no-cloud-domain` to create the app without one, or set `initialEnvironment.cloudDomain` with `--file` to choose the label.
 
-Pass `--root-path public` to set the folder of the repository the web server serves; it defaults to the root path of the software preset.
+Pass `--root-path public` to set the folder of the repository the web server serves; it defaults to the root path of the software template.
 
 Pass `--deploy` to start the initial deployment as part of creation. It requires Git configuration: `apps create` needs both `--repository` and `--branch`. Without `--deploy`, creating an app does not start a deployment.
 
@@ -247,12 +247,12 @@ frbit apps update ap-a1b2c3 --repository acme/shop --confirm ap-a1b2c3
 frbit apps update ap-a1b2c3 --disconnect-repository --confirm ap-a1b2c3
 ```
 
-- `--software` sets the software version of every environment to the preset default and clears pinned versions; the next deployment uses that version.
+- `--software` sets the software version of every environment to the template default and clears pinned versions; the next deployment uses that version.
 - `--technical-contact` (repeatable) replaces the list with the given person public IDs; `--clear-technical-contacts` empties it.
 - `--git-deploy-comments=true|false` toggles deployment comments on GitHub pull requests.
 - `--repository OWNER/REPOSITORY` connects a GitHub repository (`PUT /v1/apps/{id}/git-repository`) and clears the deploy branch and deploy file settings of every environment; no environment deploys until you set a branch again with `environments update`. Combined with other flags, the app is updated first, then the repository connected.
 - `--disconnect-repository` removes the connection and stops deployments until a repository is connected again.
-- `--repository`, `--software` (or `softwarePresetName` in a `--file` body) and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
+- `--repository`, `--software` (or `softwareTemplateName`, or its deprecated alias `softwarePresetName`, in a `--file` body) and `--disconnect-repository` print what they change and ask you to type the app ID, once for all of them; without a terminal pass `--confirm <app-id>`. The check runs before any request. `--confirm` with none of these flags is an error.
 
 ## Environments
 
@@ -560,12 +560,12 @@ frbit payment-methods get pm-a1b2c3
 
 ## Catalog
 
-Look up the values `apps create` needs instead of guessing them. These lists are not paginated; `--limit` and `--all` are accepted for consistency.
+Look up the values `apps create` needs instead of guessing them. These lists are not paginated; `--limit` and `--all` are accepted for consistency. `frbit presets list` still works as an alias of `frbit templates list`.
 
 ```sh
 frbit regions list
 frbit plans list --component php --region eu-w1a --currency EUR
-frbit presets list
+frbit templates list
 frbit software list
 frbit php-versions list
 frbit php-extensions list
@@ -840,7 +840,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
 | `frbit apps get <id>` | Get an app. |
 | `frbit apps create` | Create an app and its initial environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
-| `frbit apps update <id>` | Update an app: name, payment method, software preset, technical contacts, deployment comments, repository connection. Accepts field flags or `--file`. |
+| `frbit apps update <id>` | Update an app: name, payment method, software template, technical contacts, deployment comments, repository connection. Accepts field flags or `--file`. |
 | `frbit apps delete <id>` | Permanently delete an app. |
 | `frbit environments list` / `get [environment]` | List or get environments. Environment arguments everywhere: see [Choosing the environment](#choosing-the-environment). `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit environments create` | Create and optionally configure/deploy an environment. Accepts field flags or `--file`. Shows the monthly price and asks first; `--yes` skips the question. `--dry-run` only prints the price. |
@@ -870,7 +870,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
-| `frbit regions list` / `presets list` / `software list` | List regions, software presets, or software with versions. |
+| `frbit regions list` / `templates list` / `software list` | List regions, software templates, or software with versions. |
 | `frbit plans list` | List component plans with sizes and prices. Accepts `--region`, `--currency`, and `--component`. |
 | `frbit php-versions list` / `php-extensions list` / `php-settings list` / `node-versions list` | List the available PHP versions, PHP extensions, php.ini directives with accepted values, or Node.js versions. |
 | `frbit git repositories` | List repositories of the connected Git account. |

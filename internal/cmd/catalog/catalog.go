@@ -34,7 +34,7 @@ func specs() []resource.Spec {
 			Fields:        []resource.Field{{Header: "COMPONENT", Key: "slug"}, {Header: "OPTIONAL", Key: "optional"}, {Header: "AUTOSCALES", Key: "autoscales"}, {Header: "SIZES", Key: "sizes", Format: formatSizes}},
 		},
 		{
-			Use: "presets", Singular: "preset", Path: "/catalog/software-presets", Short: "List software presets and their versions", NoGet: true,
+			Use: "templates", Aliases: []string{"presets"}, Singular: "template", Path: "/catalog/software-templates", Short: "List software templates and their versions", NoGet: true,
 			Fields: []resource.Field{{Header: "SLUG", Key: "slug"}, {Header: "NAME", Key: "name"}, {Header: "VERSIONS", Key: "versions"}, {Header: "DEFAULT", Key: "defaultVersion"}},
 		},
 		{

@@ -49,6 +49,7 @@ type DeleteSpec struct {
 
 type Spec struct {
 	Use            string
+	Aliases        []string
 	Singular       string
 	Path           string
 	Short          string
@@ -64,9 +65,10 @@ type Spec struct {
 
 func NewCmdGroup(factory *app.Factory, spec Spec) *cobra.Command {
 	command := &cobra.Command{
-		Use:   spec.Use,
-		Short: spec.Short,
-		Args:  cobra.NoArgs,
+		Use:     spec.Use,
+		Aliases: spec.Aliases,
+		Short:   spec.Short,
+		Args:    cobra.NoArgs,
 	}
 	command.AddCommand(NewCmdList(factory, spec))
 	if !spec.NoGet {

@@ -54,7 +54,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	var name string
 	var region string
 	var teamID string
-	var softwarePreset string
+	var softwareTemplate string
 	var softwareVersion string
 	var noCloudDomain bool
 	var components []string
@@ -76,7 +76,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 		Short: "Create an app and its initial environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwarePreset, softwareVersion, noCloudDomain, components, autoscaling, repository, branch, directory, rootPath, buildCommands, postDeployCommands, deploy, paymentMethodID)
+			payload, err := appCreatePayload(cmd, factory, file, name, region, teamID, softwareTemplate, softwareVersion, noCloudDomain, components, autoscaling, repository, branch, directory, rootPath, buildCommands, postDeployCommands, deploy, paymentMethodID)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "App name")
 	command.Flags().StringVar(&region, "region", "", "Region identifier")
 	command.Flags().StringVar(&teamID, "team", "", "Owning team public ID")
-	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug, from frbit presets list")
+	command.Flags().StringVar(&softwareTemplate, "software", "", "Software template slug, from frbit templates list")
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().BoolVar(&noCloudDomain, "no-cloud-domain", false, "Create the initial environment without a cloud domain")
 	command.Flags().StringArrayVar(&components, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
@@ -127,7 +127,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwarePreset string, softwareVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
+func appCreatePayload(command *cobra.Command, factory *app.Factory, file string, name string, region string, teamID string, softwareTemplate string, softwareVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, repository string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, paymentMethodID string) (any, error) {
 	inputFlags := []string{"name", "region", "team", "software", "software-version", "no-cloud-domain", "component", "autoscaling", "repository", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "payment-method"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
@@ -144,18 +144,18 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 		return nil, err
 	}
 	payload := map[string]any{
-		"teamId":             nil,
-		"name":               name,
-		"region":             region,
-		"softwarePresetName": nil,
-		"initialEnvironment": nil,
-		"paymentMethodId":    nil,
+		"teamId":               nil,
+		"name":                 name,
+		"region":               region,
+		"softwareTemplateName": nil,
+		"initialEnvironment":   nil,
+		"paymentMethodId":      nil,
 	}
 	if teamID != "" {
 		payload["teamId"] = teamID
 	}
-	if softwarePreset != "" {
-		payload["softwarePresetName"] = softwarePreset
+	if softwareTemplate != "" {
+		payload["softwareTemplateName"] = softwareTemplate
 	}
 	if paymentMethodID != "" {
 		payload["paymentMethodId"] = paymentMethodID
@@ -208,7 +208,7 @@ func appCreatePayload(command *cobra.Command, factory *app.Factory, file string,
 // Warnings for app updates that change every environment; they follow what the API does on these changes.
 const (
 	connectRepositoryWarning    = "Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again."
-	softwarePresetWarning       = "Changing the software preset sets the software version of every environment of this app to the preset default and clears pinned versions. The next deployment uses that version."
+	softwareTemplateWarning     = "Changing the software template sets the software version of every environment of this app to the template default and clears pinned versions. The next deployment uses that version."
 	disconnectRepositoryWarning = "Disconnecting the repository resets the branches of all environments and stops deployments until a repository is connected again."
 )
 
@@ -216,7 +216,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	var file string
 	var name string
 	var paymentMethodID string
-	var softwarePreset string
+	var softwareTemplate string
 	var gitDeployComments bool
 	var technicalContacts []string
 	var clearTechnicalContacts bool
@@ -256,7 +256,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 					fields["paymentMethodId"] = paymentMethodID
 				}
 				if cmd.Flags().Changed("software") {
-					fields["softwarePresetName"] = softwarePreset
+					fields["softwareTemplateName"] = softwareTemplate
 				}
 				if cmd.Flags().Changed("git-deploy-comments") {
 					fields["gitDeployComments"] = gitDeployComments
@@ -279,10 +279,11 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 			}
 			// Decided on the body, so --file needs the same confirmation as --software.
 			var body struct {
-				SoftwarePresetName json.RawMessage `json:"softwarePresetName"`
+				SoftwareTemplateName json.RawMessage `json:"softwareTemplateName"`
+				SoftwarePresetName   json.RawMessage `json:"softwarePresetName"`
 			}
-			if raw, err := json.Marshal(payload); err == nil && json.Unmarshal(raw, &body) == nil && body.SoftwarePresetName != nil {
-				warnings = append(warnings, softwarePresetWarning)
+			if raw, err := json.Marshal(payload); err == nil && json.Unmarshal(raw, &body) == nil && (body.SoftwareTemplateName != nil || body.SoftwarePresetName != nil) {
+				warnings = append(warnings, softwareTemplateWarning)
 			}
 			if disconnectRepository {
 				warnings = append(warnings, disconnectRepositoryWarning)
@@ -331,7 +332,7 @@ func newCmdUpdate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVarP(&file, "file", "f", "", "Read the complete request body from a JSON file ('-' for stdin)")
 	command.Flags().StringVar(&name, "name", "", "New app name")
 	command.Flags().StringVar(&paymentMethodID, "payment-method", "", "New payment method public ID")
-	command.Flags().StringVar(&softwarePreset, "software", "", "Software preset slug, from frbit presets list; resets the software version of every environment to the preset default (asks first)")
+	command.Flags().StringVar(&softwareTemplate, "software", "", "Software template slug, from frbit templates list; resets the software version of every environment to the template default (asks first)")
 	command.Flags().BoolVar(&gitDeployComments, "git-deploy-comments", false, "Comment on GitHub pull requests with the deployment (true or false)")
 	command.Flags().StringArrayVar(&technicalContacts, "technical-contact", nil, "Technical contact person public ID, replaces the list (repeatable)")
 	command.Flags().BoolVar(&clearTechnicalContacts, "clear-technical-contacts", false, "Remove all technical contacts")
