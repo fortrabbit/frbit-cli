@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
@@ -57,6 +58,7 @@ func fakeGit(remote, branch string) GitRunner {
 }
 
 type fakeAPI struct {
+	mu                 sync.Mutex
 	apps, environments string
 	missing            map[string]bool
 	paths              []string
@@ -66,6 +68,8 @@ type fakeAPI struct {
 func (f *fakeAPI) client(t *testing.T) *api.Client {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
 		f.paths = append(f.paths, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		switch {

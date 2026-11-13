@@ -11,7 +11,7 @@ import (
 
 // ConfirmContext asks a y/N question; it gives up with ctx.Err() when ctx ends while waiting for input.
 func ConfirmContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (bool, error) {
-	answer, err := readAnswer(ctx, reader, writer, prompt)
+	answer, err := AskContext(ctx, reader, writer, prompt)
 	if err != nil {
 		return false, err
 	}
@@ -21,14 +21,15 @@ func ConfirmContext(ctx context.Context, reader io.Reader, writer io.Writer, pro
 
 // ConfirmExactContext reports whether the answer equals expected; it gives up with ctx.Err() when ctx ends while waiting for input.
 func ConfirmExactContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string, expected string) (bool, error) {
-	answer, err := readAnswer(ctx, reader, writer, prompt)
+	answer, err := AskContext(ctx, reader, writer, prompt)
 	if err != nil {
 		return false, err
 	}
 	return answer == expected, nil
 }
 
-func readAnswer(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (string, error) {
+// AskContext prints prompt and returns the trimmed answer; it gives up with ctx.Err() when ctx ends while waiting for input.
+func AskContext(ctx context.Context, reader io.Reader, writer io.Writer, prompt string) (string, error) {
 	if _, err := fmt.Fprint(writer, prompt); err != nil {
 		return "", err
 	}

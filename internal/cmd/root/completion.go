@@ -27,7 +27,7 @@ func newCmdCompletion() *cobra.Command {
 	}
 
 	command.AddCommand(
-		newCmdGenerateCompletion("bash", false, func(root *cobra.Command, output io.Writer) error { return root.GenBashCompletion(output) }),
+		newCmdGenerateCompletion("bash", false, func(root *cobra.Command, output io.Writer) error { return root.GenBashCompletionV2(output, true) }),
 		newCmdGenerateCompletion("fish", false, func(root *cobra.Command, output io.Writer) error { return root.GenFishCompletion(output, true) }),
 		newCmdGenerateCompletion("powershell", false, func(root *cobra.Command, output io.Writer) error { return root.GenPowerShellCompletion(output) }),
 		newCmdGenerateCompletion("zsh", false, func(root *cobra.Command, output io.Writer) error { return root.GenZshCompletion(output) }),
@@ -86,7 +86,7 @@ func installCompletion(root *cobra.Command, shell string, output io.Writer) erro
 	switch shell {
 	case "bash":
 		return installGeneratedCompletion(root, filepath.Join(userDataDir(home), "bash-completion", "completions", "frbit"), func(root *cobra.Command, output io.Writer) error {
-			return root.GenBashCompletion(output)
+			return root.GenBashCompletionV2(output, true)
 		}, output)
 	case "fish":
 		return installGeneratedCompletion(root, filepath.Join(userConfigDir(home), "fish", "completions", "frbit.fish"), func(root *cobra.Command, output io.Writer) error {

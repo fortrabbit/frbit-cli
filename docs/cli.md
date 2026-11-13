@@ -49,6 +49,10 @@ The bash and fish installers save to their auto-discovery directories. The
 PowerShell installer adds the completion to its profile, and the zsh installer
 saves it in `~/.zfunc/_frbit` and adds that directory to zsh's completion path.
 
+Tab also completes environments, for every command that takes one and for `-e`/`--environment`: the labels from `.fortrabbit/environments.yml`, then `app/environment` names with the ID as the description. After `en-` it completes IDs. The list comes from the API and is cached for a minute. Without a sign-in, or when the API does not answer, Tab offers no names and prints no error.
+
+Bash completion needs a fresh install after updating from frbit 1.18 or earlier, `frbit completion install bash`, to show the descriptions. zsh, fish and PowerShell pick up the change on their own.
+
 ## Authenticate
 
 Sign in through the browser:
@@ -256,7 +260,7 @@ frbit apps update ap-a1b2c3 --disconnect-repository --confirm ap-a1b2c3
 
 ## Environments
 
-List environments, optionally select a page or specific public IDs, or retrieve one environment:
+List environments, optionally select a page or specific public IDs, or retrieve one environment. The table shows the app of each environment; `--json` prints the API response, which has no app field:
 
 ```sh
 frbit environments list
@@ -467,7 +471,7 @@ frbit db pull
 frbit db pull en-a1b2c3 --output ./dumps/
 ```
 
-`db pull [environment]` dumps the database of an environment to a local gzipped file and never touches a local database: import the file yourself, or let ddev do it. Without an argument it uses the environment of the checkout (see [Link a local project](#link-a-local-project)).
+`db pull [environment]` dumps the database of an environment to a local gzipped file and never touches a local database: import the file yourself, or let ddev do it. Without an argument it uses the environment of the checkout (see [Link a local project](#link-a-local-project)). An environment without a database fails before any SSH call, with the command to book one; `db push` does the same after its `--confirm` check.
 
 It runs the local `ssh` with your own SSH key; `mysqldump --single-transaction --set-gtid-purged=OFF --no-tablespaces` runs on the environment, so no database credentials reach your machine. Without a terminal, ssh runs with `BatchMode=yes` and fails instead of asking for a password.
 
@@ -522,7 +526,7 @@ frbit files pull storage -e production --delete --confirm en-a1b2c3
 frbit files push web/uploads --environment en-a1b2c3 --confirm en-a1b2c3
 ```
 
-`files pull [path]` copies files from `/data/www/` on an environment into the current folder; `files push [path]` copies them the other way. Both run the local `rsync` over `ssh` with your own SSH key; the API token only resolves the environment and its SSH host. The environment comes from `--environment`/`-e` (ID or label) or from the checkout (see [Link a local project](#link-a-local-project)).
+`files pull [path]` copies files from `/data/www/` on an environment into the current folder; `files push [path]` copies them the other way. Both run the local `rsync` over `ssh` with your own SSH key; the API token only resolves the environment and its SSH host. The environment comes from `--environment`/`-e` (ID, label or `app/environment`) or from the checkout (see [Link a local project](#link-a-local-project)).
 
 The path is relative to `/data/www/` and to the current folder; without one, all of `/data/www/` syncs with the current folder. A folder path syncs onto the same-named folder on the other side: `web/uploads` syncs `/data/www/web/uploads` with `./web/uploads`, not into `./web/uploads/uploads`. A file path syncs that file. Absolute paths, `..`, `~`, a path into `.git`, `.fortrabbit` or `.ddev` (in any letter case), and characters other than letters, digits and `. _ - + @ /` are refused before any request. On push, the parent folder of the path must exist on the environment.
 
@@ -599,12 +603,17 @@ frbit backups download ba-a1b2c3 --type database --output ./backups/
 
 ## Choosing the environment
 
-Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`) or a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)).
+Every command that works on one environment takes it the same way: an ID (`en-a1b2c3`), a label from `.fortrabbit/environments.yml` (see [Link a local project](#link-a-local-project)), or the app and environment names as `app/environment`, for example `shop/production`.
 
-- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file. When none applies, they fail with `no environment for this checkout; pass the environment ID or run frbit link <env-id>`, on a terminal too.
+- Order: an ID first, then a label, then a name. A label may contain `/`, so when `shop/production` is both, the label wins.
+- The name splits on the last `/`, because environment names cannot contain one. An app with a single environment also resolves by the app name alone.
+- App names match exactly first, then ignoring case. A name that matches no environment, or more than one, for example two apps named `Shop`, fails and lists the candidates.
+- Names can change: scripts and agents should pass IDs. An app name with spaces needs quotes: `"Acme Shop/main"`.
+
+- Commands that only read (`environments get`, `logs`, `metrics`, `variables get`, the settings `get`/`list` subcommands, `jobs list`, `backups list`, `mysql get`, `db pull`) may omit it. They then use the environment of the checkout, in this order: `FORTRABBIT_ENVIRONMENT`, the file entry for the current branch, the environment deploying the current branch of the connected repository, the only entry in the file. When none applies, a terminal shows the environments of the account as `app/environment` to pick from, by number, name or ID, and offers to save the choice in `.fortrabbit/environments.yml` as `frbit link` does. Without a terminal they fail with `no environment for this checkout; pass the environment ID or run frbit link <env-id>`, followed by up to 20 environments and their IDs.
 - Commands that change something (`environments update`, `restart`, `deploy`, `variables update`, the settings `update`/`create` subcommands, `components update`, `jobs create`, `backups create`, `mysql rotate-password`, `domains create`) need it named. Without one, or with an empty one, they fail with `name the environment: frbit <command> <env-id|label>`.
-- `deployments list -e` takes an ID or a label; without `-e` it lists every deployment and never reads the checkout.
-- `db push` and `files pull|push` keep using the checkout, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path.
+- `deployments list -e` takes an ID, a label or a name; without `-e` it lists every deployment and never reads the checkout.
+- `db push` and `files pull|push` keep using the checkout, and pick on a terminal like the read commands, guarded by the `--confirm <en-id>` check. `files` takes the environment with `--environment`/`-e`, because its argument is the path. `db push`, `files push`, `files pull --delete` and a whole-folder `files pull` skip the offer to save, as they may still stop at the confirmation.
 - `--confirm` and the typed confirmation always compare with the resolved `en-` ID, never the label.
 
 When the environment comes from a label or the checkout, one line on stderr says which; `--json` output on stdout stays clean:
@@ -613,6 +622,7 @@ When the environment comes from a label or the checkout, one line on stderr says
 → en-a1b2c3 (production, from .fortrabbit/environments.yml)
 → en-a1b2c3 (from FORTRABBIT_ENVIRONMENT)
 → en-a1b2c3 (from the repository acme/site, branch main)
+→ en-a1b2c3 (shop/production)
 ```
 
 ## Link a local project
@@ -622,6 +632,7 @@ frbit link
 frbit link --json
 frbit link en-a1b2c3
 frbit link en-d4e5f6 --label staging
+frbit link shop/production
 ```
 
 Commands find the environment of the current checkout as described in [Choosing the environment](#choosing-the-environment).
@@ -638,7 +649,7 @@ Bare `frbit link` runs the same steps, except the argument, and prints the envir
 
 `.fortrabbit/environments.yml` lives at the top of the git checkout, so every command finds it from any subfolder; outside git it is read from and written to the current folder.
 
-Without a connection, `frbit link <environment>` writes `.fortrabbit/environments.yml`, a flat map of label to environment ID. The label defaults to the current branch; `--label` sets another one. Other entries stay; commit the file. `.fortrabbit/deploy.yml` is never touched.
+Without a connection, `frbit link <environment>` writes `.fortrabbit/environments.yml`, a flat map of label to environment ID. The label defaults to the current branch; `--label` sets another one. Bare `frbit link` with nothing to show picks as described in [Choosing the environment](#choosing-the-environment) and writes the pick without asking, outside git under the environment name. Other entries stay; commit the file. `.fortrabbit/deploy.yml` is never touched.
 
 ```yaml
 main: en-a1b2c3
@@ -829,6 +840,8 @@ Behaviour that changed since v1.14.0 and can break a script:
 | An API error with `--json` printed to stderr only | The problem document (`title`, `detail`, `violations`) also goes to stdout; `auth status` and `auth login` keep their own one-line JSON |
 | `Warning`, `Deprecation` and `Sunset` headers were not shown | They print `warning: …` lines on stderr |
 | A path argument with `.` or `..` segments was sent as is | The CLI refuses it before any request |
+| `environments list` printed `ID NAME SOFTWARE UPDATED` | It prints `ID APP NAME UPDATED`; `--json` is unchanged |
+| A command with nothing linked failed with `no environment for this checkout; …` only | Without a terminal, the environments of the account follow on the next lines; on a terminal it asks |
 
 ## Command reference
 
@@ -857,7 +870,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit environments deploy <environment>` | Create a deployment from the configured Git source. |
 | `frbit environments logs [environment]` | Show environment logs: `--source`, `--limit`, `--since`, `--status`, `--method`. |
 | `frbit environments metrics [environment]` | Show the usage summary, or the history of one metric with `--metric <slug>`, `--range` and `--step`. Accepts `--json`. |
-| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (an ID or a label; default: all deployments). |
+| `frbit deployments list` / `get <id>` / `logs <id>` | List deployments, get one, or retrieve its logs (`logs --follow` until the deployment ends). `list` accepts `--page`, `--limit`, `--all`, and `--environment`/`-e` (an ID, a label or `app/environment`; default: all deployments). |
 | `frbit domains list` / `get <id>` / `delete <id>` / `create <environment> <name>` / `dns <id>` | List, get, delete, create domains, or show their DNS record. `list` accepts `--page`, `--limit`, `--all`, and repeatable `--id`. |
 | `frbit jobs list [environment]` / `get <id>` / `create <environment>` / `update <id>` / `delete <id>` | Manage workers and cron jobs; `list` shows the jobs-plan limit, `delete` needs `--confirm <id>` without a terminal. |
 | `frbit backups list [environment]` / `get <backup>` / `create <environment>` | List, get, or request backups. `list` accepts `--limit`, `--all`, and `--json`. |

@@ -4,21 +4,20 @@ package ssh
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var (
 	runner         sshexec.Runner = sshexec.System{}
 	checkTool                     = sshexec.Check
-	stdoutTerminal                = isTerminal
+	stdoutTerminal                = func(out io.Writer) bool { return iostreams.IsTerminal(out) }
 )
 
 func NewCmdSSH(factory *app.Factory) *cobra.Command {
@@ -143,11 +142,6 @@ func sshFailed(stderr string) bool {
 		}
 	}
 	return false
-}
-
-func isTerminal(out io.Writer) bool {
-	file, ok := out.(*os.File)
-	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 // quote renders args as one POSIX shell line.

@@ -87,7 +87,7 @@ It asks you to type the environment ID on a terminal; without one, pass --confir
   frbit files push web/uploads -e en-a1b2c3 --confirm en-a1b2c3`
 	}
 	command.Flags().StringVar(&opts.confirmation, "confirm", "", "Confirm by repeating the environment ID")
-	command.Flags().StringVarP(&opts.env, "environment", "e", "", "Environment ID or label (default: the environment of the checkout)")
+	command.Flags().StringVarP(&opts.env, "environment", "e", "", "Environment ID, label or app/environment (default: the environment of the checkout)")
 	command.Flags().BoolVar(&opts.dryRun, "dry-run", false, "List what would change without copying")
 	command.Flags().BoolVar(&opts.delete, "delete", false, "Remove files on the receiving side that the sending side does not have")
 	command.Flags().StringArrayVar(&opts.excludes, "exclude", nil, "Leave files matching this rsync pattern out, can be repeated (e.g. node_modules, /vendor/)")
@@ -209,7 +209,9 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 	if err != nil {
 		return err
 	}
-	id, err := link.Target{Dir: dir, Stderr: stderr}.Resolve(ctx, client, opts.env)
+	resolveTarget := link.NewTarget(cmd, dir)
+	resolveTarget.NoSave = push || opts.delete || rel == "."
+	id, err := resolveTarget.Resolve(ctx, client, opts.env)
 	if err != nil {
 		return err
 	}

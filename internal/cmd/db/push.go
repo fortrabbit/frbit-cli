@@ -41,7 +41,7 @@ The file is plain SQL (gzipped while uploading) or gzipped SQL. Everything runs 
 
 It asks you to type the environment ID on a terminal; without one, pass --confirm <environment>.
 
-The environment is an ID or a label from .fortrabbit/environments.yml; without one, the environment of the checkout is used (see frbit link).`,
+The environment is an ID, a label from .fortrabbit/environments.yml, or app/environment by name; without one, the environment of the checkout is used (see frbit link).`,
 		Example: `  frbit db push dump.sql.gz en-a1b2c3
   frbit db push dump.sql`,
 		Args: cobra.RangeArgs(1, 2),
@@ -64,14 +64,16 @@ The environment is an ID or a label from .fortrabbit/environments.yml; without o
 			if len(args) == 2 {
 				arg = args[1]
 			}
-			id, err := link.ReadEnvironment(cmd, client, arg)
+			resolveTarget := link.NewTarget(cmd, "")
+			resolveTarget.NoSave = true
+			id, err := resolveTarget.Resolve(ctx, client, arg)
 			if err != nil {
 				return err
 			}
 			if err := cmdutil.CheckDestructive(factory, "database push", id, confirmation); err != nil {
 				return err
 			}
-			env, err := link.Environment(ctx, client, id)
+			env, err := environmentWithDatabase(ctx, client, id)
 			if err != nil {
 				return err
 			}
