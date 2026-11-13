@@ -83,7 +83,8 @@ func TestGitBranchesRejectsMissingSlash(t *testing.T) {
 func TestCatalogCommandsListTheirEndpoints(t *testing.T) {
 	cases := map[string]string{
 		"regions list":        "/v1/catalog/regions",
-		"presets list":        "/v1/catalog/software-presets",
+		"templates list":      "/v1/catalog/software-templates",
+		"presets list":        "/v1/catalog/software-templates",
 		"software list":       "/v1/catalog/software",
 		"php-versions list":   "/v1/catalog/php-versions",
 		"php-extensions list": "/v1/catalog/php-extensions",

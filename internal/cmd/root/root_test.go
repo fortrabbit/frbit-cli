@@ -584,7 +584,7 @@ func TestEnvironmentWriteCommandsUseExpectedEndpoints(t *testing.T) {
 }
 
 func TestCreateReadsCompleteJSONPayloadFromStdin(t *testing.T) {
-	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwarePresetName":"general-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
+	const payload = `{"name":"store","region":"eu-w1a","teamId":null,"softwareTemplateName":"general-php","initialEnvironment":{"components":{"php":"sm"}},"paymentMethodId":null}`
 	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
 		body := &bytes.Buffer{}
 		_, _ = body.ReadFrom(request.Body)
@@ -1179,6 +1179,25 @@ func TestAppsCreatePutsRootPathInInitialEnvironment(t *testing.T) {
 	initial, _ := got["initialEnvironment"].(map[string]any)
 	if initial["rootPath"] != "public" {
 		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func TestAppsCreateSendsTheSoftwareTemplateName(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+	if _, err := runAppsCreate(t, server, false, "", "--software", "laravel", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if got["softwareTemplateName"] != "laravel" {
+		t.Fatalf("payload = %#v", got)
+	}
+	if _, sent := got["softwarePresetName"]; sent {
+		t.Fatalf("payload still sends softwarePresetName: %#v", got)
 	}
 }
 

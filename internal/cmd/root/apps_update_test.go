@@ -70,7 +70,7 @@ func TestAppsUpdateGitDeployCommentsFalseIsSent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 1 || requests[0].body["gitDeployComments"] != false || requests[0].body["softwarePresetName"] != "laravel" {
+	if len(requests) != 1 || requests[0].body["gitDeployComments"] != false || requests[0].body["softwareTemplateName"] != "laravel" {
 		t.Fatalf("requests = %#v", requests)
 	}
 }
@@ -166,7 +166,7 @@ func TestAppsUpdateConfirmNeedsAGatedFlag(t *testing.T) {
 	}
 }
 
-func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
+func TestAppsUpdateRepositoryAndTemplateNeedConfirm(t *testing.T) {
 	for _, args := range [][]string{
 		{"--repository", "acme/shop"},
 		{"--software", "laravel"},
@@ -180,12 +180,12 @@ func TestAppsUpdateRepositoryAndPresetNeedConfirm(t *testing.T) {
 	}
 }
 
-func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
+func TestAppsUpdateRepositoryAndTemplatePromptOnceOnTTY(t *testing.T) {
 	requests, output, err := runAppsUpdate(t, true, "no\n", "--repository", "acme/shop", "--software", "laravel")
 	if !errors.Is(err, cmdutil.ErrAborted) || len(requests) != 0 || !strings.Contains(output, "Aborted.") {
 		t.Fatalf("err = %v, requests = %#v, output = %q", err, requests, output)
 	}
-	for _, want := range []string{"Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again.", "Changing the software preset sets the software version of every environment of this app to the preset default and clears pinned versions. The next deployment uses that version."} {
+	for _, want := range []string{"Connecting a repository clears the deploy branch and the deploy file settings of every environment of this app. No environment deploys until a branch is set again.", "Changing the software template sets the software version of every environment of this app to the template default and clears pinned versions. The next deployment uses that version."} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output lacks %q: %q", want, output)
 		}
@@ -194,14 +194,14 @@ func TestAppsUpdateRepositoryAndPresetPromptOnceOnTTY(t *testing.T) {
 		t.Fatalf("asked more than once: %q", output)
 	}
 	requests, _, err = runAppsUpdate(t, true, "ap-abc123\n", "--software", "laravel")
-	if err != nil || len(requests) != 1 || requests[0].body["softwarePresetName"] != "laravel" {
+	if err != nil || len(requests) != 1 || requests[0].body["softwareTemplateName"] != "laravel" {
 		t.Fatalf("confirmed: err = %v, requests = %#v", err, requests)
 	}
 }
 
-func TestAppsUpdateFileWithSoftwarePresetNeedsConfirm(t *testing.T) {
+func TestAppsUpdateFileWithSoftwareTemplateNeedsConfirm(t *testing.T) {
 	path := t.TempDir() + "/body.json"
-	if err := os.WriteFile(path, []byte(`{"softwarePresetName":"craft-cms"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"softwareTemplateName":"craft-cms"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	requests, _, err := runAppsUpdate(t, false, "", "--file", path)
@@ -209,7 +209,18 @@ func TestAppsUpdateFileWithSoftwarePresetNeedsConfirm(t *testing.T) {
 		t.Fatalf("err = %v, requests = %#v", err, requests)
 	}
 	requests, _, err = runAppsUpdate(t, false, "", "--file", path, "--confirm", "ap-abc123")
-	if err != nil || len(requests) != 1 || requests[0].body["softwarePresetName"] != "craft-cms" {
+	if err != nil || len(requests) != 1 || requests[0].body["softwareTemplateName"] != "craft-cms" {
+		t.Fatalf("err = %v, requests = %#v", err, requests)
+	}
+}
+
+func TestAppsUpdateFileWithDeprecatedSoftwarePresetNameNeedsConfirm(t *testing.T) {
+	path := t.TempDir() + "/body.json"
+	if err := os.WriteFile(path, []byte(`{"softwarePresetName":"craft-cms"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests, _, err := runAppsUpdate(t, false, "", "--file", path)
+	if err == nil || !strings.Contains(err.Error(), "--confirm ap-abc123") || len(requests) != 0 {
 		t.Fatalf("err = %v, requests = %#v", err, requests)
 	}
 }
