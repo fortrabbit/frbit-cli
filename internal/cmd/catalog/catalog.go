@@ -4,6 +4,7 @@ package catalog
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
@@ -35,7 +36,13 @@ func specs() []resource.Spec {
 		},
 		{
 			Use: "templates", Aliases: []string{"presets"}, Singular: "template", Path: "/catalog/software-templates", Short: "List software templates and their versions", NoGet: true,
-			Fields: []resource.Field{{Header: "SLUG", Key: "slug"}, {Header: "NAME", Key: "name"}, {Header: "VERSIONS", Key: "versions"}, {Header: "DEFAULT", Key: "defaultVersion"}},
+			Fields: []resource.Field{{Header: "SLUG", Key: "slug"}, {Header: "NAME", Key: "name"}, {Header: "VERSIONS", Key: "versions"}, {Header: "DEFAULT", Key: "defaultVersion"}, {Header: "PRESET GROUP", Key: "presetGroup"}},
+		},
+		{
+			Use: "component-presets", Singular: "component preset group", Path: "/catalog/component-presets", Short: "List component presets per preset group, with their sizes and prices", NoGet: true,
+			QueryFilters:  []resource.QueryFilter{{Name: "region", Usage: "Region identifier, e.g. eu-w1a"}, {Name: "currency", Usage: "Price currency: EUR or USD"}},
+			ClientFilters: []resource.ClientFilter{{Name: "group", Usage: "Only the preset group with this slug, e.g. web-app", Key: "slug"}},
+			Fields:        []resource.Field{{Header: "GROUP", Key: "slug"}, {Header: "TEMPLATES", Key: "softwareTemplates"}, {Header: "PRESETS", Key: "presets", Format: formatPresets}},
 		},
 		{
 			Use: "software", Singular: "software", Path: "/catalog/software", Short: "List software with its versions", NoGet: true,
@@ -75,6 +82,39 @@ func formatSizes(value any) string {
 		}
 		currency, _ := size["currency"].(string)
 		parts = append(parts, strings.TrimSpace(fmt.Sprintf("%s %s %s", name, money(cents), currency)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// formatPresets renders presets as "web-app-1 XS 24.00 EUR (php sm, database sm, …)"; a preset without a price shows no price.
+func formatPresets(value any) string {
+	presets, _ := value.([]any)
+	parts := make([]string, 0, len(presets))
+	for _, item := range presets {
+		preset, _ := item.(map[string]any)
+		slug, _ := preset["slug"].(string)
+		name, _ := preset["name"].(string)
+		label := strings.TrimSpace(slug + " " + name)
+		if cents, ok := preset["priceInCents"].(float64); ok {
+			currency, _ := preset["currency"].(string)
+			label = strings.TrimSpace(fmt.Sprintf("%s %s %s", label, money(cents), currency))
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", label, formatPresetComponents(preset["components"])))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatPresetComponents(value any) string {
+	components, _ := value.(map[string]any)
+	slugs := make([]string, 0, len(components))
+	for slug := range components {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	parts := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		size, _ := components[slug].(string)
+		parts = append(parts, slug+" "+size)
 	}
 	return strings.Join(parts, ", ")
 }

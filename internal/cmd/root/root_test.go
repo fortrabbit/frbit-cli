@@ -1194,6 +1194,65 @@ func TestAppsCreateSendsTheSoftwareTemplateName(t *testing.T) {
 	}
 }
 
+func TestAppsCreateSendsTheComponentPreset(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewDecoder(request.Body).Decode(&got)
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"publicId":"ap-abc123"}`))
+	}))
+	defer server.Close()
+	if _, err := runAppsCreate(t, server, false, "", "--preset", "web-app-2", "--component", "php=lg", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	initial, _ := got["initialEnvironment"].(map[string]any)
+	components, _ := initial["components"].(map[string]any)
+	if initial["componentPreset"] != "web-app-2" || components["php"] != "lg" {
+		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func TestEnvironmentsCreateSendsTheComponentPresetOnlyWhenGiven(t *testing.T) {
+	for _, preset := range []string{"web-app-2", ""} {
+		var got map[string]any
+		server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {
+			_ = json.NewDecoder(request.Body).Decode(&got)
+			writer.WriteHeader(http.StatusCreated)
+			_, _ = writer.Write([]byte(`{"publicId":"en-abc123"}`))
+		}))
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		args := []string{"--host", server.URL, "environments", "create", "--app", "ap-abc123", "--name", "staging", "--yes"}
+		if preset != "" {
+			args = append(args, "--preset", preset)
+		}
+		command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+		command.SetArgs(args)
+		if err := command.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		server.Close()
+		sent, present := got["componentPreset"]
+		if (preset != "") != present || (present && sent != preset) {
+			t.Fatalf("preset %q, payload = %#v", preset, got)
+		}
+	}
+}
+
+func TestCreatePresetCannotBeCombinedWithFile(t *testing.T) {
+	for _, args := range [][]string{
+		{"apps", "create", "--file", "-", "--preset", "web-app-2"},
+		{"environments", "create", "--file", "-", "--preset", "web-app-2"},
+	} {
+		t.Setenv("FRBIT_TOKEN", "test-token")
+		command := NewCmdRoot(testFactory(&bytes.Buffer{}))
+		command.SetArgs(append([]string{"--host", "http://127.0.0.1:1"}, args...))
+		err := command.Execute()
+		if err == nil || !strings.Contains(err.Error(), "--file cannot be combined") {
+			t.Fatalf("%v: err = %v", args, err)
+		}
+	}
+}
+
 func TestEnvironmentsCreateSendsRootPath(t *testing.T) {
 	var got map[string]any
 	server := httptest.NewServer(answerDryRun(func(writer http.ResponseWriter, request *http.Request) {

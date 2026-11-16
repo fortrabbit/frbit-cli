@@ -182,19 +182,28 @@ especially when using `--json` or `deployments logs`.
 
 ### Create an app
 
-Create an app with its default environment by selecting the required component plans:
+Create an app with its default environment. Without `--preset` and `--component`, the environment gets the first, smallest component preset of the software template's preset group. Without `--software`, the template is `general-php`.
 
 ```sh
 frbit apps create \
   --name acme-shop \
   --region eu-w1a \
   --software laravel \
-  --software-version 11 \
-  --component php=sm \
-  --component storage=xs \
-  --component traffic=xs \
-  --component backups=xs
+  --software-version 11
 ```
+
+Pick a larger preset with `--preset`, and change single components on top of it with `--component SLUG=SIZE`. `frbit component-presets list` shows the presets with their sizes and prices:
+
+```sh
+frbit apps create \
+  --name acme-shop \
+  --region eu-w1a \
+  --software laravel \
+  --preset web-app-2 \
+  --component php=lg
+```
+
+With `--component` but no `--preset`, only the named components are booked: name every required one (`php`, `storage`, `traffic`, `backups`); optional ones you leave out are off.
 
 Configure Git and start the first deployment as part of the same workflow:
 
@@ -202,10 +211,7 @@ Configure Git and start the first deployment as part of the same workflow:
 frbit apps create \
   --name acme-shop \
   --region eu-w1a \
-  --component php=sm \
-  --component storage=xs \
-  --component traffic=xs \
-  --component backups=xs \
+  --software laravel \
   --repository acme/shop \
   --branch main \
   --build-command 'composer install --no-dev' \
@@ -268,16 +274,17 @@ frbit environments list --page 2 --id en-a1b2c3
 frbit environments get en-a1b2c3
 ```
 
-Create an environment with explicit component plans or clone the plans from an existing environment:
+Create an environment with the default preset of the app's software template, with a named preset, or clone the plans from an existing environment. `--preset` beats `--source-environment`, and `--component` changes single components of the preset. `--component` without `--preset` replaces the preset and the clone: name every required component then.
 
 ```sh
 frbit environments create \
   --app ap-a1b2c3 \
-  --name staging \
-  --component php=sm \
-  --component storage=xs \
-  --component traffic=xs \
-  --component backups=xs
+  --name staging
+
+frbit environments create \
+  --app ap-a1b2c3 \
+  --name production \
+  --preset web-app-3
 
 frbit environments create \
   --app ap-a1b2c3 \
@@ -569,6 +576,7 @@ Look up the values `apps create` needs instead of guessing them. These lists are
 ```sh
 frbit regions list
 frbit plans list --component php --region eu-w1a --currency EUR
+frbit component-presets list --group web-app --region eu-w1a
 frbit templates list
 frbit software list
 frbit php-versions list
@@ -576,7 +584,7 @@ frbit php-extensions list
 frbit node-versions list
 ```
 
-`plans list` accepts `--region` and `--currency` (`EUR` or `USD`) and filters client-side with `--component <slug>`. All catalog lists accept `--json`.
+`plans list` accepts `--region` and `--currency` (`EUR` or `USD`) and filters client-side with `--component <slug>`. `component-presets list` accepts the same `--region` and `--currency` and filters with `--group <slug>`; `templates list` shows the preset group of each template. All catalog lists accept `--json`.
 
 ## Git repositories
 
@@ -885,6 +893,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
 | `frbit regions list` / `templates list` / `software list` | List regions, software templates, or software with versions. |
 | `frbit plans list` | List component plans with sizes and prices. Accepts `--region`, `--currency`, and `--component`. |
+| `frbit component-presets list` | List component presets per preset group with sizes and prices. Accepts `--region`, `--currency`, and `--group`. |
 | `frbit php-versions list` / `php-extensions list` / `php-settings list` / `node-versions list` | List the available PHP versions, PHP extensions, php.ini directives with accepted values, or Node.js versions. |
 | `frbit git repositories` | List repositories of the connected Git account. |
 | `frbit git branches <owner/repo>` | List the branches of a repository. |

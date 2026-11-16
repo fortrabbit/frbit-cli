@@ -173,7 +173,8 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 	command.Flags().StringVar(&softwareVersion, "software-version", "", "Major software version")
 	command.Flags().StringVar(&phpVersion, "php-version", "", "PHP runtime version")
 	command.Flags().BoolVar(&noCloudDomain, "no-cloud-domain", false, "Create the environment without a cloud domain")
-	command.Flags().StringArrayVar(&componentValues, "component", nil, "Component plan as SLUG=SIZE (repeatable)")
+	command.Flags().String("preset", "", "Component preset slug from frbit component-presets list, e.g. web-app-2; defaults to the first preset of the app's software template")
+	command.Flags().StringArrayVar(&componentValues, "component", nil, "Component plan as SLUG=SIZE (repeatable); with --preset it changes single components, without it the named components are the whole plan")
 	command.Flags().BoolVar(&autoscaling, "autoscaling", true, "Enable autoscaling")
 	command.Flags().StringVar(&sourceEnvironment, "source-environment", "", "Environment public ID whose component plans should be cloned")
 	command.Flags().StringArrayVar(&environmentVariableValues, "env", nil, "Environment variable as NAME=VALUE (repeatable)")
@@ -184,7 +185,7 @@ func newCmdCreate(factory *app.Factory) *cobra.Command {
 }
 
 func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file string, appID string, name string, branch string, directory string, rootPath string, buildCommands []string, postDeployCommands []string, deploy bool, softwareVersion string, phpVersion string, noCloudDomain bool, componentValues []string, autoscaling bool, sourceEnvironment string, environmentVariableValues []string) (any, error) {
-	inputFlags := []string{"app", "name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "no-cloud-domain", "component", "autoscaling", "source-environment", "env"}
+	inputFlags := []string{"app", "name", "branch", "directory", "root-path", "build-command", "post-deploy-command", "deploy", "software-version", "php-version", "no-cloud-domain", "preset", "component", "autoscaling", "source-environment", "env"}
 	if file != "" {
 		if cmdutil.AnyFlagChanged(command, inputFlags...) {
 			return nil, fmt.Errorf("--file cannot be combined with request field flags")
@@ -225,6 +226,9 @@ func environmentCreatePayload(command *cobra.Command, factory *app.Factory, file
 	}
 	if sourceEnvironment != "" {
 		payload["sourceEnvironment"] = sourceEnvironment
+	}
+	if preset, _ := command.Flags().GetString("preset"); preset != "" {
+		payload["componentPreset"] = preset
 	}
 	if command.Flags().Changed("root-path") {
 		payload["rootPath"] = rootPath
