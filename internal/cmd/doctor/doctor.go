@@ -138,7 +138,7 @@ func versionCheck(ctx context.Context, version string, p *Probes) Check {
 	case err != nil:
 		return Check{Name: "Version", Status: StatusWarn, Detail: fmt.Sprintf("%s, latest release unknown: %v", current, err)}
 	case latest != "":
-		return Check{Name: "Version", Status: StatusWarn, Detail: fmt.Sprintf("%s, %s is out", current, latest), Fix: "update frbit the way you installed it: https://docs.fortrabbit.com/platform/automation/cli#install"}
+		return Check{Name: "Version", Status: StatusWarn, Detail: fmt.Sprintf("%s, %s is out", current, latest), Fix: "update frbit the way you installed it: https://docs.fortrabbit.com/platform/automation/cli/install"}
 	default:
 		return Check{Name: "Version", Status: StatusOK, Detail: current + ", the latest release"}
 	}

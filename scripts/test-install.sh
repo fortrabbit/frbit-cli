@@ -104,8 +104,19 @@ out=$(isolated_install "$test_dir/other/bin:$test_dir/home/.local/bin:$test_dir:
 printf '%s\n' "$out" | grep -q 'shadows the new install' || { printf 'shadowing frbit was not reported\n' >&2; exit 1; }
 rm -rf "$test_dir/home/.local"
 
-out=$(isolated_install "$test_dir/brew-tool:$test_dir:$sys_path")
-printf '%s\n' "$out" | grep -q 'brew install fortrabbit/tap/frbit' || { printf 'Homebrew hint missing\n' >&2; exit 1; }
+# A brew that installs: `brew install` puts a frbit into its prefix.
+mkdir -p "$test_dir/brew-new" "$test_dir/brew-installer" "$test_dir/brew-broken"
+printf '#!/bin/sh\ncase "$1" in\n  --prefix) printf "%%s\\n" "%s" ;;\n  install) printf "%%s\\n" "$*" > "%s/brew-new/args"; mkdir -p "%s/brew-new/bin"; cp "%s/brew/bin/frbit" "%s/brew-new/bin/frbit" ;;\nesac\n' "$test_dir/brew-new" "$test_dir" "$test_dir" "$test_dir" "$test_dir" > "$test_dir/brew-installer/brew"
+printf '#!/bin/sh\n[ "$1" = install ] && exit 1\nprintf "%%s\\n" "%s"\n' "$test_dir/brew-broken" > "$test_dir/brew-broken/brew"
+chmod 0755 "$test_dir/brew-installer/brew" "$test_dir/brew-broken/brew"
+
+out=$(isolated_install "$test_dir/brew-installer:$test_dir:$sys_path" --setup-agent)
+grep -qx 'install fortrabbit/tap/frbit' "$test_dir/brew-new/args" || { printf 'brew did not install frbit\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx 'managed frbit setup agent' || { printf 'setup agent did not use the brew-installed frbit\n' >&2; exit 1; }
+test ! -e "$test_dir/home/.local/bin/frbit" || { printf 'installed the release although brew installed frbit\n' >&2; exit 1; }
+
+out=$(isolated_install "$test_dir/brew-broken:$test_dir:$sys_path")
+printf '%s\n' "$out" | grep -q 'brew install failed' || { printf 'failed brew install not reported\n' >&2; exit 1; }
 printf '%s\n' "$out" | grep -q ">> ~/.zshrc" || { printf 'zsh PATH hint missing\n' >&2; exit 1; }
 printf '%s\n' "$out" | grep -q '^Installed frbit installer fixture --version to ' || { printf 'installed version not reported\n' >&2; exit 1; }
 
