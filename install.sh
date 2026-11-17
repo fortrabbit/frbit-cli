@@ -23,6 +23,7 @@ Usage: install.sh [--setup-agent] [--agent <name>]...
 Environment:
   FRBIT_VERSION             Install this release, e.g. 1.12.0, instead of the latest.
   FRBIT_INSTALL_DIR         Install into this directory, even when Homebrew or npm manages frbit.
+                            With Homebrew present, the script installs with brew unless this or FRBIT_VERSION is set.
   FRBIT_VERIFY_PROVENANCE   Set to 1 to fail unless a signed-in GitHub CLI verifies the release.
 USAGE
 }
@@ -146,6 +147,22 @@ main() {
     fi
   fi
 
+  # With Homebrew present, brew installs frbit, so `brew upgrade` keeps it current; a failed brew install falls back to the release.
+  if [ -z "$existing" ] && [ -z "${FRBIT_INSTALL_DIR:-}" ] && [ -z "${FRBIT_VERSION:-}" ] && command -v brew >/dev/null 2>&1; then
+    printf 'Homebrew found, installing with: brew install fortrabbit/tap/frbit\n'
+    if brew install fortrabbit/tap/frbit; then
+      brew_frbit="$(brew --prefix)/bin/frbit"
+      [ -x "$brew_frbit" ] || fail "brew installed frbit, but $brew_frbit is missing"
+      printf 'Update it with: brew upgrade frbit\n'
+      if [ "$setup_agent" -eq 1 ]; then
+        run_setup_agent "$brew_frbit"
+      fi
+      run_doctor "$brew_frbit"
+      return
+    fi
+    printf 'frbit installer: brew install failed; installing the release instead.\n' >&2
+  fi
+
   case "$(uname -m)" in
     arm64|aarch64) arch="arm64" ;;
     amd64|x86_64) arch="amd64" ;;
@@ -243,10 +260,6 @@ main() {
       ;;
     *) path_hint "$install_dir" ;;
   esac
-
-  if [ -z "$existing" ] && [ -z "${FRBIT_INSTALL_DIR:-}" ] && command -v brew >/dev/null 2>&1; then
-    printf 'Homebrew found. To let brew upgrade keep frbit current: brew install fortrabbit/tap/frbit, then remove %s/frbit\n' "$install_dir"
-  fi
 
   if [ "$setup_agent" -eq 1 ]; then
     run_setup_agent "$install_dir/frbit"
