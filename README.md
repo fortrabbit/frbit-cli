@@ -3,7 +3,7 @@
 `frbit` is the command-line interface for the fortrabbit public API.
 
 For installation, authentication, automation, and the complete command reference,
-see the [installation guide](https://docs.fortrabbit.com/platform/automation/cli)
+see the [installation guide](https://docs.fortrabbit.com/platform/automation/cli/install)
 and [CLI documentation](docs/cli.md).
 
 ## Install
@@ -13,7 +13,7 @@ curl -fsSL https://github.com/fortrabbit/frbit-cli/releases/latest/download/inst
 ```
 
 You can also install with Homebrew, npm, or a GitHub release archive. See the
-[installation guide](https://docs.fortrabbit.com/platform/automation/cli) for every
+[installation guide](https://docs.fortrabbit.com/platform/automation/cli/install) for every
 supported method.
 
 ## Authenticate

@@ -7,7 +7,7 @@ This page is the complete reference for the commands currently available in `frb
 ## Install
 
 Use the install script, Homebrew, npm, or a GitHub release archive. The
-[installation guide](https://docs.fortrabbit.com/platform/automation/cli) covers
+[installation guide](https://docs.fortrabbit.com/platform/automation/cli/install) covers
 every supported method and platform.
 
 Confirm the installation:

@@ -5,7 +5,7 @@ set -eu
 # Everything runs from main, called on the last line: a download cut off mid-pipe (curl | sh) runs nothing.
 
 repository="fortrabbit/frbit-cli"
-docs_url="https://docs.fortrabbit.com/platform/automation/cli"
+docs_url="https://docs.fortrabbit.com/platform/automation/cli/install"
 
 fail() {
   printf 'frbit installer: %s\n' "$*" >&2
