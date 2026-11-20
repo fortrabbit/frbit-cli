@@ -32,6 +32,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	envlink "github.com/fortrabbit/frbit-cli/internal/link"
+	"github.com/fortrabbit/frbit-cli/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -138,11 +139,18 @@ func notifyUpdate(command *cobra.Command, factory *app.Factory) {
 		return
 	}
 
+	hint := "Upgrade with: "
+	upgrade, docsURL := update.Upgrade()
+	if upgrade == "" {
+		hint, upgrade = "See ", docsURL
+	}
 	_, _ = fmt.Fprintf(
 		command.ErrOrStderr(),
-		"\nUpdate available: v%s → %s. See https://docs.fortrabbit.com/platform/concepts/cli\n",
+		"\nUpdate available: v%s → %s. %s%s\n",
 		strings.TrimPrefix(factory.Version, "v"),
 		latest,
+		hint,
+		upgrade,
 	)
 }
 

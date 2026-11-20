@@ -98,7 +98,7 @@ printf '%s\n' "$out" | grep -qx 'managed frbit doctor' || { printf 'doctor did n
 test ! -e "$test_dir/home/.local/bin/frbit" || { printf 'installed next to a Homebrew frbit\n' >&2; exit 1; }
 
 out=$(isolated_install "$test_dir/npm/bin:$test_dir/npm-tool:$test_dir:$sys_path")
-printf '%s\n' "$out" | grep -q 'npm update --global @fortrabbit/cli' || { printf 'npm frbit was not kept\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'npm install --global @fortrabbit/cli@latest' || { printf 'npm frbit was not kept\n' >&2; exit 1; }
 
 out=$(isolated_install "$test_dir/other/bin:$test_dir/home/.local/bin:$test_dir:$sys_path")
 printf '%s\n' "$out" | grep -q 'shadows the new install' || { printf 'shadowing frbit was not reported\n' >&2; exit 1; }
