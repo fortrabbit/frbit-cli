@@ -137,7 +137,7 @@ main() {
       if [ "$manager" = "Homebrew" ]; then
         printf 'Update it with: brew upgrade frbit\n'
       else
-        printf 'Update it with: npm update --global @fortrabbit/cli\n'
+        printf 'Update it with: npm install --global @fortrabbit/cli@latest\n'
       fi
       if [ "$setup_agent" -eq 1 ]; then
         run_setup_agent "$existing"
