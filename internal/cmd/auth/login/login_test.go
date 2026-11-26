@@ -58,6 +58,9 @@ type fakeAPI struct {
 	authorize    url.Values
 	discoveries  int
 	bearerTokens []string
+	// you replaces the /v1/you body; appsStatus answers /v1/apps with that status.
+	you        string
+	appsStatus int
 }
 
 func newFakeAPI(t *testing.T) *fakeAPI {
@@ -86,9 +89,17 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 			_, _ = writer.Write([]byte(`{"access_token":"frbit-mcp-at-1","token_type":"Bearer","expires_in":3600,"refresh_token":"frbit-mcp-rt-1"}`))
 		case "/v1/you":
 			fake.bearerTokens = append(fake.bearerTokens, request.Header.Get("Authorization"))
+			if fake.you != "" {
+				_, _ = writer.Write([]byte(fake.you))
+				return
+			}
 			_, _ = writer.Write([]byte(`{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub to deploy from a repository.","url":"https:\/\/dash.example\/git?a=1&b=2"},"optional":[]}`))
 		case "/v1/apps":
 			fake.bearerTokens = append(fake.bearerTokens, request.Header.Get("Authorization"))
+			if fake.appsStatus != 0 {
+				writer.WriteHeader(fake.appsStatus)
+				return
+			}
 			_, _ = writer.Write([]byte(`[]`))
 		default:
 			http.NotFound(writer, request)
@@ -258,6 +269,48 @@ func TestLoginTokenStdinKeepsTheTokenPath(t *testing.T) {
 	}
 	if !strings.Contains(output, "Authenticated profile") {
 		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestLoginShowsAnOpenSSHKeyStep(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, _, _ := loginFactory(t, fake)
+	fake.you = `{"email":"ada@example.com","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`
+
+	output, err := executeLogin(t, factory, fake.URL)
+	if err != nil {
+		t.Fatalf("login error = %v", err)
+	}
+	if !strings.Contains(output, "Next: Connect GitHub\n  https://dash.example/git\nOptional: Add an SSH key\n  https://dash.example/ssh\n") {
+		t.Fatalf("output = %q", output)
+	}
+
+	for _, you := range []string{
+		`{"email":"ada@example.com","next":null,"optional":[{"step":"ssh_key","done":true,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
+		`{"email":"ada@example.com","next":{"step":"ssh_key","instruction":"Add an SSH key","url":"https://dash.example/ssh"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
+	} {
+		fake.mu.Lock()
+		fake.you = you
+		fake.mu.Unlock()
+		output, err := executeLogin(t, factory, fake.URL)
+		if err != nil || strings.Contains(output, "Optional:") {
+			t.Fatalf("output = %q, %v", output, err)
+		}
+	}
+}
+
+func TestLoginTokenStdinNamesARefusedToken(t *testing.T) {
+	fake := newFakeAPI(t)
+	factory, store, _ := loginFactory(t, fake)
+	factory.IOStreams.In = strings.NewReader("frbit-at-revoked\n")
+	fake.appsStatus = http.StatusUnauthorized
+
+	_, err := executeLogin(t, factory, fake.URL, "--token-stdin")
+	if err == nil || !strings.HasPrefix(err.Error(), "validate token: the API refused it as invalid, expired or revoked: public API request failed with HTTP 401") {
+		t.Fatalf("login error = %v", err)
+	}
+	if _, ok := store.credentials["default"]; ok {
+		t.Fatal("a refused token was stored")
 	}
 }
 

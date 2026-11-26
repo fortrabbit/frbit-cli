@@ -32,6 +32,8 @@ type Client struct {
 	tokens    TokenSource
 	http      *http.Client
 	userAgent string
+	// SignIn names the fix when the API or the sign-in server refuses the credential.
+	SignIn SignInHint
 	// Warnings receives the API's Warning, Deprecation and Sunset headers; nil discards them.
 	Warnings io.Writer
 	warned   *sync.Map
@@ -114,11 +116,15 @@ func (s *OAuthTokens) refreshLocked(ctx context.Context, stale string) (string, 
 		return stored.AccessToken, nil
 	}
 	if stored.Kind != credentials.KindOAuth || stored.RefreshToken == "" {
-		return "", fmt.Errorf("the sign-in for profile %q has expired; run `frbit auth login` again", s.profile)
+		return "", &SignInError{Err: fmt.Errorf("the sign-in for profile %q has expired", s.profile)}
 	}
 	refreshed, err := s.refresh(ctx, stored.RefreshToken)
+	var refused interface{ Refused() bool }
+	if errors.As(err, &refused) && refused.Refused() {
+		return "", &SignInError{Err: err}
+	}
 	if err != nil {
-		return "", fmt.Errorf("refresh the sign-in for profile %q: %w; run `frbit auth login` again", s.profile, err)
+		return "", fmt.Errorf("refresh the sign-in for profile %q: %w", s.profile, err)
 	}
 	if err := s.store.Set(s.profile, refreshed); err != nil {
 		return "", fmt.Errorf("save refreshed credential: %w", err)
@@ -126,6 +132,37 @@ func (s *OAuthTokens) refreshLocked(ctx context.Context, stale string) (string, 
 	s.current = refreshed
 	return refreshed.AccessToken, nil
 }
+
+// SignInHint says where the credential came from, so a refusal names the right fix.
+type SignInHint struct {
+	// FromEnv marks a token from FRBIT_TOKEN.
+	FromEnv bool
+	// Login is the sign-in command for this profile and host; empty means `frbit auth login`.
+	Login string
+}
+
+// SignInError is a credential the API or the sign-in server refused: expired, revoked or invalid.
+type SignInError struct {
+	Hint SignInHint
+	Err  error
+}
+
+func (e *SignInError) Error() string {
+	login := e.Hint.Login
+	if login == "" {
+		login = "frbit auth login"
+	}
+	message := fmt.Sprintf("the sign-in expired or was revoked; run `%s`", login)
+	if e.Hint.FromEnv {
+		message = fmt.Sprintf("the API token in FRBIT_TOKEN is invalid, expired or revoked; set a valid token, or unset FRBIT_TOKEN and run `%s`", login)
+	}
+	if e.Err != nil {
+		message += " (" + e.Err.Error() + ")"
+	}
+	return message
+}
+
+func (e *SignInError) Unwrap() error { return e.Err }
 
 type HTTPError struct {
 	Status     int
@@ -348,15 +385,25 @@ type rawResponse struct {
 	header http.Header
 }
 
-// do sends the call and repeats it once with a refreshed token after a 401.
+// do sends the call and repeats it once with a refreshed token after a 401; a refused credential becomes a SignInError.
 func (c Client) do(ctx context.Context, request call) (rawResponse, error) {
+	response, err := c.doOnce(ctx, request)
+	var signIn *SignInError
+	if errors.As(err, &signIn) {
+		signIn.Hint = c.SignIn
+	} else if unauthorized(err) {
+		err = &SignInError{Hint: c.SignIn, Err: err}
+	}
+	return response, err
+}
+
+func (c Client) doOnce(ctx context.Context, request call) (rawResponse, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return rawResponse{}, err
 	}
 	response, err := c.send(ctx, request, token)
-	var httpErr *HTTPError
-	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusUnauthorized {
+	if !unauthorized(err) {
 		return response, err
 	}
 	refreshed, refreshErr := c.tokens.Refresh(ctx, token)
@@ -367,6 +414,11 @@ func (c Client) do(ctx context.Context, request call) (rawResponse, error) {
 		return rawResponse{}, refreshErr
 	}
 	return c.send(ctx, request, refreshed)
+}
+
+func unauthorized(err error) bool {
+	var httpErr *HTTPError
+	return errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized
 }
 
 func (c Client) send(ctx context.Context, call call, token string) (rawResponse, error) {

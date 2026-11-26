@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -208,8 +209,29 @@ func TestRevokedGrantAsksToSignInAgain(t *testing.T) {
 	}}
 	client := newOAuthClient(t, server, store, filepath.Join(t.TempDir(), "credentials.lock"))
 
+	client.SignIn = SignInHint{Login: "frbit auth login --profile work"}
 	_, err := client.Apps(context.Background(), 1)
-	if err == nil || !strings.Contains(err.Error(), "frbit auth login") {
+	var signIn *SignInError
+	if !errors.As(err, &signIn) || err.Error() != "the sign-in expired or was revoked; run `frbit auth login --profile work` (token request failed with HTTP 400: invalid_grant)" {
+		t.Fatalf("Apps() error = %v", err)
+	}
+}
+
+func TestAFailedRefreshRequestIsNoSignInError(t *testing.T) {
+	store := &memoryStore{credentials: map[string]credentials.Credential{
+		"default": {Kind: credentials.KindOAuth, AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute), Issuer: "https://api.example"},
+	}}
+	refresh := func(context.Context, string) (credentials.Credential, error) {
+		return credentials.Credential{}, errors.New("dial tcp: timeout")
+	}
+	tokens := NewOAuthTokens("https://api.example", store, "default", filepath.Join(t.TempDir(), "credentials.lock"), store.credentials["default"], refresh)
+	client, err := NewClientWithTokens("https://api.example", tokens, nil, "frbit/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Apps(context.Background(), 1)
+	var signIn *SignInError
+	if err == nil || errors.As(err, &signIn) || !strings.Contains(err.Error(), "dial tcp: timeout") {
 		t.Fatalf("Apps() error = %v", err)
 	}
 }
@@ -226,9 +248,15 @@ func TestStaticTokenIsNotRetriedAfterUnauthorized(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	client.SignIn = SignInHint{FromEnv: true}
 	_, err = client.Apps(context.Background(), 1)
-	if httpErr, ok := err.(*HTTPError); !ok || httpErr.Status != http.StatusUnauthorized || calls != 1 {
+	var httpErr *HTTPError
+	var signIn *SignInError
+	if !errors.As(err, &signIn) || !errors.As(err, &httpErr) || httpErr.Status != http.StatusUnauthorized || calls != 1 {
 		t.Fatalf("Apps() error = %v, calls = %d", err, calls)
+	}
+	if !strings.Contains(err.Error(), "FRBIT_TOKEN") || !strings.Contains(err.Error(), "frbit auth login") {
+		t.Fatalf("Apps() error = %v", err)
 	}
 }
 

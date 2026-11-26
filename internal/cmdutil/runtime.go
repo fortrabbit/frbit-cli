@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/fortrabbit/frbit-cli/internal/api"
@@ -41,6 +42,38 @@ func Client(factory *app.Factory, host string, token string) (*api.Client, error
 
 // CredentialClient builds a client that refreshes an OAuth credential of profile as needed.
 func CredentialClient(factory *app.Factory, host string, profile string, credential credentials.Credential) (*api.Client, error) {
+	client, err := credentialClient(factory, host, profile, credential)
+	if err != nil {
+		return nil, err
+	}
+	client.SignIn = api.SignInHint{
+		FromEnv: credential.Kind == credentials.KindAPIToken && strings.TrimSpace(os.Getenv("FRBIT_TOKEN")) == credential.AccessToken,
+		Login:   LoginCommand(host, profile),
+	}
+	return client, nil
+}
+
+// LoginCommand is the sign-in command for profile and host, with the flags only when they differ from the defaults.
+func LoginCommand(host string, profile string) string {
+	command := "frbit auth login"
+	if profile != "" && profile != app.DefaultProfile {
+		command += " --profile " + shellWord(profile)
+	}
+	if !IsDefaultHost(host) {
+		command += " --host " + shellWord(host)
+	}
+	return command
+}
+
+// shellWord single-quotes value unless it is safe to paste into a shell as is.
+func shellWord(value string) string {
+	if value != "" && strings.Trim(value, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-") == "" {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+func credentialClient(factory *app.Factory, host string, profile string, credential credentials.Credential) (*api.Client, error) {
 	if credential.Kind != credentials.KindOAuth {
 		return Client(factory, host, credential.AccessToken)
 	}

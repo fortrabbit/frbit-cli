@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode"
 )
 
 type Step struct {
@@ -60,4 +62,22 @@ func (c Client) You(ctx context.Context) (YouResponse, error) {
 		next = json.RawMessage("null")
 	}
 	return YouResponse{You: you, Next: next, Raw: body}, nil
+}
+
+// Link is the URL of the step when it is an https URL, else "".
+func (s OptionalStep) Link() string {
+	if s.URL == nil || !strings.HasPrefix(*s.URL, "https://") || strings.IndexFunc(*s.URL, unicode.IsControl) >= 0 {
+		return ""
+	}
+	return *s.URL
+}
+
+// OptionalStep returns the optional step named name, or nil when the server lists none.
+func (y You) OptionalStep(name string) *OptionalStep {
+	for index := range y.Optional {
+		if y.Optional[index].Step == name {
+			return &y.Optional[index]
+		}
+	}
+	return nil
 }

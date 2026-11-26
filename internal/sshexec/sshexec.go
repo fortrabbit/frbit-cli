@@ -131,28 +131,36 @@ func Run(ctx context.Context, runner Runner, target, remote string, interactive 
 	return MapOutput(target, err, tail.String())
 }
 
-// MapOutput turns ssh's own exit code 255 into an error pointing at the SSH key page, and reads what ssh printed to name the fix for a host key it could not verify; other errors pass through.
+// MapOutput turns ssh's own exit code 255 into an error that reads what ssh printed: a host key it could not verify, a key the server rejected, or a connection that failed. Other errors pass through.
 func MapOutput(target string, err error, stderr string) error {
 	// rsync may report a failed ssh with its own exit code, so the ssh message counts on any failure.
 	if err != nil && strings.Contains(stderr, "Host key verification failed") {
 		return &hostKeyError{target: target, pinned: Pinned(target), changed: strings.Contains(stderr, "IDENTIFICATION HAS CHANGED"), err: err}
 	}
+	// A remote program may print the same words, so the rest needs ssh's own exit code; rsync passes it on.
 	if ExitCode(err) != 255 {
 		return err
 	}
-	return &keyError{target: target, err: err}
+	if rejected(stderr) || tooManyKeys(stderr) {
+		return &KeyError{Target: target, TooMany: tooManyKeys(stderr), Err: err}
+	}
+	if line := connectionLine(stderr); line != "" {
+		return &connectionError{target: target, line: line, err: err}
+	}
+	return &unknownError{target: target, err: err}
 }
 
-type keyError struct {
+// unknownError is ssh's exit 255 without a message frbit recognizes.
+type unknownError struct {
 	target string
 	err    error
 }
 
-func (e *keyError) Error() string {
+func (e *unknownError) Error() string {
 	return fmt.Sprintf("ssh to %s failed: the SSH key was rejected, the connection failed, or the host key is unknown or changed; add your public key at %s, or check the network and ~/.ssh/known_hosts", e.target, KeyURL)
 }
 
-func (e *keyError) Unwrap() error { return e.err }
+func (e *unknownError) Unwrap() error { return e.err }
 
 type hostKeyError struct {
 	target  string

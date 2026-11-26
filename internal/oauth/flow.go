@@ -102,6 +102,11 @@ func (e *TokenError) Error() string {
 	return message
 }
 
+// Refused reports a refresh token the server no longer accepts (invalid_grant) or a 401 from the token endpoint.
+func (e *TokenError) Refused() bool {
+	return e.Code == "invalid_grant" || e.Status == http.StatusUnauthorized
+}
+
 type serverMetadata struct {
 	Issuer                string   `json:"issuer"`
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`

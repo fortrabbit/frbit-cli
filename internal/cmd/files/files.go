@@ -292,7 +292,7 @@ func run(cmd *cobra.Command, factory *app.Factory, push bool, args []string, opt
 		return ctx.Err()
 	}
 	if mapped := sshexec.MapOutput(target, err, tail.String()); mapped != err {
-		return mapped
+		return sshexec.Explain(ctx, mapped, client)
 	}
 	if code := sshexec.ExitCode(err); err != nil && code > 0 {
 		return fmt.Errorf("rsync failed with exit code %d; see the message above", code)

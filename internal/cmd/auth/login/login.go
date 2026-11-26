@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/config"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/filelock"
 	"github.com/fortrabbit/frbit-cli/internal/oauth"
+	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/spf13/cobra"
 )
 
@@ -182,7 +184,10 @@ func runBrowser(options *Options) error {
 	if _, err := fmt.Fprintf(out, "Signed in as %s. Profile %q is authenticated against %s.\n", you.You.Email, profile, host); err != nil {
 		return err
 	}
-	return cmdutil.WriteNext(out, you.You.Next)
+	if err := cmdutil.WriteNext(out, you.You.Next); err != nil {
+		return err
+	}
+	return cmdutil.WriteOpenStep(out, you.You, sshexec.SSHKeyStep, sshexec.SSHKeyInstruction)
 }
 
 // storeCredential takes the refresh lock so a concurrent refresh cannot overwrite the new sign-in.
@@ -223,6 +228,9 @@ func runToken(options *Options) error {
 		return err
 	}
 	if err := client.CheckToken(options.Command.Context()); err != nil {
+		if signIn := (*api.SignInError)(nil); errors.As(err, &signIn) {
+			return fmt.Errorf("validate token: the API refused it as invalid, expired or revoked: %w", signIn.Err)
+		}
 		return fmt.Errorf("validate token: %w", err)
 	}
 	if err := options.Factory.CredentialStore.Set(profile, credentials.APIToken(token)); err != nil {
