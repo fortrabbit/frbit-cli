@@ -181,7 +181,7 @@ func printSummary(
 
 const (
 	claudePluginRemoveNotice = "Claude Code: the fortrabbit plugin brings the skill and the MCP server; frbit uninstall removes it too."
-	disconnectHint           = "Revoke the MCP grants in the dashboard: https://dash.fortrabbit.com/you/connected-apps"
+	disconnectHint           = "Revoke the MCP grants in the dashboard: https://dash.fortrabbit.com/credentials/oauth-tokens"
 	uninstallHint            = "Remove the frbit CLI as well: frbit uninstall"
 )
 
