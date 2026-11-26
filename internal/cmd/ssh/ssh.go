@@ -91,7 +91,7 @@ The connection uses your own SSH key and the same SSH settings as frbit db and f
 			code := sshexec.ExitCode(err)
 			// A remote PHP fatal exits 255 as well, so only ssh's own message makes it a connection problem.
 			if code < 0 || (code == 255 && sshFailed(tail.String())) {
-				return sshexec.MapOutput(target, err, tail.String())
+				return sshexec.Explain(cmd.Context(), sshexec.MapOutput(target, err, tail.String()), client)
 			}
 			return &cmdutil.ExitError{Code: code}
 		},
@@ -136,7 +136,7 @@ func arguments(target string, remote []string, terminal bool) ([]string, error) 
 
 // sshFailed tells ssh's own failure messages from a remote command that exited 255.
 func sshFailed(stderr string) bool {
-	for _, marker := range []string{"Permission denied", "Host key verification failed", "Could not resolve hostname", "Connection refused", "Connection timed out", "Connection closed", "ssh: "} {
+	for _, marker := range []string{"Permission denied", "Too many authentication failures", "Host key verification failed", "Could not resolve hostname", "Connection refused", "Connection timed out", "Connection closed", "Connection reset", "kex_exchange_identification", "ssh: "} {
 		if strings.Contains(stderr, marker) {
 			return true
 		}

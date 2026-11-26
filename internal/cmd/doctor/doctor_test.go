@@ -11,16 +11,18 @@ import (
 
 	"github.com/fortrabbit/frbit-cli/internal/agentmcp"
 	"github.com/fortrabbit/frbit-cli/internal/agentskills"
+	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
 	"github.com/fortrabbit/frbit-cli/internal/link"
+	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 )
 
 func healthy() *Probes {
 	return &Probes{
 		Latest:      func(context.Context, string) (string, error) { return "", nil },
-		SignIn:      func(context.Context) (string, error) { return "dev@example.com", nil },
+		SignIn:      func(context.Context) (api.You, error) { return api.You{Email: "dev@example.com"}, nil },
 		LookPath:    func(name string) (string, error) { return "/usr/bin/" + name, nil },
 		ToolVersion: func(_ context.Context, name string) string { return name + " 1.0" },
 		Linked:      func(context.Context) ([]string, bool, error) { return []string{"main"}, true, nil },
@@ -69,7 +71,7 @@ func TestAnOutdatedVersionWarnsWithTheFix(t *testing.T) {
 
 func TestSignedOutWarnsAndSkipsSSH(t *testing.T) {
 	probes := healthy()
-	probes.SignIn = func(context.Context) (string, error) { return "", credentials.ErrNotFound }
+	probes.SignIn = func(context.Context) (api.You, error) { return api.You{}, credentials.ErrNotFound }
 	sshRan := false
 	probes.SSH = func(context.Context, string) error { sshRan = true; return nil }
 	checks := Run(context.Background(), "1.15.0", probes)
@@ -125,11 +127,11 @@ func TestOutsideACheckoutSkipsProjectButStillTriesSSH(t *testing.T) {
 func TestARefusedCredentialFailsAndAnUnreachableAPIWarns(t *testing.T) {
 	probes := healthy()
 	probes.Login = "frbit auth login --profile work"
-	probes.SignIn = func(context.Context) (string, error) { return "", fmt.Errorf("%w: HTTP 401", ErrRefused) }
+	probes.SignIn = func(context.Context) (api.You, error) { return api.You{}, fmt.Errorf("%w: HTTP 401", ErrRefused) }
 	if check := byName(Run(context.Background(), "1.15.0", probes), "Sign-in"); check.Status != StatusFail || !strings.HasPrefix(check.Fix, "frbit auth login --profile work") {
 		t.Fatalf("refused sign-in check = %+v", check)
 	}
-	probes.SignIn = func(context.Context) (string, error) { return "", errors.New("dial tcp: timeout") }
+	probes.SignIn = func(context.Context) (api.You, error) { return api.You{}, errors.New("dial tcp: timeout") }
 	if check := byName(Run(context.Background(), "1.15.0", probes), "Sign-in"); check.Status != StatusWarn {
 		t.Fatalf("unreachable sign-in check = %+v", check)
 	}
@@ -144,11 +146,11 @@ func TestProbesGetADeadline(t *testing.T) {
 		}
 		return nil, false, nil
 	}
-	probes.SignIn = func(ctx context.Context) (string, error) {
+	probes.SignIn = func(ctx context.Context) (api.You, error) {
 		if _, ok := ctx.Deadline(); ok {
 			deadlines++
 		}
-		return "dev@example.com", nil
+		return api.You{Email: "dev@example.com"}, nil
 	}
 	Run(context.Background(), "1.15.0", probes)
 	if deadlines != 2 {
@@ -161,6 +163,48 @@ func TestNoEnvironmentForTheCheckoutSkipsSSHWithTheFix(t *testing.T) {
 	probes.Environment = func(context.Context) (Environment, error) { return Environment{}, link.ErrNoEnvironment }
 	check := byName(Run(context.Background(), "1.15.0", probes), "SSH")
 	if check.Status != StatusSkip || check.Fix != "frbit link <env-id>" {
+		t.Fatalf("ssh check = %+v", check)
+	}
+}
+
+func withoutSSHKey() func(context.Context) (api.You, error) {
+	url := "https://dash.example/ssh"
+	return func(context.Context) (api.You, error) {
+		return api.You{Email: "dev@example.com", Optional: []api.OptionalStep{{Step: sshexec.SSHKeyStep, Instruction: "Add an SSH key", URL: &url}}}, nil
+	}
+}
+
+func TestAnOpenSSHKeyStepIsTheFixOfTheSSHCheck(t *testing.T) {
+	probes := healthy()
+	probes.SignIn = withoutSSHKey()
+	probes.Environment = func(context.Context) (Environment, error) { return Environment{}, link.ErrNoEnvironment }
+	if check := byName(Run(context.Background(), "1.15.0", probes), "SSH"); check.Status != StatusSkip || check.Fix != "Add an SSH key: https://dash.example/ssh; then frbit link <env-id>" {
+		t.Fatalf("no environment: %+v", check)
+	}
+
+	probes = healthy()
+	probes.SignIn = withoutSSHKey()
+	probes.SSH = func(context.Context, string) error { return errors.New("ssh to x failed") }
+	// A failure that is not a rejected key gets no key fix: the network may be the cause.
+	if check := byName(Run(context.Background(), "1.15.0", probes), "SSH"); check.Status != StatusFail || check.Fix != "" {
+		t.Fatalf("failed connection: %+v", check)
+	}
+
+	// A passing connection wins over the step, which may lag behind.
+	probes = healthy()
+	probes.SignIn = withoutSSHKey()
+	if check := byName(Run(context.Background(), "1.15.0", probes), "SSH"); check.Status != StatusOK || check.Fix != "" {
+		t.Fatalf("connected: %+v", check)
+	}
+}
+
+func TestARejectedKeySplitsReasonAndFix(t *testing.T) {
+	probes := healthy()
+	probes.SSH = func(context.Context, string) error {
+		return &sshexec.KeyError{Target: "en-a1b2c3@ssh.eu-n1a.frbit.app", Account: sshexec.KeyPresent, Local: sshexec.KeyMissing}
+	}
+	check := byName(Run(context.Background(), "1.15.0", probes), "SSH")
+	if check.Status != StatusFail || check.Detail != "en-a1b2c3 (label main): ssh has no key to offer on this machine" || !strings.HasPrefix(check.Fix, "create one with `ssh-keygen -t ed25519`") {
 		t.Fatalf("ssh check = %+v", check)
 	}
 }
@@ -255,7 +299,7 @@ func TestCommandPrintsJSONAndExitsNonZeroOnFailure(t *testing.T) {
 
 func TestCommandPrintsTheFixUnderAProblem(t *testing.T) {
 	probes := healthy()
-	probes.SignIn = func(context.Context) (string, error) { return "", credentials.ErrNotFound }
+	probes.SignIn = func(context.Context) (api.You, error) { return api.You{}, credentials.ErrNotFound }
 	command := NewCmdDoctor(&app.Factory{Version: "1.15.0"}, probes)
 	command.SilenceErrors, command.SilenceUsage = true, true
 	var out bytes.Buffer

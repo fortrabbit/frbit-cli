@@ -42,3 +42,15 @@ func TestYouDecodesBareObjectAndDataEnvelope(t *testing.T) {
 		})
 	}
 }
+
+func TestOptionalStepLinkIsHTTPSOnly(t *testing.T) {
+	for raw, want := range map[string]string{"https://dash.example/ssh": "https://dash.example/ssh", "http://dash.example/ssh": "", "/ssh": "", "javascript:x": "", "https://dash.example/\x1b]8;;x\x07": ""} {
+		url := raw
+		if got := (OptionalStep{URL: &url}).Link(); got != want {
+			t.Errorf("Link(%q) = %q, want %q", raw, got, want)
+		}
+	}
+	if (OptionalStep{}).Link() != "" {
+		t.Error("Link without URL")
+	}
+}

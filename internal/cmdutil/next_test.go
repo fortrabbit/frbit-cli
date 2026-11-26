@@ -1,0 +1,23 @@
+package cmdutil
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/fortrabbit/frbit-cli/internal/api"
+)
+
+func TestWriteOpenStepFallsBackAndStripsControl(t *testing.T) {
+	url := "https://dash.example/ssh"
+	cases := map[string]string{
+		"":                 "Optional: Add an SSH key\n  https://dash.example/ssh\n",
+		"Add a key\x1b[2J": "Optional: Add a key[2J\n  https://dash.example/ssh\n",
+	}
+	for instruction, want := range cases {
+		var out bytes.Buffer
+		you := api.You{Optional: []api.OptionalStep{{Step: "ssh_key", Instruction: instruction, URL: &url}}}
+		if err := WriteOpenStep(&out, you, "ssh_key", "Add an SSH key"); err != nil || out.String() != want {
+			t.Errorf("WriteOpenStep(%q) = %q, %v; want %q", instruction, out.String(), err, want)
+		}
+	}
+}

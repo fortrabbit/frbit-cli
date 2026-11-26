@@ -17,6 +17,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/credentials"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/fortrabbit/frbit-cli/internal/link"
 	"github.com/fortrabbit/frbit-cli/internal/sshexec"
 	"github.com/fortrabbit/frbit-cli/internal/update"
@@ -49,7 +50,7 @@ type Environment struct {
 // Probes are the side effects the checks need; tests replace them.
 type Probes struct {
 	Latest      func(ctx context.Context, current string) (string, error)
-	SignIn      func(ctx context.Context) (email string, err error)
+	SignIn      func(ctx context.Context) (api.You, error)
 	LookPath    func(name string) (string, error)
 	ToolVersion func(ctx context.Context, name string) string
 	Linked      func(ctx context.Context) (labels []string, inCheckout bool, err error)
@@ -116,12 +117,12 @@ Exits 1 when a check fails; warnings and skipped checks exit 0. --json prints th
 // Run runs every check in order; a check that depends on an earlier one is skipped when that one fails.
 func Run(ctx context.Context, version string, p *Probes) []Check {
 	checks := []Check{versionCheck(ctx, version, p)}
-	signIn := signInCheck(ctx, p)
+	signIn, you := signInCheck(ctx, p)
 	checks = append(checks, signIn)
 	checks = append(checks, toolChecks(ctx, p)...)
 	project := projectCheck(ctx, p)
 	checks = append(checks, project)
-	checks = append(checks, sshCheck(ctx, p, signIn, project))
+	checks = append(checks, sshCheck(ctx, p, signIn, project, keyStep(you)))
 	checks = append(checks, agentChecks(ctx, p)...)
 	return checks
 }
@@ -148,24 +149,42 @@ func versionCheck(ctx context.Context, version string, p *Probes) Check {
 	}
 }
 
-func signInCheck(ctx context.Context, p *Probes) Check {
+// signInCheck also returns the account, for the setup steps later checks name as their fix.
+func signInCheck(ctx context.Context, p *Probes) (Check, api.You) {
 	ctx, cancel := bounded(ctx)
 	defer cancel()
 	login := p.Login
 	if login == "" {
 		login = "frbit auth login"
 	}
-	email, err := p.SignIn(ctx)
+	you, err := p.SignIn(ctx)
 	switch {
 	case errors.Is(err, credentials.ErrNotFound):
-		return Check{Name: "Sign-in", Status: StatusWarn, Detail: "not signed in", Fix: login}
+		return Check{Name: "Sign-in", Status: StatusWarn, Detail: "not signed in", Fix: login}, api.You{}
 	case errors.Is(err, ErrRefused):
-		return Check{Name: "Sign-in", Status: StatusFail, Detail: err.Error(), Fix: login + ", or check FRBIT_TOKEN"}
+		return Check{Name: "Sign-in", Status: StatusFail, Detail: err.Error(), Fix: login + ", or check FRBIT_TOKEN"}, api.You{}
 	case err != nil:
-		return Check{Name: "Sign-in", Status: StatusWarn, Detail: "the API did not answer: " + err.Error(), Fix: "check the network and https://status.fortrabbit.com"}
+		return Check{Name: "Sign-in", Status: StatusWarn, Detail: "the API did not answer: " + err.Error(), Fix: "check the network and https://status.fortrabbit.com"}, api.You{}
 	default:
-		return Check{Name: "Sign-in", Status: StatusOK, Detail: email}
+		return Check{Name: "Sign-in", Status: StatusOK, Detail: you.Email}, you
 	}
+}
+
+// keyStep is the open "add an SSH key" step of the account as a fix, or "" when the account has a key or the API lists no such step.
+func keyStep(you api.You) string {
+	step := you.OptionalStep(sshexec.SSHKeyStep)
+	if step == nil || step.Done {
+		return ""
+	}
+	instruction := iostreams.StripControl(step.Instruction)
+	if instruction == "" {
+		instruction = sshexec.SSHKeyInstruction
+	}
+	link := step.Link()
+	if link == "" {
+		link = sshexec.KeyURL
+	}
+	return instruction + ": " + link
 }
 
 func toolChecks(ctx context.Context, p *Probes) []Check {
@@ -203,7 +222,8 @@ func projectCheck(ctx context.Context, p *Probes) Check {
 	}
 }
 
-func sshCheck(ctx context.Context, p *Probes, signIn, project Check) Check {
+// sshCheck names an open SSH key step of the account as the fix when there is no environment to try; a rejected key carries its own fix.
+func sshCheck(ctx context.Context, p *Probes, signIn, project Check, keyFix string) Check {
 	if signIn.Status != StatusOK {
 		return Check{Name: "SSH", Status: StatusSkip, Detail: "needs a sign-in"}
 	}
@@ -214,7 +234,11 @@ func sshCheck(ctx context.Context, p *Probes, signIn, project Check) Check {
 	env, err := p.Environment(envCtx)
 	cancel()
 	if errors.Is(err, link.ErrNoEnvironment) {
-		return Check{Name: "SSH", Status: StatusSkip, Detail: "no environment for this checkout", Fix: "frbit link <env-id>"}
+		fix := "frbit link <env-id>"
+		if keyFix != "" {
+			fix = keyFix + "; then " + fix
+		}
+		return Check{Name: "SSH", Status: StatusSkip, Detail: "no environment for this checkout", Fix: fix}
 	}
 	if err != nil {
 		return Check{Name: "SSH", Status: StatusFail, Detail: err.Error()}
@@ -222,6 +246,9 @@ func sshCheck(ctx context.Context, p *Probes, signIn, project Check) Check {
 	sshCtx, cancelSSH := context.WithTimeout(ctx, sshTimeout)
 	defer cancelSSH()
 	if err := p.SSH(sshCtx, env.Target); err != nil {
+		if keyErr := (*sshexec.KeyError)(nil); errors.As(err, &keyErr) {
+			return Check{Name: "SSH", Status: StatusFail, Detail: fmt.Sprintf("%s (%s): %s", env.ID, env.From, keyErr.Reason()), Fix: keyErr.Fix()}
+		}
 		return Check{Name: "SSH", Status: StatusFail, Detail: fmt.Sprintf("%s (%s): %v", env.ID, env.From, err)}
 	}
 	return Check{Name: "SSH", Status: StatusOK, Detail: fmt.Sprintf("%s (%s) answers", env.ID, env.From)}
@@ -335,9 +362,9 @@ func defaultProbes(cmd *cobra.Command, factory *app.Factory) *Probes {
 	}
 
 	login := "frbit auth login"
-	for _, flag := range []string{"profile", "host"} {
-		if f := cmd.Flags().Lookup(flag); f != nil && f.Changed {
-			login += fmt.Sprintf(" --%s %s", flag, f.Value.String())
+	if profile, err := cmdutil.Profile(cmd); err == nil {
+		if host, err := cmdutil.Host(cmd, factory); err == nil {
+			login = cmdutil.LoginCommand(host, profile)
 		}
 	}
 	hostWarned := false
@@ -351,21 +378,22 @@ func defaultProbes(cmd *cobra.Command, factory *app.Factory) *Probes {
 	return &Probes{
 		Login:  login,
 		Latest: checker.Latest,
-		SignIn: func(ctx context.Context) (string, error) {
+		SignIn: func(ctx context.Context) (api.You, error) {
 			warnHost()
 			c, err := client()
 			if err != nil {
-				return "", err
+				return api.You{}, err
 			}
 			you, err := c.You(ctx)
 			var httpErr *api.HTTPError
-			if errors.As(err, &httpErr) && (httpErr.Status == 401 || httpErr.Status == 403) {
-				return "", fmt.Errorf("%w: %w", ErrRefused, err)
+			var signIn *api.SignInError
+			if errors.As(err, &signIn) || (errors.As(err, &httpErr) && httpErr.Status == 403) {
+				return api.You{}, fmt.Errorf("%w: %w", ErrRefused, err)
 			}
 			if err != nil {
-				return "", err
+				return api.You{}, err
 			}
-			return you.You.Email, nil
+			return you.You, nil
 		},
 		LookPath: exec.LookPath,
 		ToolVersion: func(ctx context.Context, name string) string {
@@ -423,7 +451,15 @@ func defaultProbes(cmd *cobra.Command, factory *app.Factory) *Probes {
 			return Environment{ID: resolution.ID, From: from, Target: target}, nil
 		},
 		SSH: func(ctx context.Context, target string) error {
-			return sshexec.Run(ctx, sshexec.System{}, target, "true", false, nil, io.Discard, io.Discard)
+			err := sshexec.Run(ctx, sshexec.System{}, target, "true", false, nil, io.Discard, io.Discard)
+			if err == nil {
+				return nil
+			}
+			c, clientErr := client()
+			if clientErr != nil {
+				return sshexec.Explain(ctx, err, nil)
+			}
+			return sshexec.Explain(ctx, err, c)
 		},
 		MCP: func(ctx context.Context) ([]agentmcp.Registration, bool, error) {
 			agents, err := mcp.ResolveAgents(nil)

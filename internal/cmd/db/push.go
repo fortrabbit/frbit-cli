@@ -96,7 +96,7 @@ The environment is an ID, a label from .fortrabbit/environments.yml, or app/envi
 				interactive: factory.IOStreams.IsTTY,
 				stderr:      stderr,
 			}
-			return p.push(ctx, input)
+			return sshexec.Explain(ctx, p.push(ctx, input), client)
 		},
 	}
 	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the environment ID")

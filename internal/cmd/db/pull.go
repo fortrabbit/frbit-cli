@@ -73,7 +73,7 @@ The environment is an ID, a label from .fortrabbit/environments.yml, or app/envi
 			}
 			p := puller{id: id, target: target, interactive: factory.IOStreams.IsTTY, stderr: cmd.ErrOrStderr()}
 			if err := cmdutil.WriteFileAtomic(path, 0o600, func(out io.Writer) error { return p.run(ctx, out) }); err != nil {
-				return err
+				return sshexec.Explain(ctx, err, client)
 			}
 			_, err = fmt.Fprintf(cmd.ErrOrStderr(), "Saved %s\n", path)
 			return err

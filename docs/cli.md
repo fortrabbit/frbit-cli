@@ -61,7 +61,7 @@ Sign in through the browser:
 frbit auth login
 ```
 
-The command prints the sign-in URL and a code first, opens the URL in your default browser, and waits up to 15 minutes. Type the code on the consent page: it shows that the sign-in in the browser belongs to this terminal. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
+The command prints the sign-in URL and a code first, opens the URL in your default browser, and waits up to 15 minutes. Type the code on the consent page: it shows that the sign-in in the browser belongs to this terminal. Without an account, the same page signs you up. It stores the credential in your operating system's credential store and saves the API host for subsequent commands. It then prints the next setup step and, while your account has no SSH key, the optional step to add one. The credential refreshes itself before it expires and is only sent to the API host it signed in to; for another host, run `frbit --host <origin> auth login`.
 
 | Option | Effect |
 |--|--|
@@ -484,7 +484,7 @@ It runs the local `ssh` with your own SSH key; `mysqldump --single-transaction -
 
 The default output is `<environment>.sql.gz` in the current folder; `--output` is a file or a folder. The file has mode 0600 and appears only once the dump is complete. An existing file is not overwritten unless you pass `--force`. `--output -` is refused: `db pull` writes a file.
 
-A rejected SSH key or a failed connection (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>. A missing `ssh` client fails before any request.
+A failed SSH connection is explained as under [SSH](#ssh). A missing `ssh` client fails before any request.
 
 The host key of fortrabbit's production SSH endpoints (`ssh.<region>.frbit.app`) ships with frbit: `ssh-ed25519`, fingerprint `SHA256:UB3p/YgtQSuK3WESB/0ra5dTDWkggrCOz0WkWe4Tvvg`. frbit writes it to `known_hosts` in its config folder (mode 0600, rewritten when it differs) and checks these hosts against that file alone, with `StrictHostKeyChecking=yes`. The first connection from an agent or CI needs no prompt and no entry in `~/.ssh/known_hosts`. Entries for these hosts in your own `known_hosts` files are not used, because ssh accepts a key found in any listed file. If the server shows another key, the command stops: do not accept the key by hand; update frbit, and contact fortrabbit support if it persists.
 
@@ -509,7 +509,7 @@ Each step is its own SSH call with your own SSH key:
 4. Import: `gunzip -c | mysql "$FORTRABBIT_DB_NAME"`.
 5. Removal of the upload.
 
-A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'set -o pipefail; gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A rejected SSH key (ssh exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>.
+A failure or Ctrl-C after the backup says whether the database changed and prints the backup path and the command to restore it, `ssh <target> 'set -o pipefail; gunzip -c /data/home/frbit-backup-<UTC time>.sql.gz | mysql "$FORTRABBIT_DB_NAME"'`. Ctrl-C during the import leaves the database partly imported. The backup stays on the environment; remove it once you no longer need it. A failed SSH connection is explained as under [SSH](#ssh).
 
 ## SSH
 
@@ -524,6 +524,18 @@ frbit ssh --print                             # print the ssh command instead of
 Several arguments after `--` are quoted one by one, so a space or `;` inside one stays part of it; a single argument goes to the remote shell as it is, as with plain `ssh`. A remote exit code, 255 included, becomes frbit's exit code.
 
 The connection uses your own SSH key and the same settings as `db` and `files`: no agent or X11 forwarding and the pinned host key of fortrabbit's SSH endpoints. With a terminal, ssh gets one too; without one, as in scripts, it runs in batch mode and never prompts.
+
+When ssh itself fails (exit 255), frbit reads its message and names the missing step:
+
+| ssh says | frbit says |
+|--|--|
+| `Permission denied (publickey)` | Whether your account has no SSH key, ssh has none to offer here, or the key here is not on your account or needs `ssh-add` for its passphrase. Without a key here: create one with `ssh-keygen -t ed25519`. Then add the public key at <https://dash.fortrabbit.com/new/ssh-key>. |
+| `Too many authentication failures` | ssh offered too many keys: set `IdentitiesOnly yes` and the `IdentityFile` for the host in `~/.ssh/config`. |
+| `Could not resolve hostname`, `Connection refused`, a timeout | The connection failed: check the network, a firewall or VPN, and <https://status.fortrabbit.com>. |
+| `Host key verification failed` | The host key is unknown, changed, or not fortrabbit's. |
+| anything else | All of the above as possible causes. |
+
+frbit learns whether your account has a key from the "Add an SSH key" setup step, and whether this machine has one from `ssh -G` and the SSH agent.
 
 ## Files
 
@@ -545,7 +557,7 @@ A sync without a path, and any sync with `--delete`, refuses to run from `/`, yo
 
 `files push`, `files pull` without a path, and `files pull --delete` need the environment ID typed on a terminal, or `--confirm <id>` without one; a dry run needs neither. The check runs before rsync starts; with a label or the environment of the checkout, the environment may already have been read from the API to resolve it. When the environment deploys from a Git branch, the warning says that the next deployment overwrites code pushed this way.
 
-On a terminal rsync shows per-file progress (`--progress`). Missing `rsync` or `ssh` fails with how to install it. A rejected SSH key (exit 255) points to <https://dash.fortrabbit.com/new/ssh-key>; any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
+On a terminal rsync shows per-file progress (`--progress`). Missing `rsync` or `ssh` fails with how to install it. A failed SSH connection is explained as under [SSH](#ssh); any other rsync failure names rsync's exit code. Ctrl-C stops rsync and says the sync stopped partway.
 
 ## People
 
@@ -925,5 +937,7 @@ Global options:
 ## Troubleshooting
 
 If a command reports that no API token is available, set `FRBIT_TOKEN` for that command or run `frbit auth login`.
+
+An expired or revoked sign-in fails with "the sign-in expired or was revoked" and the `frbit auth login` command for the profile and host in use. A refused `FRBIT_TOKEN` names that variable.
 
 If authentication fails, confirm that the token is active and has access to the expected apps, then run `frbit auth status` to test the exact profile and host in use.
