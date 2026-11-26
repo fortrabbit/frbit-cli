@@ -128,7 +128,7 @@ func writeMetricsSummary(out io.Writer, value api.Resource) error {
 		}
 		times, _ := last["responseTimeMs"].(map[string]any)
 		_, _ = fmt.Fprintf(table, "response time median\t%s ms\n", number(times["median"]))
-		_, _ = fmt.Fprintf(table, "response time p99\t%s ms\n", number(times["p99"]))
+		_, _ = fmt.Fprintf(table, "response time p90\t%s ms\n", number(times["p90"]))
 		_, _ = fmt.Fprintf(table, "PHP memory peak\t%s\n", percentValue(last["phpMemoryMaxPercent"]))
 		kills, _ := last["outOfMemoryKills"].(map[string]any)
 		_, _ = fmt.Fprintf(table, "out-of-memory kills (php)\t%s\n", number(kills["php"]))

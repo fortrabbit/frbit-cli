@@ -44,12 +44,12 @@ func TestMetricsSummaryTable(t *testing.T) {
 		if r.path != "/v1/environments/en-abc123/metrics" {
 			t.Fatalf("path %s", r.path)
 		}
-		echo(w, 200, `{"usage":[{"component":"storage","metric":"web-storage","current":268435456,"limit":536870912,"unit":"bytes","percent":50,"period":"now"},{"component":"traffic","metric":"traffic","current":null,"limit":null,"unit":"bytes","percent":null,"period":"month"}],"last24Hours":{"requests":12840,"errors":{"500":3,"503":0,"504":null},"responseTimeMs":{"p99":840,"median":62},"phpMemoryMaxPercent":71.4,"outOfMemoryKills":{"php":0,"jobs":null}},"metrics":["php-requests","web-storage"]}`)
+		echo(w, 200, `{"usage":[{"component":"storage","metric":"web-storage","current":268435456,"limit":536870912,"unit":"bytes","percent":50,"period":"now"},{"component":"traffic","metric":"traffic","current":null,"limit":null,"unit":"bytes","percent":null,"period":"month"}],"last24Hours":{"requests":12840,"errors":{"500":3,"503":0,"504":null},"responseTimeMs":{"p90":410,"median":62},"phpMemoryMaxPercent":71.4,"outOfMemoryKills":{"php":0,"jobs":null}},"metrics":["php-requests","web-storage"]}`)
 	}, "metrics", "en-abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"COMPONENT", "storage", "256.0 MB", "512.0 MB", "50.0%", "12840", "Last 24 hours", "HTTP 504                    -", "71.4%", "(this month)", "traffic", "php-requests, web-storage"} {
+	for _, want := range []string{"COMPONENT", "storage", "256.0 MB", "512.0 MB", "50.0%", "12840", "Last 24 hours", "HTTP 504                    -", "response time p90", "410 ms", "71.4%", "(this month)", "traffic", "php-requests, web-storage"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("missing %q in:\n%s", want, output)
 		}
