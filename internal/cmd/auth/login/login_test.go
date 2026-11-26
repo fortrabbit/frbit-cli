@@ -275,7 +275,7 @@ func TestLoginTokenStdinKeepsTheTokenPath(t *testing.T) {
 func TestLoginShowsAnOpenSSHKeyStep(t *testing.T) {
 	fake := newFakeAPI(t)
 	factory, _, _ := loginFactory(t, fake)
-	fake.you = `{"email":"ada@example.com","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`
+	fake.you = `{"email":"ada@example.com","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"add_ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`
 
 	output, err := executeLogin(t, factory, fake.URL)
 	if err != nil {
@@ -286,8 +286,8 @@ func TestLoginShowsAnOpenSSHKeyStep(t *testing.T) {
 	}
 
 	for _, you := range []string{
-		`{"email":"ada@example.com","next":null,"optional":[{"step":"ssh_key","done":true,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
-		`{"email":"ada@example.com","next":{"step":"ssh_key","instruction":"Add an SSH key","url":"https://dash.example/ssh"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
+		`{"email":"ada@example.com","next":null,"optional":[{"step":"add_ssh_key","done":true,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
+		`{"email":"ada@example.com","next":{"step":"add_ssh_key","instruction":"Add an SSH key","url":"https://dash.example/ssh"},"optional":[{"step":"add_ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
 	} {
 		fake.mu.Lock()
 		fake.you = you

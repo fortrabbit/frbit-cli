@@ -15,8 +15,8 @@ func TestWriteOpenStepFallsBackAndStripsControl(t *testing.T) {
 	}
 	for instruction, want := range cases {
 		var out bytes.Buffer
-		you := api.You{Optional: []api.OptionalStep{{Step: "ssh_key", Instruction: instruction, URL: &url}}}
-		if err := WriteOpenStep(&out, you, "ssh_key", "Add an SSH key"); err != nil || out.String() != want {
+		you := api.You{Optional: []api.OptionalStep{{Step: "add_ssh_key", Instruction: instruction, URL: &url}}}
+		if err := WriteOpenStep(&out, you, "add_ssh_key", "Add an SSH key"); err != nil || out.String() != want {
 			t.Errorf("WriteOpenStep(%q) = %q, %v; want %q", instruction, out.String(), err, want)
 		}
 	}

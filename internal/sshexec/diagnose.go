@@ -27,9 +27,9 @@ const (
 )
 
 // SSHKeyStep is the optional /v1/you step that is done once the account has an SSH key.
-const SSHKeyStep = "ssh_key"
+const SSHKeyStep = "add_ssh_key"
 
-// SSHKeyInstruction stands in when the API gives the ssh_key step no instruction.
+// SSHKeyInstruction stands in when the API gives the add_ssh_key step no instruction.
 const SSHKeyInstruction = "Add an SSH key"
 
 // keygen is the command that creates a key the dashboard accepts.
@@ -156,7 +156,7 @@ func Explain(ctx context.Context, err error, account Account) error {
 	return err
 }
 
-// AccountKey reads the ssh_key step from /v1/you: KeyMissing while it is open, with the URL of the step.
+// AccountKey reads the add_ssh_key step from /v1/you: KeyMissing while it is open, with the URL of the step.
 func AccountKey(ctx context.Context, account Account) (KeyState, string) {
 	you, err := account.You(ctx)
 	if err != nil {
