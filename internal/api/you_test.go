@@ -9,8 +9,8 @@ import (
 
 func TestYouDecodesBareObjectAndDataEnvelope(t *testing.T) {
 	for name, body := range map[string]string{
-		"bare": `{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
-		"data": `{"data":{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}}`,
+		"bare": `{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"add_ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}`,
+		"data": `{"data":{"publicId":"pe-abc123","email":"ada@example.com","name":"Ada","next":{"step":"connect_git","instruction":"Connect GitHub","url":"https://dash.example/git"},"optional":[{"step":"add_ssh_key","done":false,"instruction":"Add an SSH key","url":"https://dash.example/ssh"}]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
