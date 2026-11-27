@@ -157,7 +157,7 @@ type unknownError struct {
 }
 
 func (e *unknownError) Error() string {
-	return fmt.Sprintf("ssh to %s failed: the SSH key was rejected, the connection failed, or the host key is unknown or changed; add your public key at %s, or check the network and ~/.ssh/known_hosts", e.target, KeyURL)
+	return fmt.Sprintf("ssh to %s failed: the SSH key was rejected, the connection failed, or the host key is unknown or changed; add your public key with `%s` or at %s, or check the network and ~/.ssh/known_hosts", e.target, AddCommand, KeyURL)
 }
 
 func (e *unknownError) Unwrap() error { return e.err }

@@ -529,13 +529,29 @@ When ssh itself fails (exit 255), frbit reads its message and names the missing 
 
 | ssh says | frbit says |
 |--|--|
-| `Permission denied (publickey)` | Whether your account has no SSH key, ssh has none to offer here, or the key here is not on your account or needs `ssh-add` for its passphrase. Without a key here: create one with `ssh-keygen -t ed25519`. Then add the public key at <https://dash.fortrabbit.com/new/ssh-key>. |
+| `Permission denied (publickey)` | Whether your account has no SSH key, ssh has none to offer here, or the key here is not on your account or needs `ssh-add` for its passphrase. Without a key here: create one with `ssh-keygen -t ed25519`. Then add it with `frbit ssh-keys add` (see [SSH keys](#ssh-keys)) or at <https://dash.fortrabbit.com/new/ssh-key>. |
 | `Too many authentication failures` | ssh offered too many keys: set `IdentitiesOnly yes` and the `IdentityFile` for the host in `~/.ssh/config`. |
 | `Could not resolve hostname`, `Connection refused`, a timeout | The connection failed: check the network, a firewall or VPN, and <https://status.fortrabbit.com>. |
 | `Host key verification failed` | The host key is unknown, changed, or not fortrabbit's. |
 | anything else | All of the above as possible causes. |
 
 frbit learns whether your account has a key from the "Add an SSH key" setup step, and whether this machine has one from `ssh -G` and the SSH agent.
+
+## SSH keys
+
+```sh
+frbit ssh-keys list
+frbit ssh-keys get sk-a1b2c3
+frbit ssh-keys add                            # ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub
+frbit ssh-keys add ~/.ssh/work.pub
+frbit ssh-keys delete sk-a1b2c3 --confirm sk-a1b2c3
+```
+
+These are the personal SSH keys of your account. A personal key gives SSH and SFTP access to every environment you can access, for `ssh`, `db` and `files`. Deploy keys of an environment are managed in the dashboard.
+
+`add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. A private key file is refused and never sent. A key that is already on your account counts as done. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
+
+`delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and the delete permission of the sign-in.
 
 ## Files
 
@@ -680,13 +696,14 @@ An ID outside your account fails, for example in a fork of a template. When it c
 
 ## Deleting resources
 
-Apps, environments, domains, jobs, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
+Apps, environments, domains, jobs, SSH keys, teams, and payment methods can be deleted. The CLI retrieves the resource first, displays the consequences, and requires the exact public ID before sending the irreversible request:
 
 ```sh
 frbit apps delete ap-a1b2c3
 frbit environments delete en-a1b2c3
 frbit domains delete do-a1b2c3
 frbit jobs delete jo-a1b2c3
+frbit ssh-keys delete sk-a1b2c3
 frbit teams delete tm-a1b2c3
 frbit payment-methods delete pm-a1b2c3
 ```
@@ -900,6 +917,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--force`. |
 | `frbit db push <file> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--environment`/`-e`, `--dry-run`, `--delete`, `--exclude` (repeatable), `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.ddev/`, `.env` and `.env.*` alone. |
+| `frbit ssh-keys list` / `get <id>` / `add [file]` / `delete <id>` | Manage the personal SSH keys of your account. `add` takes `~/.ssh/id_ed25519.pub`, then `id_rsa.pub`, without a file and needs a browser sign-in; `delete` needs `--confirm <id>` without a terminal. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |

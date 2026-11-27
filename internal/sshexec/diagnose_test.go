@@ -77,19 +77,19 @@ func TestExplainNamesTheMissingKey(t *testing.T) {
 		want    string
 	}{
 		{"neither", fakeAccount{you: withSSHKeyStep(false, "https://dash.example/ssh")}, KeyMissing,
-			"ssh to " + target + " failed: your fortrabbit account has no SSH key, and ssh has no key to offer on this machine; create one with `ssh-keygen -t ed25519`, then add the public key (~/.ssh/id_ed25519.pub) at https://dash.example/ssh"},
+			"ssh to " + target + " failed: your fortrabbit account has no SSH key, and ssh has no key to offer on this machine; create one with `ssh-keygen -t ed25519`, then add it with `frbit ssh-keys add` or at https://dash.example/ssh"},
 		{"account", fakeAccount{you: withSSHKeyStep(false, "https://dash.example/ssh")}, KeyPresent,
-			"ssh to " + target + " failed: your fortrabbit account has no SSH key; add the public key of this machine at https://dash.example/ssh"},
+			"ssh to " + target + " failed: your fortrabbit account has no SSH key; add the key of this machine with `frbit ssh-keys add` or at https://dash.example/ssh"},
 		{"machine", fakeAccount{you: withSSHKeyStep(true, "")}, KeyMissing,
-			"ssh to " + target + " failed: ssh has no key to offer on this machine; create one with `ssh-keygen -t ed25519`, then add the public key (~/.ssh/id_ed25519.pub) at " + KeyURL},
+			"ssh to " + target + " failed: ssh has no key to offer on this machine; create one with `ssh-keygen -t ed25519`, then add it with `frbit ssh-keys add` or at " + KeyURL},
 		{"mismatch", fakeAccount{you: withSSHKeyStep(true, "")}, KeyPresent,
-			"ssh to " + target + " failed: the server took none of the keys ssh offered: the key on this machine is not on your fortrabbit account, or it has a passphrase and is not in the SSH agent; load it with `ssh-add`, or add the public key of this machine at " + KeyURL},
+			"ssh to " + target + " failed: the server took none of the keys ssh offered: the key on this machine is not on your fortrabbit account, or it has a passphrase and is not in the SSH agent; load it with `ssh-add`, or add the key of this machine with `frbit ssh-keys add` or at " + KeyURL},
 		{"api down", fakeAccount{err: errors.New("dial tcp: timeout")}, KeyUnknown,
-			"ssh to " + target + " failed: the server rejected the SSH key; add the public key of this machine at " + KeyURL},
+			"ssh to " + target + " failed: the server rejected the SSH key; add the key of this machine with `frbit ssh-keys add` or at " + KeyURL},
 		{"no step", fakeAccount{}, KeyPresent,
-			"ssh to " + target + " failed: the server rejected the SSH key; add the public key of this machine at " + KeyURL},
+			"ssh to " + target + " failed: the server rejected the SSH key; add the key of this machine with `frbit ssh-keys add` or at " + KeyURL},
 		{"step url not https", fakeAccount{you: withSSHKeyStep(false, "javascript:x")}, KeyPresent,
-			"ssh to " + target + " failed: your fortrabbit account has no SSH key; add the public key of this machine at " + KeyURL},
+			"ssh to " + target + " failed: your fortrabbit account has no SSH key; add the key of this machine with `frbit ssh-keys add` or at " + KeyURL},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

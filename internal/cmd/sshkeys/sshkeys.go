@@ -1,0 +1,225 @@
+// Package sshkeys builds the ssh-keys command group: the personal SSH keys of the signed-in person.
+package sshkeys
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/fortrabbit/frbit-cli/internal/app"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
+	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
+	"github.com/fortrabbit/frbit-cli/internal/iostreams"
+	"github.com/spf13/cobra"
+)
+
+var spec = resource.Spec{
+	Use: "ssh-keys", Singular: "SSH key", Path: "/ssh-keys",
+	Fields: []resource.Field{{Header: "ID", Key: "publicId"}, {Header: "TYPE", Key: "type"}, {Header: "COMMENT", Key: "comment"}, {Header: "FINGERPRINT", Key: "fingerprint"}, {Header: "CREATED", Key: "createdAt"}},
+}
+
+// defaultKeyFiles are tried in order when add gets no file, relative to the home directory.
+var defaultKeyFiles = []string{".ssh/id_ed25519.pub", ".ssh/id_rsa.pub"}
+
+// maxKeyFileSize is above any public key line the API accepts, so a larger file is not one.
+const maxKeyFileSize = 16 * 1024
+
+func NewCmdSSHKeys(factory *app.Factory) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "ssh-keys",
+		Short: "Manage the personal SSH keys of your account",
+		Long: "Manage the personal SSH keys of your account.\n\n" +
+			"A personal key gives SSH and SFTP access to every environment you can access, for frbit ssh, db and files.",
+		Args: cobra.NoArgs,
+	}
+	list := resource.NewCmdList(factory, spec)
+	list.Short = "List the personal SSH keys of your account"
+	command.AddCommand(list, newCmdGet(factory), newCmdAdd(factory), newCmdDelete(factory))
+	return command
+}
+
+func newCmdGet(factory *app.Factory) *cobra.Command {
+	var printJSON bool
+	command := &cobra.Command{
+		Use:   "get <ssh-key>",
+		Short: "Get an SSH key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			response, err := client.GetResource(cmd.Context(), "/v1/ssh-keys/"+url.PathEscape(args[0]))
+			if err != nil {
+				return err
+			}
+			return resource.Write(cmd, response, printJSON)
+		},
+	}
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	return command
+}
+
+func newCmdAdd(factory *app.Factory) *cobra.Command {
+	var printJSON bool
+	command := &cobra.Command{
+		Use:   "add [public-key-file]",
+		Short: "Add the public key of this machine to your account",
+		Long: "Add a public key to your account.\n\n" +
+			"Without a file it takes ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub. Create a key with `ssh-keygen -t ed25519` when there is none.\n" +
+			"Only the public key (.pub) is sent; a private key file is refused. A key that is already on your account counts as done.\n" +
+			"Needs a frbit CLI login (frbit auth login) that is not limited to apps: an API token cannot add keys. You get an email about the new key.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := keyFile(args)
+			if err != nil {
+				return err
+			}
+			keyLine, err := readPublicKey(path)
+			if err != nil {
+				return err
+			}
+			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			existing, err := client.ListAll(cmd.Context(), "/v1/ssh-keys", nil, 0)
+			if err != nil {
+				return err
+			}
+			publicKey := strings.Fields(keyLine)[1]
+			for _, key := range existing.Resources {
+				if value, _ := key["publicKey"].(string); value == publicKey {
+					if printJSON {
+						raw, err := json.Marshal(key)
+						if err != nil {
+							return err
+						}
+						return resource.WriteRaw(cmd, raw)
+					}
+					id, _ := key["publicId"].(string)
+					_, err := fmt.Fprintf(cmd.OutOrStdout(), "The key in %s is already on your account (%s).\n", path, iostreams.StripControl(id))
+					return err
+				}
+			}
+			response, err := client.CreateResource(cmd.Context(), "/v1/ssh-keys", map[string]any{"sshKey": keyLine})
+			if err != nil {
+				return err
+			}
+			if printJSON {
+				return resource.Write(cmd, response, true)
+			}
+			id, _ := response.Resource["publicId"].(string)
+			fingerprint, _ := response.Resource["fingerprint"].(string)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Added SSH key %s from %s (fingerprint %s).\n", iostreams.StripControl(id), path, iostreams.StripControl(fingerprint))
+			return err
+		},
+	}
+	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
+	return command
+}
+
+// keyFile is the file given, or the first default key file that exists.
+func keyFile(args []string) (string, error) {
+	if len(args) == 1 {
+		return args[0], nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("find the home directory: %w; pass the public key file", err)
+	}
+	for _, name := range defaultKeyFiles {
+		path := filepath.Join(home, name)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("no public key in ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub; create one with `ssh-keygen -t ed25519`, or pass the public key file")
+}
+
+// readPublicKey returns the one key line of a public key file and refuses anything else, above all a private key.
+func readPublicKey(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%s does not exist", path)
+		}
+		return "", err
+	}
+	if info.IsDir() || info.Size() > maxKeyFileSize {
+		return "", fmt.Errorf("%s is not a public key file", path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if bytes.Contains(content, []byte("PRIVATE KEY")) {
+		hint := ""
+		if _, err := os.Stat(path + ".pub"); err == nil {
+			hint = fmt.Sprintf(": pass %s.pub", path)
+		}
+		return "", fmt.Errorf("%s is a private key and is never sent%s", path, hint)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(content), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 1 {
+		return "", fmt.Errorf("%s must hold exactly one public key line, such as \"ssh-ed25519 AAAA... you@laptop\"", path)
+	}
+	fields := strings.Fields(lines[0])
+	if len(fields) < 2 || !strings.HasPrefix(fields[0], "ssh-") {
+		return "", fmt.Errorf("%s is not a public key: the line must start with ssh-ed25519 or ssh-rsa", path)
+	}
+	return lines[0], nil
+}
+
+func newCmdDelete(factory *app.Factory) *cobra.Command {
+	var confirmation string
+	command := &cobra.Command{
+		Use:   "delete <ssh-key>",
+		Short: "Delete an SSH key from your account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := args[0]
+			if err := cmdutil.CheckDestructive(factory, "deletion", id, confirmation); err != nil {
+				return err
+			}
+			client, err := cmdutil.APIClient(cmd, factory)
+			if err != nil {
+				return err
+			}
+			path := "/v1/ssh-keys/" + url.PathEscape(id)
+			response, err := client.GetResource(cmd.Context(), path)
+			if err != nil {
+				return err
+			}
+			comment, _ := response.Resource["comment"].(string)
+			fingerprint, _ := response.Resource["fingerprint"].(string)
+			stderr := cmd.ErrOrStderr()
+			_, _ = fmt.Fprintf(stderr, "SSH key: %s %s (%s)\n\n", iostreams.StripControl(comment), iostreams.StripControl(fingerprint), id)
+			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "deletion", id, confirmation, "The key no longer reaches any of your environments. This cannot be undone.")
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				return cmdutil.Aborted(stderr)
+			}
+			if err := client.DeleteResource(cmd.Context(), path); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted SSH key %s.\n", id)
+			return err
+		},
+	}
+	command.Flags().StringVar(&confirmation, "confirm", "", "Confirm by repeating the SSH key ID")
+	return command
+}

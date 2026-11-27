@@ -32,6 +32,9 @@ const SSHKeyStep = "add_ssh_key"
 // SSHKeyInstruction stands in when the API gives the add_ssh_key step no instruction.
 const SSHKeyInstruction = "Add an SSH key"
 
+// AddCommand adds the public key of this machine to the account.
+const AddCommand = "frbit ssh-keys add"
+
 // keygen is the command that creates a key the dashboard accepts.
 const keygen = "ssh-keygen -t ed25519"
 
@@ -81,11 +84,11 @@ func (e *KeyError) Fix() string {
 	case e.TooMany:
 		return "set `IdentitiesOnly yes` and the `IdentityFile` of your fortrabbit key for this host in ~/.ssh/config"
 	case e.Local == KeyMissing:
-		return fmt.Sprintf("create one with `%s`, then add the public key (~/.ssh/id_ed25519.pub) at %s", keygen, url)
+		return fmt.Sprintf("create one with `%s`, then add it with `%s` or at %s", keygen, AddCommand, url)
 	case e.Account == KeyPresent && e.Local == KeyPresent:
-		return "load it with `ssh-add`, or add the public key of this machine at " + url
+		return fmt.Sprintf("load it with `ssh-add`, or add the key of this machine with `%s` or at %s", AddCommand, url)
 	}
-	return "add the public key of this machine at " + url
+	return fmt.Sprintf("add the key of this machine with `%s` or at %s", AddCommand, url)
 }
 
 // connectionError is ssh losing the connection: DNS, a refused or timed-out connection, a network that dropped before or during the session.

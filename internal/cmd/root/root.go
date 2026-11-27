@@ -29,6 +29,7 @@ import (
 	"github.com/fortrabbit/frbit-cli/internal/cmd/setup"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/skills"
 	sshcmd "github.com/fortrabbit/frbit-cli/internal/cmd/ssh"
+	"github.com/fortrabbit/frbit-cli/internal/cmd/sshkeys"
 	"github.com/fortrabbit/frbit-cli/internal/cmdutil"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	envlink "github.com/fortrabbit/frbit-cli/internal/link"
@@ -74,6 +75,7 @@ func NewCmdRoot(factory *app.Factory) *cobra.Command {
 		db.NewCmdDb(factory),
 		files.NewCmdFiles(factory),
 		sshcmd.NewCmdSSH(factory),
+		sshkeys.NewCmdSSHKeys(factory),
 		backups.NewCmdBackups(factory),
 		link.NewCmdLink(factory),
 		resource.NewCmdGroup(factory, personSpec()),
