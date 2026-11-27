@@ -320,6 +320,8 @@ func TestRootRegistersPublicWriteCommands(t *testing.T) {
 		{"domains", "delete"},
 		{"teams", "delete"},
 		{"payment-methods", "delete"},
+		{"ssh-keys", "add"},
+		{"ssh-keys", "delete"},
 	} {
 		found, remaining, err := command.Find(arguments)
 		if err != nil {

@@ -549,7 +549,7 @@ frbit ssh-keys delete sk-a1b2c3 --confirm sk-a1b2c3
 
 These are the personal SSH keys of your account. A personal key gives SSH and SFTP access to every environment you can access, for `ssh`, `db` and `files`. Deploy keys of an environment are managed in the dashboard.
 
-`add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. A private key file is refused and never sent. A key that is already on your account counts as done. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
+`add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. fortrabbit accepts ed25519 and rsa keys. A private key file is refused and never sent. A key that is already on your account counts as done. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
 
 `delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and the delete permission of the sign-in.
 
@@ -714,7 +714,7 @@ For intentional non-interactive use, repeat the public ID with `--confirm`. A mi
 frbit apps delete ap-a1b2c3 --confirm ap-a1b2c3
 ```
 
-Deleting an app or environment permanently erases its files and database contents. Deleting a payment method or team can also delete connected apps and environments.
+Deleting an app or environment permanently erases its files and database contents. Deleting a payment method or team can also delete connected apps and environments. Deleting an SSH key removes it from every environment you can access.
 
 ### Exit codes for confirmations
 
@@ -917,7 +917,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit db pull [environment]` | Dump the database of an environment to `<environment>.sql.gz` over SSH. Accepts `--output`, `--force`. |
 | `frbit db push <file> [environment]` | Replace the database of an environment with a local dump over SSH, after a backup dump on the environment. Accepts `--confirm`. |
 | `frbit files pull [path]` / `push [path]` | Sync files between `/data/www/` on an environment and the current folder with rsync over SSH. Accept `--environment`/`-e`, `--dry-run`, `--delete`, `--exclude` (repeatable), `--confirm` (push, pull without a path, pull with `--delete`). No sync touches `.frbit-*` or default dump and backup files; a whole-folder sync also leaves `.git/`, `.fortrabbit/`, `.ddev/`, `.env` and `.env.*` alone. |
-| `frbit ssh-keys list` / `get <id>` / `add [file]` / `delete <id>` | Manage the personal SSH keys of your account. `add` takes `~/.ssh/id_ed25519.pub`, then `id_rsa.pub`, without a file and needs a browser sign-in; `delete` needs `--confirm <id>` without a terminal. |
+| `frbit ssh-keys list` / `get <id>` / `add [file]` / `delete <id>` | Manage the personal SSH keys of your account. `list` accepts `--limit`, `--all`, and `--json`. Without a file, `add` takes `~/.ssh/id_ed25519.pub`, then `id_rsa.pub`; it needs a browser sign-in. `delete` needs `--confirm <id>` without a terminal. |
 | `frbit people list` / `get <id>` | List or get people. `list` accepts `--limit`, `--all`, and repeatable `--id`. |
 | `frbit teams list` / `get <id>` / `delete <id>` | List, get, or delete teams. `list` accepts `--limit` and `--all`. |
 | `frbit payment-methods list` / `get <id>` / `delete <id>` | List, get, or delete payment methods. `list` accepts `--limit` and `--all`. |
@@ -959,3 +959,5 @@ If a command reports that no API token is available, set `FRBIT_TOKEN` for that 
 An expired or revoked sign-in fails with "the sign-in expired or was revoked" and the `frbit auth login` command for the profile and host in use. A refused `FRBIT_TOKEN` names that variable.
 
 If authentication fails, confirm that the token is active and has access to the expected apps, then run `frbit auth status` to test the exact profile and host in use.
+
+`frbit ssh-keys add` fails with 403 when `FRBIT_TOKEN` holds an API token or the sign-in is limited to apps: run `frbit auth login` without an app limit, or add the key in the dashboard. A 422 saying the key is a deploy key of an environment means the key is in use there: use another key, or remove the deploy key in the dashboard first.

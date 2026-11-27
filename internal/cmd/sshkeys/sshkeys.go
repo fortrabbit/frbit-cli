@@ -3,14 +3,18 @@ package sshkeys
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/cmd/resource"
@@ -26,6 +30,9 @@ var spec = resource.Spec{
 
 // defaultKeyFiles are tried in order when add gets no file, relative to the home directory.
 var defaultKeyFiles = []string{".ssh/id_ed25519.pub", ".ssh/id_rsa.pub"}
+
+// acceptedKeyTypes are the key types the API accepts.
+var acceptedKeyTypes = map[string]bool{"ssh-ed25519": true, "ssh-rsa": true}
 
 // maxKeyFileSize is above any public key line the API accepts, so a larger file is not one.
 const maxKeyFileSize = 16 * 1024
@@ -74,7 +81,7 @@ func newCmdAdd(factory *app.Factory) *cobra.Command {
 		Long: "Add a public key to your account.\n\n" +
 			"Without a file it takes ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub. Create a key with `ssh-keygen -t ed25519` when there is none.\n" +
 			"Only the public key (.pub) is sent; a private key file is refused. A key that is already on your account counts as done.\n" +
-			"Needs a frbit CLI login (frbit auth login) that is not limited to apps: an API token cannot add keys. You get an email about the new key.",
+			"Needs a browser sign-in (frbit auth login) that is not limited to apps: an API token cannot add keys. You get an email about the new key.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := keyFile(args)
@@ -104,7 +111,7 @@ func newCmdAdd(factory *app.Factory) *cobra.Command {
 						return resource.WriteRaw(cmd, raw)
 					}
 					id, _ := key["publicId"].(string)
-					_, err := fmt.Fprintf(cmd.OutOrStdout(), "The key in %s is already on your account (%s).\n", path, iostreams.StripControl(id))
+					_, err := fmt.Fprintf(cmd.OutOrStdout(), "The key in %s is already on your account (%s).\n", iostreams.StripControl(path), iostreams.StripControl(id))
 					return err
 				}
 			}
@@ -117,7 +124,7 @@ func newCmdAdd(factory *app.Factory) *cobra.Command {
 			}
 			id, _ := response.Resource["publicId"].(string)
 			fingerprint, _ := response.Resource["fingerprint"].(string)
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Added SSH key %s from %s (fingerprint %s).\n", iostreams.StripControl(id), path, iostreams.StripControl(fingerprint))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Added SSH key %s from %s (fingerprint %s).\n", iostreams.StripControl(id), iostreams.StripControl(path), iostreams.StripControl(fingerprint))
 			return err
 		},
 	}
@@ -125,10 +132,10 @@ func newCmdAdd(factory *app.Factory) *cobra.Command {
 	return command
 }
 
-// keyFile is the file given, or the first default key file that exists.
+// keyFile is the file given, or the first default key file that is a regular file.
 func keyFile(args []string) (string, error) {
 	if len(args) == 1 {
-		return args[0], nil
+		return expandHome(args[0])
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -136,28 +143,55 @@ func keyFile(args []string) (string, error) {
 	}
 	for _, name := range defaultKeyFiles {
 		path := filepath.Join(home, name)
-		if _, err := os.Stat(path); err == nil {
+		info, err := os.Stat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode().IsRegular() {
 			return path, nil
 		}
 	}
 	return "", fmt.Errorf("no public key in ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub; create one with `ssh-keygen -t ed25519`, or pass the public key file")
 }
 
+// expandHome expands a leading ~ that the shell left alone, as in a quoted argument.
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("find the home directory: %w; pass the full path of the public key file", err)
+	}
+	return filepath.Join(home, path[1:]), nil
+}
+
 // readPublicKey returns the one key line of a public key file and refuses anything else, above all a private key.
 func readPublicKey(path string) (string, error) {
-	info, err := os.Stat(path)
+	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("%s does not exist", path)
 		}
 		return "", err
 	}
-	if info.IsDir() || info.Size() > maxKeyFileSize {
-		return "", fmt.Errorf("%s is not a public key file", path)
-	}
-	content, err := os.ReadFile(path)
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a public key file", path)
+	}
+	content, err := io.ReadAll(io.LimitReader(file, maxKeyFileSize+1))
+	if err != nil {
+		return "", err
+	}
+	if len(content) > maxKeyFileSize {
+		return "", fmt.Errorf("%s is not a public key file", path)
 	}
 	if bytes.Contains(content, []byte("PRIVATE KEY")) {
 		hint := ""
@@ -166,6 +200,7 @@ func readPublicKey(path string) (string, error) {
 		}
 		return "", fmt.Errorf("%s is a private key and is never sent%s", path, hint)
 	}
+	content = bytes.TrimPrefix(content, []byte("\xEF\xBB\xBF"))
 	var lines []string
 	for _, line := range strings.Split(string(content), "\n") {
 		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
@@ -175,11 +210,39 @@ func readPublicKey(path string) (string, error) {
 	if len(lines) != 1 {
 		return "", fmt.Errorf("%s must hold exactly one public key line, such as \"ssh-ed25519 AAAA... you@laptop\"", path)
 	}
-	fields := strings.Fields(lines[0])
-	if len(fields) < 2 || !strings.HasPrefix(fields[0], "ssh-") {
-		return "", fmt.Errorf("%s is not a public key: the line must start with ssh-ed25519 or ssh-rsa", path)
+	line := lines[0]
+	if strings.IndexFunc(line, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("%s is not a public key: the line holds control characters", path)
 	}
-	return lines[0], nil
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return "", fmt.Errorf("%s is not a public key: expected \"ssh-ed25519 AAAA... you@laptop\"", path)
+	}
+	if !acceptedKeyTypes[fields[0]] {
+		for _, field := range fields[1:] {
+			if acceptedKeyTypes[field] {
+				return "", fmt.Errorf("%s starts with options: remove everything before %s", path, field)
+			}
+		}
+		return "", fmt.Errorf("%s holds a %s key: fortrabbit accepts ed25519 and rsa keys only; create one with `ssh-keygen -t ed25519`", path, iostreams.StripControl(fields[0]))
+	}
+	if blobType(fields[1]) != fields[0] {
+		return "", fmt.Errorf("%s is not a public key: the key data does not match its type %s", path, fields[0])
+	}
+	return line, nil
+}
+
+// blobType is the key type encoded at the start of a base64 public key blob, or "" when the blob is not one.
+func blobType(blob string) string {
+	data, err := base64.StdEncoding.DecodeString(blob)
+	if err != nil || len(data) < 4 {
+		return ""
+	}
+	size := binary.BigEndian.Uint32(data[:4])
+	if size == 0 || uint64(size) > uint64(len(data)-4) {
+		return ""
+	}
+	return string(data[4 : 4+size])
 }
 
 func newCmdDelete(factory *app.Factory) *cobra.Command {
@@ -205,7 +268,8 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			comment, _ := response.Resource["comment"].(string)
 			fingerprint, _ := response.Resource["fingerprint"].(string)
 			stderr := cmd.ErrOrStderr()
-			_, _ = fmt.Fprintf(stderr, "SSH key: %s %s (%s)\n\n", iostreams.StripControl(comment), iostreams.StripControl(fingerprint), id)
+			label := strings.TrimSpace(iostreams.StripControl(comment) + " " + iostreams.StripControl(fingerprint))
+			_, _ = fmt.Fprintf(stderr, "SSH key: %s (%s)\n\n", label, iostreams.StripControl(id))
 			confirmed, err := cmdutil.ConfirmDestructiveContext(cmd.Context(), factory, stderr, "deletion", id, confirmation, "The key no longer reaches any of your environments. This cannot be undone.")
 			if err != nil {
 				return err
@@ -216,7 +280,7 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 			if err := client.DeleteResource(cmd.Context(), path); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted SSH key %s.\n", id)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted SSH key %s.\n", iostreams.StripControl(id))
 			return err
 		},
 	}

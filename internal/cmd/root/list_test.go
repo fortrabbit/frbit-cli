@@ -92,7 +92,7 @@ func TestListLimitMustBePositive(t *testing.T) {
 
 func TestEveryListHasLimitAndAll(t *testing.T) {
 	command := NewCmdRoot(testFactory(&bytes.Buffer{}))
-	for _, group := range []string{"apps", "environments", "deployments", "domains", "people", "teams", "payment-methods"} {
+	for _, group := range []string{"apps", "environments", "deployments", "domains", "people", "teams", "payment-methods", "ssh-keys"} {
 		list, _, err := command.Find([]string{group, "list"})
 		if err != nil {
 			t.Fatal(err)

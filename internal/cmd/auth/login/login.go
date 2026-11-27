@@ -187,7 +187,7 @@ func runBrowser(options *Options) error {
 	if err := cmdutil.WriteNext(out, you.You.Next); err != nil {
 		return err
 	}
-	return cmdutil.WriteOpenStep(out, you.You, sshexec.SSHKeyStep, sshexec.SSHKeyInstruction)
+	return cmdutil.WriteOpenStep(out, you.You, sshexec.SSHKeyStep, sshexec.SSHKeyInstruction, sshexec.AddCommand)
 }
 
 // storeCredential takes the refresh lock so a concurrent refresh cannot overwrite the new sign-in.

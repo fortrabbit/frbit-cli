@@ -1,8 +1,10 @@
 package root
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,4 +186,137 @@ func TestSSHKeysDeleteNeedsConfirm(t *testing.T) {
 	if strings.Join(calls, ",") != "GET /v1/ssh-keys/sk-abc123,DELETE /v1/ssh-keys/sk-abc123" || !strings.Contains(output, "Deleted SSH key sk-abc123.") {
 		t.Fatalf("calls = %v\n%s", calls, output)
 	}
+}
+
+func TestSSHKeysAddRefusesKeysTheAPIDoesNotAccept(t *testing.T) {
+	home := sshHome(t, map[string]string{
+		"ecdsa.pub":    "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTY= me@laptop\n",
+		"options.pub":  `from="10.0.0.1" ` + testEd25519Key + "\n",
+		"mismatch.pub": "ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIIHILxiqSWDJ26SSjVOTA8LukzKKP618w1Okm/1v8/2p me@laptop\n",
+		"control.pub":  testEd25519Key + "\x1b[2J\n",
+	})
+	for name, want := range map[string]string{
+		"ecdsa.pub":    "accepts ed25519 and rsa keys only",
+		"options.pub":  "remove everything before ssh-ed25519",
+		"mismatch.pub": "does not match its type",
+		"control.pub":  "control characters",
+	} {
+		_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("%s: unexpected request", name) }, "ssh-keys", "add", filepath.Join(home, ".ssh", name))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestSSHKeysAddRefusesADevice(t *testing.T) {
+	sshHome(t, nil)
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") }, "ssh-keys", "add", os.DevNull)
+	if err == nil || !strings.Contains(err.Error(), "is not a public key file") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSSHKeysAddStripsABOMAndCRLF(t *testing.T) {
+	home := sshHome(t, map[string]string{"win.pub": "\xEF\xBB\xBF" + testEd25519Key + "\r\n"})
+	var posted map[string]any
+	if _, err := runDomains(t, keyServer(t, `[]`, &posted), "ssh-keys", "add", filepath.Join(home, ".ssh", "win.pub")); err != nil {
+		t.Fatal(err)
+	}
+	if posted["sshKey"] != testEd25519Key {
+		t.Fatalf("posted = %#v", posted)
+	}
+}
+
+func TestSSHKeysAddExpandsAQuotedTilde(t *testing.T) {
+	sshHome(t, map[string]string{"work.pub": testEd25519Key})
+	var posted map[string]any
+	if _, err := runDomains(t, keyServer(t, `[]`, &posted), "ssh-keys", "add", "~/.ssh/work.pub"); err != nil {
+		t.Fatal(err)
+	}
+	if posted["sshKey"] != testEd25519Key {
+		t.Fatalf("posted = %#v", posted)
+	}
+}
+
+func TestSSHKeysAddSkipsADefaultPathThatIsNoFile(t *testing.T) {
+	home := sshHome(t, map[string]string{"id_rsa.pub": testRSAKey})
+	if err := os.Mkdir(filepath.Join(home, ".ssh", "id_ed25519.pub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var posted map[string]any
+	if _, err := runDomains(t, keyServer(t, `[]`, &posted), "ssh-keys", "add"); err != nil {
+		t.Fatal(err)
+	}
+	if posted["sshKey"] != testRSAKey {
+		t.Fatalf("posted = %#v", posted)
+	}
+}
+
+func TestSSHKeysAddWithoutHomeAsksForTheFile(t *testing.T) {
+	t.Setenv("HOME", "")
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") }, "ssh-keys", "add")
+	if err == nil || !strings.Contains(err.Error(), "pass the public key file") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSSHKeysAddPrintsTheCreatedKeyAsJSON(t *testing.T) {
+	sshHome(t, map[string]string{"id_ed25519.pub": testEd25519Key})
+	var posted map[string]any
+	output, err := runDomains(t, keyServer(t, `[]`, &posted), "ssh-keys", "add", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var printed map[string]any
+	if err := json.Unmarshal([]byte(output), &printed); err != nil || printed["publicId"] != "sk-abc123" {
+		t.Fatalf("err = %v\n%s", err, output)
+	}
+}
+
+func TestSSHKeysAddShowsAConflictWithADeployKey(t *testing.T) {
+	sshHome(t, map[string]string{"id_ed25519.pub": testEd25519Key})
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"title":"Unprocessable Content","status":422,"detail":"sshKey: Environment en-abc123 already has this SSH key as a deploy key.","errors":{"sshKey":"Environment en-abc123 already has this SSH key as a deploy key."}}`))
+	}, "ssh-keys", "add")
+	if err == nil || !strings.Contains(err.Error(), "already has this SSH key as a deploy key") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSSHKeysDeleteOfAKeyWithoutCommentNamesTheFingerprint(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := runDomainsWithStderr(t, &stderr, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"publicId":"sk-abc123","comment":"","fingerprint":"9c:2f"}`))
+	}, "ssh-keys", "delete", "sk-abc123", "--confirm", "sk-abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "SSH key: 9c:2f (sk-abc123)") {
+		t.Fatalf("stderr:\n%s", stderr.String())
+	}
+}
+
+func runDomainsWithStderr(t *testing.T, stderr *bytes.Buffer, handler http.HandlerFunc, args ...string) (string, error) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	t.Setenv("FRBIT_TOKEN", "test-token")
+	output := &bytes.Buffer{}
+	factory := testFactory(output)
+	factory.IOStreams.ErrOut = stderr
+	command := NewCmdRoot(factory)
+	command.SetErr(stderr)
+	command.SetArgs(append([]string{"--host", server.URL}, args...))
+	err := command.Execute()
+	return output.String(), err
 }

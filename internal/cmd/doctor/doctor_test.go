@@ -178,7 +178,7 @@ func TestAnOpenSSHKeyStepIsTheFixOfTheSSHCheck(t *testing.T) {
 	probes := healthy()
 	probes.SignIn = withoutSSHKey()
 	probes.Environment = func(context.Context) (Environment, error) { return Environment{}, link.ErrNoEnvironment }
-	if check := byName(Run(context.Background(), "1.15.0", probes), "SSH"); check.Status != StatusSkip || check.Fix != "Add an SSH key: https://dash.example/ssh; then frbit link <env-id>" {
+	if check := byName(Run(context.Background(), "1.15.0", probes), "SSH"); check.Status != StatusSkip || check.Fix != "Add an SSH key: run `frbit ssh-keys add` or open https://dash.example/ssh; then frbit link <env-id>" {
 		t.Fatalf("no environment: %+v", check)
 	}
 

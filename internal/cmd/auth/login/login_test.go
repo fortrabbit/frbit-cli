@@ -281,7 +281,7 @@ func TestLoginShowsAnOpenSSHKeyStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login error = %v", err)
 	}
-	if !strings.Contains(output, "Next: Connect GitHub\n  https://dash.example/git\nOptional: Add an SSH key\n  https://dash.example/ssh\n") {
+	if !strings.Contains(output, "Next: Connect GitHub\n  https://dash.example/git\nOptional: Add an SSH key\n  frbit ssh-keys add\n  https://dash.example/ssh\n") {
 		t.Fatalf("output = %q", output)
 	}
 

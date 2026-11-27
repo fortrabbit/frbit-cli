@@ -184,7 +184,7 @@ func keyStep(you api.You) string {
 	if link == "" {
 		link = sshexec.KeyURL
 	}
-	return instruction + ": " + link
+	return fmt.Sprintf("%s: run `%s` or open %s", instruction, sshexec.AddCommand, link)
 }
 
 func toolChecks(ctx context.Context, p *Probes) []Check {

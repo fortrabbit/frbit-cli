@@ -23,8 +23,8 @@ func WriteNext(writer io.Writer, next *api.Step) error {
 	return nil
 }
 
-// WriteOpenStep prints the optional step named name while it is open and not already the next step; fallback stands in for a missing instruction.
-func WriteOpenStep(writer io.Writer, you api.You, name string, fallback string) error {
+// WriteOpenStep prints the optional step named name while it is open and not already the next step; fallback stands in for a missing instruction, command is the frbit command that completes it.
+func WriteOpenStep(writer io.Writer, you api.You, name, fallback, command string) error {
 	step := you.OptionalStep(name)
 	if step == nil || step.Done || (you.Next != nil && you.Next.Step == name) {
 		return nil
@@ -35,6 +35,11 @@ func WriteOpenStep(writer io.Writer, you api.You, name string, fallback string) 
 	}
 	if _, err := fmt.Fprintf(writer, "Optional: %s\n", instruction); err != nil {
 		return err
+	}
+	if command != "" {
+		if _, err := fmt.Fprintf(writer, "  %s\n", command); err != nil {
+			return err
+		}
 	}
 	if link := step.Link(); link != "" {
 		_, err := fmt.Fprintf(writer, "  %s\n", link)
