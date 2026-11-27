@@ -551,7 +551,7 @@ These are the personal SSH keys of your account. A personal key gives SSH and SF
 
 `add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. fortrabbit accepts ed25519 and rsa keys. A private key file is refused and never sent. A key that is already on your account counts as done. An account holds up to 25 personal SSH keys. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
 
-`delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and a sign-in or API token with the delete permission that is not limited to apps.
+`delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and a browser sign-in with `Allow deletes` that is not limited to apps; a personal API token gets 403.
 
 ## Files
 
@@ -897,7 +897,7 @@ Behaviour that changed since v1.14.0 and can break a script:
 | `frbit environments update <environment>` | Update an environment and its deployment configuration, `--software-version`, `--php-version`. |
 | `frbit environments php-settings get [environment]` / `update <environment>` | Read or change php.ini settings (`--set KEY=VALUE`) and extensions (`--extension NAME=on\|off`). |
 | `frbit environments basic-auth get [environment]` / `update <environment>` | Read or change basic auth; the password only via `--password-stdin`. |
-| `frbit environments firewall-rules list [environment]` / `create <environment>` / `delete <id>` | Manage opened ports; `create` takes `--description` and `--port N[-M]`, `delete` needs `--confirm <id>` without a terminal. |
+| `frbit environments firewall-rules list [environment]` / `create <environment>` / `delete <id>` | Manage opened ports; `create` takes `--description` and `--port N[-M]`, `delete` needs a browser sign-in too, and `--confirm <id>` without a terminal. |
 | `frbit environments components get [environment]` / `update <environment>` | Read or change component sizes (`--component SLUG=SIZE`); update shows prices and needs `--yes` without a terminal. |
 | `frbit environments delete <id>` | Permanently delete an environment. |
 | `frbit environments variables get [environment]` | Get custom and platform-injected environment variables. |

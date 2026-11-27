@@ -259,7 +259,9 @@ func newCmdDelete(factory *app.Factory) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "delete <ssh-key>",
 		Short: "Delete an SSH key from your account",
-		Args:  cobra.ExactArgs(1),
+		Long: "Delete an SSH key from your account. The key no longer reaches any of your environments.\n\n" +
+			"Needs a browser sign-in (frbit auth login) approved with Allow deletes that is not limited to apps: an API token cannot delete keys.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			if err := cmdutil.CheckDestructive(factory, "deletion", id, confirmation); err != nil {
