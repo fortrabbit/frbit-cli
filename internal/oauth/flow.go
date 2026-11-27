@@ -43,8 +43,6 @@ type Options struct {
 	HTTPClient   *http.Client
 	// OnURL replaces the default sign-in prompt on Out, for machine-readable output. It gets the URL and the confirmation code.
 	OnURL func(authorizeURL string, confirmationCode string) error
-	// Signup sends prompt=create, so a person without an account lands on the sign-up page.
-	Signup bool
 	// NameHint suggests the name for a new account, sent as name_hint.
 	NameHint string
 }
@@ -422,9 +420,6 @@ func (m serverMetadata) authorizeURL(redirectURI string, challenge string, confi
 	query.Set("code_challenge_method", "S256")
 	query.Set("state", state)
 	query.Set("confirmation_challenge", confirmation)
-	if options.Signup {
-		query.Set("prompt", "create")
-	}
 	if options.NameHint != "" {
 		query.Set("name_hint", options.NameHint)
 	}
