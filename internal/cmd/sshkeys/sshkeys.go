@@ -171,11 +171,17 @@ func expandHome(path string) (string, error) {
 
 // readPublicKey returns the one key line of a public key file and refuses anything else, above all a private key.
 func readPublicKey(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
+	// Opening a FIFO blocks until a writer appears, so the type is checked before the open.
+	if info, err := os.Stat(path); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("%s does not exist", path)
 		}
+		return "", err
+	} else if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a public key file", path)
+	}
+	file, err := os.Open(path)
+	if err != nil {
 		return "", err
 	}
 	defer file.Close()
@@ -207,11 +213,14 @@ func readPublicKey(path string) (string, error) {
 			lines = append(lines, line)
 		}
 	}
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "---- BEGIN SSH2 PUBLIC KEY") {
+		return "", fmt.Errorf("%s is in the SSH2 format: convert it with `ssh-keygen -i -f %s`, then pass the result", path, path)
+	}
 	if len(lines) != 1 {
 		return "", fmt.Errorf("%s must hold exactly one public key line, such as \"ssh-ed25519 AAAA... you@laptop\"", path)
 	}
 	line := lines[0]
-	if strings.IndexFunc(line, unicode.IsControl) >= 0 {
+	if strings.IndexFunc(line, func(r rune) bool { return r != '\t' && unicode.IsControl(r) }) >= 0 {
 		return "", fmt.Errorf("%s is not a public key: the line holds control characters", path)
 	}
 	fields := strings.Fields(line)

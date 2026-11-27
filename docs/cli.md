@@ -549,9 +549,9 @@ frbit ssh-keys delete sk-a1b2c3 --confirm sk-a1b2c3
 
 These are the personal SSH keys of your account. A personal key gives SSH and SFTP access to every environment you can access, for `ssh`, `db` and `files`. Deploy keys of an environment are managed in the dashboard.
 
-`add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. fortrabbit accepts ed25519 and rsa keys. A private key file is refused and never sent. A key that is already on your account counts as done. An account holds up to 25 SSH keys. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
+`add [file]` sends the public key line of the file; without a file it takes `~/.ssh/id_ed25519.pub`, then `~/.ssh/id_rsa.pub`. fortrabbit accepts ed25519 and rsa keys. A private key file is refused and never sent. A key that is already on your account counts as done. An account holds up to 25 personal SSH keys. Only a browser sign-in (`frbit auth login`) that is not limited to apps can add keys; a personal API token gets 403. fortrabbit emails you about every new key.
 
-`delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and the delete permission of the sign-in.
+`delete <id>` removes the key from every environment; it needs the key ID typed on a terminal or `--confirm <id>` without one, and a sign-in or API token with the delete permission that is not limited to apps.
 
 ## Files
 

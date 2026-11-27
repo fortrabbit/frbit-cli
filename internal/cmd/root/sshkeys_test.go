@@ -320,3 +320,23 @@ func runDomainsWithStderr(t *testing.T, stderr *bytes.Buffer, handler http.Handl
 	err := command.Execute()
 	return output.String(), err
 }
+
+func TestSSHKeysAddNamesTheConversionOfAnSSH2File(t *testing.T) {
+	home := sshHome(t, map[string]string{"putty.pub": "---- BEGIN SSH2 PUBLIC KEY ----\nComment: \"lusine\"\nAAAAC3NzaC1lZDI1NTE5AAAAIIHILxiqSWDJ26SSjVOTA8LukzKKP618w1Okm/1v8/2p\n---- END SSH2 PUBLIC KEY ----\n"})
+	_, err := runDomains(t, func(w http.ResponseWriter, r *http.Request) { t.Fatalf("unexpected request") }, "ssh-keys", "add", filepath.Join(home, ".ssh", "putty.pub"))
+	if err == nil || !strings.Contains(err.Error(), "ssh-keygen -i -f") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSSHKeysAddAcceptsATabBetweenFields(t *testing.T) {
+	line := strings.Replace(testEd25519Key, " ", "\t", 1)
+	home := sshHome(t, map[string]string{"tab.pub": line + "\n"})
+	var posted map[string]any
+	if _, err := runDomains(t, keyServer(t, `[]`, &posted), "ssh-keys", "add", filepath.Join(home, ".ssh", "tab.pub")); err != nil {
+		t.Fatal(err)
+	}
+	if posted["sshKey"] != line {
+		t.Fatalf("posted = %#v", posted)
+	}
+}
