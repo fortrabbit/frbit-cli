@@ -380,6 +380,7 @@ frbit environments firewall-rules create en-a1b2c3 --description "Metrics export
 frbit environments firewall-rules delete fr-a1b2c3 --confirm fr-a1b2c3
 
 frbit environments components get en-a1b2c3
+frbit environments components update en-a1b2c3 --component php=md --dry-run
 frbit environments components update en-a1b2c3 --component php=md --component database=off --yes
 ```
 
@@ -387,7 +388,7 @@ frbit environments components update en-a1b2c3 --component php=md --component da
 - The basic auth password is read as one line from stdin and is never a flag or part of any output. Pipe it in; a password typed on a terminal is echoed. Omit `--password-stdin` to keep the current password.
 - `--port N` opens one port, `--port N-M` a range of at most 1000 ports, within 1-65535.
 - `firewall-rules delete` needs the exact rule ID: typed on a terminal, or `--confirm <id>` without one.
-- `components update` looks up each size in the catalog first (an unknown size is an error before any request; a changed component whose old or new price is unknown fails with `price for <component> <size> unknown; check frbit plans list or change it in the dashboard`, before the question and also with `--yes`, so nothing is booked at an unseen price), prints `slug: old (price) -> new (price)` per changed component and the signed `Monthly change` to stderr (priced in the region of the environment's app; `--region` overrides, and the command fails before any change if the region can't be resolved), skips components already at the requested size (nothing changes: `No component plan changes.`), and asks `Change component plans? [y/N]`, also for a downsize. Without a terminal it fails with `billed change needs --yes`. The change is applied asynchronously (202).
+- `components update` sends the change as a dry run first: the API checks it like the real change (an unknown size or a refused change is an error before anything changes) and returns the monthly price after the change and the payment method, printed to stderr. A billed change asks `Change and bill the new price? [y/N]`, also for a downsize; a trial app or a free environment does not ask. Without a terminal it fails with `billed change needs --yes`. `--dry-run` prints the price and changes nothing (with `--json`, the API response). The change is applied asynchronously (202).
 
 ### Metrics
 

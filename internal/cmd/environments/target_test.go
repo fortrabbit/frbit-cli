@@ -61,7 +61,7 @@ var targetCases = []targetCase{
 	{args: []string{"php-settings", "get"}},
 	{args: []string{"basic-auth", "get"}},
 	{args: []string{"firewall-rules", "list"}},
-	{args: []string{"components", "get"}, handler: componentsHandler},
+	{args: []string{"components", "get"}, handler: componentsAPI(billedPricing)},
 	{args: []string{"update"}, flags: []string{"--name", "x"}, write: true},
 	{args: []string{"variables", "update"}, flags: []string{"--set", "A=1"}, write: true},
 	{args: []string{"restart"}, write: true},
@@ -69,7 +69,7 @@ var targetCases = []targetCase{
 	{args: []string{"php-settings", "update"}, flags: []string{"--set", "memory_limit=256M"}, write: true},
 	{args: []string{"basic-auth", "update"}, flags: []string{"--enabled=false"}, write: true},
 	{args: []string{"firewall-rules", "create"}, flags: []string{"--description", "x", "--port", "8080"}, write: true},
-	{args: []string{"components", "update"}, flags: []string{"--component", "php=md", "--yes"}, write: true, handler: componentsHandler},
+	{args: []string{"components", "update"}, flags: []string{"--component", "php=md", "--yes"}, write: true, handler: componentsAPI(billedPricing)},
 }
 
 func hitsEnvironment(seen []request) bool {
