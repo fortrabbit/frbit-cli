@@ -556,17 +556,14 @@ func TestHumanDuration(t *testing.T) {
 	}
 }
 
-func TestLoginAuthorizeURLCarriesSignupAndNameHint(t *testing.T) {
+func TestLoginAuthorizeURLCarriesNameHint(t *testing.T) {
 	cases := []struct {
 		name    string
 		options Options
-		prompt  string
 		hint    string
 	}{
-		{"plain", Options{}, "", ""},
-		{"signup", Options{Signup: true}, "create", ""},
-		{"name", Options{NameHint: "Ada Lovelace"}, "", "Ada Lovelace"},
-		{"both", Options{Signup: true, NameHint: "Ada & Co"}, "create", "Ada & Co"},
+		{"plain", Options{}, ""},
+		{"name", Options{NameHint: "Ada & Co"}, "Ada & Co"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -584,7 +581,7 @@ func TestLoginAuthorizeURLCarriesSignupAndNameHint(t *testing.T) {
 				t.Fatal(err)
 			}
 			query := authorize.Query()
-			if query.Get("prompt") != tc.prompt || query.Get("name_hint") != tc.hint || query.Has("prompt") != (tc.prompt != "") || query.Has("name_hint") != (tc.hint != "") {
+			if query.Has("prompt") || query.Get("name_hint") != tc.hint || query.Has("name_hint") != (tc.hint != "") {
 				t.Fatalf("query = %v", query)
 			}
 		})

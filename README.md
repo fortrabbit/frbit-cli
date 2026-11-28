@@ -32,8 +32,7 @@ for machine-readable output: `{"url": …, "confirmation_code": …, "status": "
 The credential refreshes itself; `frbit auth status` shows its expiry and the next
 setup step.
 
-`--signup` opens the sign-up page, for people without an account.
-`--name "<name>"` suggests the name for the new account (1 to 100 characters).
+`--name "<name>"` suggests the name for a new account (1 to 100 characters).
 
 In CI or without a browser, store a personal API token from standard input:
 

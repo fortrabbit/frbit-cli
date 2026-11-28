@@ -461,7 +461,7 @@ func TestLoginJSONLinesAreNotEscaped(t *testing.T) {
 	}
 }
 
-func TestLoginSignupAndNameReachTheAuthorizeURL(t *testing.T) {
+func TestLoginNameReachesTheAuthorizeURL(t *testing.T) {
 	cases := []struct {
 		extra     []string
 		noBrowser bool
@@ -469,7 +469,7 @@ func TestLoginSignupAndNameReachTheAuthorizeURL(t *testing.T) {
 	for _, tc := range cases {
 		fake := newFakeAPI(t)
 		factory, _, _ := loginFactory(t, fake)
-		args := append([]string{"--signup", "--name", "Ada Lovelace & Co"}, tc.extra...)
+		args := append([]string{"--name", "Ada Lovelace & Co"}, tc.extra...)
 		var err error
 		if tc.noBrowser {
 			writer := &urlWriter{onURL: fake.approve(t)}
@@ -491,13 +491,13 @@ func TestLoginSignupAndNameReachTheAuthorizeURL(t *testing.T) {
 		fake.mu.Lock()
 		query := fake.authorize
 		fake.mu.Unlock()
-		if query.Get("prompt") != "create" || query.Get("name_hint") != "Ada Lovelace & Co" {
+		if query.Has("prompt") || query.Get("name_hint") != "Ada Lovelace & Co" {
 			t.Fatalf("login %v authorize query = %v", args, query)
 		}
 	}
 }
 
-func TestLoginWithoutSignupSendsNeitherParameter(t *testing.T) {
+func TestLoginWithoutNameSendsNeitherParameter(t *testing.T) {
 	fake := newFakeAPI(t)
 	factory, _, _ := loginFactory(t, fake)
 	if _, err := executeLogin(t, factory, fake.URL); err != nil {
@@ -515,7 +515,7 @@ func TestLoginRejectsInvalidNameBeforeOpeningTheBrowser(t *testing.T) {
 		fake := newFakeAPI(t)
 		factory, _, _ := loginFactory(t, fake)
 		factory.OpenBrowser = func(string) error { t.Error("browser opened for an invalid name"); return nil }
-		output, err := executeLogin(t, factory, fake.URL, "--signup", "--name", name, "--json")
+		output, err := executeLogin(t, factory, fake.URL, "--name", name, "--json")
 		if err == nil || !strings.Contains(err.Error(), "--name") {
 			t.Fatalf("name %q: error = %v", name, err)
 		}

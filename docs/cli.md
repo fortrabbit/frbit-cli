@@ -67,12 +67,11 @@ The command prints the sign-in URL and a code first, opens the URL in your defau
 |--|--|
 | `--no-browser` | Print the URL without opening a browser |
 | `--json` | Print `{"url": …, "confirmation_code": …, "status": "waiting"}` at once, then `{"status": "signed_in", "next": …}` |
-| `--signup` | Open the sign-up page instead of the login page, for people without an account |
-| `--name "<name>"` | Suggest a name for the new account, 1 to 100 characters |
+| `--name "<name>"` | Suggest a name for a new account, 1 to 100 characters |
 
 If the person denies the consent request, the browser tab shows "Not connected. Your agent knows; you can close this tab." and the command fails. With `--json` the last line is `{"status": "error", "code": "access_denied", "error": …}`. The consent request is used up, so ask the person before running `frbit auth login` again. Other stable codes: `timeout` and `frbit_token_set`.
 
-Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`. For a person without an account they add `--signup`.
+Coding agents run `frbit auth login --json` in the background, show the URL to the person, and continue with `next`.
 
 Verify the active credential at any time. It shows the profile, host, credential kind, expiry, and the next setup step. With `--json` it prints one line with `"status": "signed_in"` and the same fields, `{"status": "signed_out"}` (exit 0) without a credential, or `{"status": "error", "error": …}` (exit 1):
 
@@ -879,12 +878,13 @@ Behaviour that changed since v1.14.0 and can break a script:
 | A path argument with `.` or `..` segments was sent as is | The CLI refuses it before any request |
 | `environments list` printed `ID NAME SOFTWARE UPDATED` | It prints `ID APP NAME UPDATED`; `--json` is unchanged |
 | A command with nothing linked failed with `no environment for this checkout; …` only | Without a terminal, the environments of the account follow on the next lines; on a terminal it asks |
+| `auth login --signup` opened the sign-up page | The flag is gone and fails as unknown: the sign-in page also creates accounts |
 
 ## Command reference
 
 | Command | Description |
 | --- | --- |
-| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--signup`, `--name`, and `--token-stdin` for a personal API token. |
+| `frbit auth login` | Sign in through the browser. Accepts `--no-browser`, `--json`, `--name`, and `--token-stdin` for a personal API token. |
 | `frbit auth status` | Validate the credential selected by `--profile` or `FRBIT_TOKEN` and show its kind, expiry, and the next setup step. Accepts `--json`. |
 | `frbit auth logout` | Revoke a browser sign-in and remove the stored credential for the selected profile. |
 | `frbit apps list` | List apps. Accepts `--page`, `--limit`, `--all`, repeatable `--id`, and `--json`. |
