@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -9,22 +10,66 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// billedAction is a billed create (POST) or change (PATCH) that the API prices when the body carries dryRun: true.
+type billedAction struct {
+	send      func(ctx context.Context, path string, payload any) (api.ResourceResponse, error)
+	prompt    string
+	trialLead string
+	unchanged string
+}
+
+func creation(client *api.Client, noun string) billedAction {
+	return billedAction{
+		send:      client.DryRunCreate,
+		prompt:    "Create and start billing? [y/N] ",
+		trialLead: fmt.Sprintf("The %s would be created as a trial at no cost", noun),
+		unchanged: "Dry run: nothing was created.",
+	}
+}
+
+func change(client *api.Client) billedAction {
+	return billedAction{
+		send:      client.UpdateResource,
+		prompt:    "Change and bill the new price? [y/N] ",
+		trialLead: "The change is free during the trial",
+		unchanged: "Dry run: nothing was changed.",
+	}
+}
+
 // ConfirmBilled runs a dry-run POST of payload to path, prints the monthly price and asks before a billed create.
 // Prices and the question go to stderr so --json output stays clean.
 func ConfirmBilled(cmd *cobra.Command, f *app.Factory, client *api.Client, path string, payload any, yes bool) (bool, error) {
-	quote, err := priceQuote(cmd, client, path, payload)
+	return confirmBilled(cmd, f, creation(client, ""), path, payload, yes)
+}
+
+// ConfirmBilledChange runs a dry-run PATCH of payload to path, prints the monthly price after the change and asks before a billed change.
+func ConfirmBilledChange(cmd *cobra.Command, f *app.Factory, client *api.Client, path string, payload any, yes bool) (bool, error) {
+	return confirmBilled(cmd, f, change(client), path, payload, yes)
+}
+
+func confirmBilled(cmd *cobra.Command, f *app.Factory, action billedAction, path string, payload any, yes bool) (bool, error) {
+	quote, err := priceQuote(cmd, action, path, payload)
 	if err != nil {
 		return false, err
 	}
 	if quote.cents == 0 || quote.trial {
 		return true, nil
 	}
-	return AskBilled(cmd, f, quote.summary(), "Create and start billing? [y/N] ", yes)
+	return AskBilled(cmd, f, quote.summary(), action.prompt, yes)
 }
 
 // DryRunBilled sends only the dry-run POST and prints the price, or the API response with asJSON; noun names what would be created.
 func DryRunBilled(cmd *cobra.Command, client *api.Client, path string, payload any, noun string, asJSON bool) error {
-	quote, err := priceQuote(cmd, client, path, payload)
+	return dryRunBilled(cmd, creation(client, noun), path, payload, asJSON)
+}
+
+// DryRunBilledChange sends only the dry-run PATCH and prints the price after the change, or the API response with asJSON.
+func DryRunBilledChange(cmd *cobra.Command, client *api.Client, path string, payload any, asJSON bool) error {
+	return dryRunBilled(cmd, change(client), path, payload, asJSON)
+}
+
+func dryRunBilled(cmd *cobra.Command, action billedAction, path string, payload any, asJSON bool) error {
+	quote, err := priceQuote(cmd, action, path, payload)
 	if err != nil {
 		return err
 	}
@@ -35,7 +80,7 @@ func DryRunBilled(cmd *cobra.Command, client *api.Client, path string, payload a
 	}
 	text := quote.summary()
 	if quote.trial {
-		text = fmt.Sprintf("The %s would be created as a trial at no cost", noun)
+		text = action.trialLead
 		if until, ok := quote.trialEndsAt.(string); ok && until != "" {
 			text += " until " + until
 		}
@@ -44,7 +89,7 @@ func DryRunBilled(cmd *cobra.Command, client *api.Client, path string, payload a
 		}
 		text += "."
 	}
-	_, err = fmt.Fprintf(out, "%s\nDry run: nothing was created.\n", text)
+	_, err = fmt.Fprintf(out, "%s\n%s\n", text, action.unchanged)
 	return err
 }
 
@@ -62,12 +107,12 @@ func (q quote) summary() string {
 }
 
 // priceQuote sends payload with dryRun: true and without an Idempotency-Key, and reads the price.
-func priceQuote(cmd *cobra.Command, client *api.Client, path string, payload any) (quote, error) {
+func priceQuote(cmd *cobra.Command, action billedAction, path string, payload any) (quote, error) {
 	body, err := dryRunBody(payload)
 	if err != nil {
 		return quote{}, err
 	}
-	response, err := client.DryRunCreate(cmd.Context(), path, body)
+	response, err := action.send(cmd.Context(), path, body)
 	if err != nil {
 		return quote{}, err
 	}
@@ -77,7 +122,7 @@ func priceQuote(cmd *cobra.Command, client *api.Client, path string, payload any
 		cents, isNumber = pricing["monthlyPriceInCents"].(float64)
 	}
 	if !ok || !isNumber {
-		return quote{}, fmt.Errorf("dry run returned no price; refusing to create")
+		return quote{}, fmt.Errorf("dry run returned no price; refusing to continue")
 	}
 	currency, _ := pricing["currency"].(string)
 	billed, billedKnown := pricing["billed"].(bool)
@@ -86,7 +131,7 @@ func priceQuote(cmd *cobra.Command, client *api.Client, path string, payload any
 		currency:      currency,
 		trial:         billedKnown && !billed && pricing["trialEndsAt"] != nil,
 		trialEndsAt:   pricing["trialEndsAt"],
-		paymentMethod: paymentMethodLabel(body),
+		paymentMethod: paymentMethodLabel(response.Resource, body),
 		raw:           response.Raw,
 	}, nil
 }
@@ -119,8 +164,14 @@ func dryRunBody(payload any) (map[string]any, error) {
 	return body, nil
 }
 
-// The dry run names no payment method, so show the one chosen in the request or the default.
-func paymentMethodLabel(body map[string]any) string {
+// paymentMethodLabel prefers the payment method the dry run names, then the one chosen in the request, else the default.
+func paymentMethodLabel(response api.Resource, body map[string]any) string {
+	if named, present := response["paymentMethod"]; present {
+		if id, _ := named.(string); id != "" {
+			return id
+		}
+		return "none"
+	}
 	if id, _ := body["paymentMethodId"].(string); id != "" {
 		return id
 	}

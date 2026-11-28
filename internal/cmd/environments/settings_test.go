@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fortrabbit/frbit-cli/internal/api"
 	"github.com/fortrabbit/frbit-cli/internal/app"
 	"github.com/fortrabbit/frbit-cli/internal/iostreams"
 	"github.com/spf13/cobra"
@@ -199,86 +198,103 @@ func TestFirewallRuleDeleteNeedsConfirm(t *testing.T) {
 	}
 }
 
-const catalog = `[{"slug":"php","optional":false,"sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"md","priceInCents":2400,"currency":"EUR"}]},{"slug":"database","optional":true,"sizes":[{"size":"off","priceInCents":null,"currency":"EUR"},{"size":"sm","priceInCents":800,"currency":"EUR"}]}]`
+const billedPricing = `{"monthlyPriceInCents":2400,"currency":"EUR","billed":true,"trialEndsAt":null,"components":[{"slug":"php","size":"md","priceInCents":2400}]}`
 
-const current = `{"components":[{"slug":"php","size":"sm","priceInCents":1200,"currency":"EUR"},{"slug":"database","size":"sm","priceInCents":800,"currency":"EUR"}]}`
+const trialPricing = `{"monthlyPriceInCents":2400,"currency":"EUR","billed":false,"trialEndsAt":"2026-12-01T00:00:00+00:00","components":[{"slug":"php","size":"md","priceInCents":2400}]}`
 
-func componentsHandler(r request, w http.ResponseWriter) {
-	if r.method == "GET" && r.path == "/v1/environments/en-a1b2c3/components" {
-		echo(w, 200, current)
-		return
+// componentsAPI answers a read with the booked plans, a dry run with pricing and a change with the new state, as the API does.
+func componentsAPI(pricing string) func(r request, w http.ResponseWriter) {
+	return func(r request, w http.ResponseWriter) {
+		if r.method == "GET" {
+			echo(w, 200, `{"components":[{"slug":"php","size":"sm","priceInCents":1200,"currency":"EUR"}]}`)
+			return
+		}
+		if r.body["dryRun"] == true {
+			echo(w, 200, `{"pricing":`+pricing+`,"paymentMethod":"pm-a1b2c3"}`)
+			return
+		}
+		echo(w, 202, `{"components":[{"slug":"php","size":"md","priceInCents":2400,"currency":"EUR"}],"pricing":`+pricing+`}`)
 	}
-	if r.path == "/v1/apps" {
-		echo(w, 200, `[{"publicId":"ap-1","region":"eu-w1a","environments":["en-zzz","en-a1b2c3"]}]`)
-		return
+}
+
+// applied reports a component change other than a dry run.
+func applied(seen []request) bool {
+	for _, r := range seen {
+		if r.method == "PATCH" && r.body["dryRun"] != true {
+			return true
+		}
 	}
-	if r.path == "/v1/catalog/component-plans" {
-		echo(w, 200, catalog)
-		return
-	}
-	echo(w, 202, `{"components":[{"slug":"php","size":"md","priceInCents":2400,"currency":"EUR"}],"pricing":{"monthlyPriceInCents":2400,"currency":"EUR"}}`)
+	return false
 }
 
 func TestComponentsUpdateWithoutTTYRequiresYes(t *testing.T) {
-	_, seen, err := run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=md")
-	if err == nil || !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("err = %v", err)
-	}
-	for _, r := range seen {
-		if r.method == "PATCH" {
-			t.Fatal("PATCH sent without consent")
-		}
+	_, seen, err := run(t, "", componentsAPI(billedPricing), "components", "update", "en-a1b2c3", "--component", "php=md")
+	if err == nil || !strings.Contains(err.Error(), "--yes") || applied(seen) {
+		t.Fatalf("err = %v, seen = %+v", err, seen)
 	}
 
-	_, seen, err = run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=md", "--component", "database=off", "--yes")
-	if err != nil {
-		t.Fatal(err)
+	out, stderr, seen, err := runStreams(t, context.Background(), "", componentsAPI(billedPricing), "components", "update", "en-a1b2c3", "--component", "php=md", "--component", "database=off", "--yes")
+	if err != nil || len(seen) != 2 {
+		t.Fatalf("err = %v, seen = %+v", err, seen)
 	}
-	last := seen[len(seen)-1]
-	if last.method != "PATCH" || last.body["php"] != "md" || last.body["database"] != "off" {
-		t.Fatalf("last = %+v", last)
+	if first := seen[0]; first.body["dryRun"] != true || first.body["php"] != "md" || first.body["database"] != "off" {
+		t.Fatalf("dry run = %+v", first)
 	}
-
-	_, seen, err = run(t, "", func(r request, w http.ResponseWriter) {
-		if r.path == "/v1/catalog/component-plans" {
-			echo(w, 500, `{"title":"boom"}`)
-			return
-		}
-		componentsHandler(r, w)
-	}, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes")
-	if err == nil {
-		t.Fatal("catalog failure must fail")
+	if last := seen[1]; last.body["dryRun"] != nil || last.body["php"] != "md" || last.body["database"] != "off" {
+		t.Fatalf("change = %+v", last)
 	}
-	for _, r := range seen {
-		if r.method == "PATCH" {
-			t.Fatal("PATCH sent after catalog failure")
+	for _, want := range []string{"Monthly price: 24.00 EUR", "Payment method: pm-a1b2c3"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}
 	}
-
-	_, seen, err = run(t, "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=xl", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "no size") {
-		t.Fatalf("err = %v", err)
-	}
-	for _, r := range seen {
-		if r.method == "PATCH" {
-			t.Fatal("PATCH sent for unknown size")
-		}
+	if !strings.Contains(out, "Total: 24.00 EUR per month") {
+		t.Fatalf("out = %q", out)
 	}
 }
 
-func TestComponentChangeSummaryShowsDelta(t *testing.T) {
-	var plans []api.Resource
-	_ = json.Unmarshal([]byte(catalog), &plans)
-	var currentResource api.Resource
-	_ = json.Unmarshal([]byte(current), &currentResource)
-	summary, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "md", "database": "off"})
-	for _, want := range []string{"php: sm (12.00 EUR) -> md (24.00 EUR)", "database: sm (8.00 EUR) -> off (0.00 EUR", "Monthly change: +4.00 EUR"} {
-		if err != nil || !strings.Contains(summary, want) {
-			t.Fatalf("summary = %q, err = %v, want %q", summary, err, want)
+func TestComponentsUpdateOnTerminalAsksAndAbortsOnNo(t *testing.T) {
+	_, stderr, seen, err := runStreamsTTY(t, true, "n\n", componentsAPI(billedPricing), "components", "update", "en-a1b2c3", "--component", "php=md")
+	if err == nil || applied(seen) || !strings.Contains(stderr, "Change and bill the new price? [y/N]") {
+		t.Fatalf("err = %v, stderr = %q, seen = %+v", err, stderr, seen)
+	}
+}
+
+func TestComponentsUpdateInTrialDoesNotAsk(t *testing.T) {
+	_, seen, err := run(t, "", componentsAPI(trialPricing), "components", "update", "en-a1b2c3", "--component", "php=md")
+	if err != nil || !applied(seen) {
+		t.Fatalf("err = %v, seen = %+v", err, seen)
+	}
+}
+
+func TestComponentsUpdateDryRunChangesNothing(t *testing.T) {
+	out, seen, err := run(t, "", componentsAPI(billedPricing), "components", "update", "en-a1b2c3", "--component", "php=md", "--dry-run")
+	if err != nil || applied(seen) || len(seen) != 1 {
+		t.Fatalf("err = %v, seen = %+v", err, seen)
+	}
+	for _, want := range []string{"Monthly price: 24.00 EUR", "Payment method: pm-a1b2c3", "Dry run: nothing was changed."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, want %q", out, want)
 		}
 	}
-	if strings.Contains(summary, "Total") {
-		t.Fatalf("summary = %q", summary)
+
+	out, _, err = run(t, "", componentsAPI(trialPricing), "components", "update", "en-a1b2c3", "--component", "php=md", "--dry-run")
+	if err != nil || !strings.Contains(out, "The change is free during the trial until 2026-12-01T00:00:00+00:00; after the trial: 24.00 EUR/month.") {
+		t.Fatalf("trial: err = %v, out = %q", err, out)
+	}
+
+	out, _, err = run(t, "", componentsAPI(billedPricing), "components", "update", "en-a1b2c3", "--component", "php=md", "--dry-run", "--json")
+	if err != nil || !strings.HasPrefix(out, `{"pricing":`) {
+		t.Fatalf("json: err = %v, out = %q", err, out)
+	}
+}
+
+func TestComponentsUpdateRejectedDryRunChangesNothing(t *testing.T) {
+	_, seen, err := run(t, "", func(r request, w http.ResponseWriter) {
+		echo(w, 422, `{"title":"Validation failed","violations":[{"propertyPath":"php","message":"Unknown size"}]}`)
+	}, "components", "update", "en-a1b2c3", "--component", "php=xl", "--yes")
+	if err == nil || applied(seen) || len(seen) != 1 {
+		t.Fatalf("err = %v, seen = %+v", err, seen)
 	}
 }
 
@@ -315,114 +331,5 @@ func TestEnvironmentUpdateVersions(t *testing.T) {
 		"update", "en-a1b2c3", "--software-version", "11", "--php-version", "8.4")
 	if err != nil || seen[0].body["softwareVersion"] != "11" || seen[0].body["phpVersion"] != "8.4" {
 		t.Fatalf("err = %v, seen = %+v", err, seen)
-	}
-}
-
-// changedAnything reports a request other than a read.
-func changedAnything(seen []request) bool {
-	for _, r := range seen {
-		if r.method != "GET" {
-			return true
-		}
-	}
-	return false
-}
-
-func patched(seen []request) bool {
-	for _, r := range seen {
-		if r.method == "PATCH" {
-			return true
-		}
-	}
-	return false
-}
-
-func TestComponentsUpdateSkipsUnchanged(t *testing.T) {
-	out, stderr, seen, err := runStreams(t, context.Background(), "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm")
-	if err != nil || out != "" || !strings.Contains(stderr, "No component plan changes.") || patched(seen) {
-		t.Fatalf("out = %q, stderr = %q, err = %v, seen = %+v", out, stderr, err, seen)
-	}
-	out, _, seen, err = runStreams(t, context.Background(), "", componentsHandler, "components", "update", "en-a1b2c3", "--component", "php=sm", "--json")
-	if err != nil || !strings.HasPrefix(out, "{") || patched(seen) {
-		t.Fatalf("json: out = %q, err = %v", out, err)
-	}
-}
-
-func TestComponentsUpdateResolvesRegion(t *testing.T) {
-	var catalogQuery string
-	handler := func(r request, w http.ResponseWriter) {
-		if r.path == "/v1/catalog/component-plans" {
-			catalogQuery = r.query
-		}
-		componentsHandler(r, w)
-	}
-	if _, seen, err := run(t, "", handler, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes"); err != nil || !patched(seen) || !strings.Contains(catalogQuery, "region=eu-w1a") || !strings.Contains(catalogQuery, "currency=EUR") {
-		t.Fatalf("err = %v, query = %q", err, catalogQuery)
-	}
-
-	_, seen, err := run(t, "", handler, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes", "--region", "us-e1a")
-	if err != nil || !patched(seen) || !strings.Contains(catalogQuery, "region=us-e1a") {
-		t.Fatalf("override: err = %v, query = %q", err, catalogQuery)
-	}
-	for _, r := range seen {
-		if r.path == "/v1/apps" {
-			t.Fatal("--region must skip the app lookup")
-		}
-	}
-
-	_, seen, err = run(t, "", func(r request, w http.ResponseWriter) {
-		if r.path == "/v1/apps" {
-			echo(w, 200, `[{"publicId":"ap-1","region":"eu-w1a","environments":["en-other"]}]`)
-			return
-		}
-		componentsHandler(r, w)
-	}, "components", "update", "en-a1b2c3", "--component", "php=md", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "pass --region") || patched(seen) {
-		t.Fatalf("no match: err = %v", err)
-	}
-}
-
-func TestComponentChangeSummaryRejectsCurrencyMismatch(t *testing.T) {
-	var plans []api.Resource
-	_ = json.Unmarshal([]byte(strings.ReplaceAll(catalog, "EUR", "USD")), &plans)
-	var currentResource api.Resource
-	_ = json.Unmarshal([]byte(current), &currentResource)
-	if _, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "md"}); err == nil || !strings.Contains(err.Error(), "USD") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestComponentChangeSummaryMissingPriceFails(t *testing.T) {
-	var plans []api.Resource
-	_ = json.Unmarshal([]byte(`[{"slug":"php","sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"xl","priceInCents":null,"currency":"EUR"}]}]`), &plans)
-	var currentResource api.Resource
-	_ = json.Unmarshal([]byte(current), &currentResource)
-	_, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "xl"})
-	if err == nil || err.Error() != "price for php xl unknown; check frbit plans list or change it in the dashboard" {
-		t.Fatalf("err = %v", err)
-	}
-	_ = json.Unmarshal([]byte(`{"components":[{"slug":"php","size":"md","priceInCents":null,"currency":"EUR"}]}`), &currentResource)
-	if _, err := componentChangeSummary(currentResource, plans, map[string]string{"php": "sm"}); err == nil || err.Error() != "price for php md unknown; check frbit plans list or change it in the dashboard" {
-		t.Fatalf("booked: %v", err)
-	}
-}
-
-func TestComponentsUpdateRefusesUnknownPrice(t *testing.T) {
-	handler := func(r request, w http.ResponseWriter) {
-		if r.path == "/v1/catalog/component-plans" {
-			echo(w, 200, `[{"slug":"php","optional":false,"sizes":[{"size":"sm","priceInCents":1200,"currency":"EUR"},{"size":"md","priceInCents":null,"currency":"EUR"}]}]`)
-			return
-		}
-		componentsHandler(r, w)
-	}
-	for name, tty := range map[string]bool{"--yes": false, "terminal": true} {
-		args := []string{"components", "update", "en-a1b2c3", "--component", "php=md"}
-		if !tty {
-			args = append(args, "--yes")
-		}
-		_, stderr, seen, err := runStreamsTTY(t, tty, "y\n", handler, args...)
-		if err == nil || err.Error() != "price for php md unknown; check frbit plans list or change it in the dashboard" || changedAnything(seen) || strings.Contains(stderr, "[y/N]") {
-			t.Fatalf("%s: err %v, stderr %q, seen %+v", name, err, stderr, seen)
-		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -363,12 +362,11 @@ func newCmdComponentsGet(factory *app.Factory) *cobra.Command {
 
 func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 	var componentValues []string
-	var region string
-	var yes, printJSON bool
+	var yes, dryRun, printJSON bool
 	command := &cobra.Command{
 		Use:   "update <environment> --component SLUG=SIZE",
 		Short: "Change component sizes (billed)",
-		Long:  "Change component sizes (billed). Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. Shows old -> new price per changed component and the monthly change, priced in the environment's region, and asks first, also for a downsize. Components already at the requested size are skipped; if nothing changes, nothing is sent.",
+		Long:  "Change component sizes (billed). Slugs: php, database, storage, traffic, key-value-store, backups, jobs. Sizes: 'frbit plans list'; optional components accept off. The API checks the change and prices it first: the monthly price after the change and the payment method are shown, and a billed change asks before it applies, also for a downsize. A trial app or a change to a free environment does not ask.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			components, err := cmdutil.ParseAssignments(componentValues)
@@ -386,45 +384,22 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			current, err := client.GetResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components")
-			if err != nil {
-				return err
+			path := "/v1/environments/" + url.PathEscape(env) + "/components"
+			payload := make(map[string]any, len(components))
+			for slug, size := range components {
+				payload[slug] = size
 			}
-			components, err = changedComponents(current.Resource, components)
-			if err != nil {
-				return err
+			if dryRun {
+				return cmdutil.DryRunBilledChange(cmd, client, path, payload, printJSON)
 			}
-			if len(components) == 0 {
-				if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "No component plan changes."); err != nil || !printJSON {
-					return err
-				}
-				return resource.WriteRaw(cmd, current.Raw)
-			}
-			if region == "" {
-				if region, err = environmentRegion(cmd, client, env); err != nil {
-					return err
-				}
-			}
-			plans, err := client.ListResources(cmd.Context(), "/v1/catalog/component-plans", 0, nil, map[string]string{"currency": currentCurrency(current.Resource), "region": region})
-			if err != nil {
-				return err
-			}
-			summary, err := componentChangeSummary(current.Resource, plans.Resources, components)
-			if err != nil {
-				return err
-			}
-			confirmed, err := cmdutil.AskBilled(cmd, factory, summary, "Change component plans? [y/N] ", yes)
+			confirmed, err := cmdutil.ConfirmBilledChange(cmd, factory, client, path, payload, yes)
 			if err != nil {
 				return err
 			}
 			if !confirmed {
 				return cmdutil.Aborted(cmd.ErrOrStderr())
 			}
-			payload := make(map[string]any, len(components))
-			for slug, size := range components {
-				payload[slug] = size
-			}
-			response, err := client.UpdateResource(cmd.Context(), "/v1/environments/"+url.PathEscape(env)+"/components", payload)
+			response, err := client.UpdateResource(cmd.Context(), path, payload)
 			if err != nil {
 				return err
 			}
@@ -435,131 +410,8 @@ func newCmdComponentsUpdate(factory *app.Factory) *cobra.Command {
 		},
 	}
 	command.Flags().StringArrayVar(&componentValues, "component", nil, "Component as SLUG=SIZE (repeatable)")
-	command.Flags().StringVar(&region, "region", "", "Region identifier to price the plans in (default: the region of the environment's app)")
 	command.Flags().BoolVar(&yes, "yes", false, "Confirm billing without asking")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show the monthly price after the change and change nothing (with --json, the API response)")
 	command.Flags().BoolVar(&printJSON, "json", false, "Print the API response as JSON")
 	return command
-}
-
-// environmentRegion finds the app that lists the environment and returns its region.
-func environmentRegion(cmd *cobra.Command, client *api.Client, environmentID string) (string, error) {
-	apps, err := client.ListAll(cmd.Context(), "/v1/apps", nil, 0)
-	if err != nil {
-		return "", err
-	}
-	for _, appResource := range apps.Resources {
-		environments, _ := appResource["environments"].([]any)
-		for _, raw := range environments {
-			id, _ := raw.(string)
-			if id == environmentID || strings.HasSuffix(id, "/"+environmentID) {
-				if region, _ := appResource["region"].(string); region != "" {
-					return region, nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("could not resolve the environment's region; pass --region")
-}
-
-// changedComponents keeps only the requested components whose size differs from the booked one.
-func changedComponents(current api.Resource, components map[string]string) (map[string]string, error) {
-	booked := map[string]string{}
-	items, _ := current["components"].([]any)
-	for _, raw := range items {
-		item, _ := raw.(map[string]any)
-		slug, _ := item["slug"].(string)
-		size, _ := item["size"].(string)
-		booked[slug] = size
-	}
-	changed := map[string]string{}
-	for slug, size := range components {
-		old, ok := booked[slug]
-		if !ok {
-			return nil, fmt.Errorf("environment has no component %s", slug)
-		}
-		if old != size {
-			changed[slug] = size
-		}
-	}
-	return changed, nil
-}
-
-func currentCurrency(current api.Resource) string {
-	items, _ := current["components"].([]any)
-	for _, raw := range items {
-		item, _ := raw.(map[string]any)
-		if currency, _ := item["currency"].(string); currency != "" {
-			return currency
-		}
-	}
-	return "EUR"
-}
-
-// componentChangeSummary shows old and new price per named component and the signed monthly delta; an unknown slug, size or price is an error.
-func componentChangeSummary(current api.Resource, plans []api.Resource, components map[string]string) (string, error) {
-	type booked struct {
-		size  string
-		cents float64
-		known bool
-	}
-	bookedPlans := map[string]booked{}
-	items, _ := current["components"].([]any)
-	for _, raw := range items {
-		item, _ := raw.(map[string]any)
-		slug, _ := item["slug"].(string)
-		size, _ := item["size"].(string)
-		cents, known := item["priceInCents"].(float64)
-		bookedPlans[slug] = booked{size, cents, known || size == "off"}
-	}
-	slugs := make([]string, 0, len(components))
-	for slug := range components {
-		slugs = append(slugs, slug)
-	}
-	sort.Strings(slugs)
-	currency := currentCurrency(current)
-	var lines []string
-	var delta float64
-	for _, slug := range slugs {
-		size := components[slug]
-		old, isBooked := bookedPlans[slug]
-		if !isBooked {
-			return "", fmt.Errorf("environment has no component %s", slug)
-		}
-		found := false
-		for _, plan := range plans {
-			if plan["slug"] != slug {
-				continue
-			}
-			sizes, _ := plan["sizes"].([]any)
-			for _, raw := range sizes {
-				entry, _ := raw.(map[string]any)
-				if entry["size"] != size {
-					continue
-				}
-				found = true
-				cents, known := entry["priceInCents"].(float64)
-				known = known || size == "off"
-				if entryCurrency, _ := entry["currency"].(string); entryCurrency != "" && entryCurrency != currency {
-					return "", fmt.Errorf("catalog prices %s in %s but the environment is billed in %s", slug, entryCurrency, currency)
-				}
-				// A billed change never goes through on a price nobody has seen, as with billed creates.
-				if !old.known {
-					return "", unknownPrice(slug, old.size)
-				}
-				if !known {
-					return "", unknownPrice(slug, size)
-				}
-				delta += cents - old.cents
-				lines = append(lines, fmt.Sprintf("%s: %s (%.2f %s) -> %s (%.2f %s)", slug, old.size, old.cents/100, currency, size, cents/100, currency))
-			}
-		}
-		if !found {
-			return "", fmt.Errorf("component %s has no size %q in the catalog; see 'frbit plans list'", slug, size)
-		}
-	}
-	return fmt.Sprintf("%s\nMonthly change: %+.2f %s", strings.Join(lines, "\n"), delta/100, currency), nil
-}
-
-func unknownPrice(slug, size string) error {
-	return fmt.Errorf("price for %s %s unknown; check frbit plans list or change it in the dashboard", slug, size)
 }

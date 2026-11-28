@@ -1023,7 +1023,7 @@ func TestAppsCreateRefusesWithoutPrice(t *testing.T) {
 			var calls []dryRunCall
 			server := billingServer(t, pricing, &calls)
 			_, err := runAppsCreate(t, server, false, "", "--yes")
-			if err == nil || !strings.Contains(err.Error(), "dry run returned no price; refusing to create") {
+			if err == nil || !strings.Contains(err.Error(), "dry run returned no price; refusing to continue") {
 				t.Fatalf("err = %v", err)
 			}
 			if len(calls) != 1 || !calls[0].dryRun {
